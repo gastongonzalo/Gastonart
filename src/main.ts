@@ -258,16 +258,107 @@ function envolver(texto: string, m: Metrica, escala: number): string[] {
     let linea = ''
     for (const palabra of para.split(/ +/)) {
       const prueba = linea ? linea + ' ' + palabra : palabra
-      if (medirAncho(prueba, m, escala) > m.maxWidthUser && linea) {
-        out.push(linea)
+      if (medirAncho(prueba, m, escala) <= m.maxWidthUser) {
+        linea = prueba
+        continue
+      }
+      // No entra con la palabra entera: cerrar la línea actual.
+      if (linea) { out.push(linea); linea = '' }
+      if (medirAncho(palabra, m, escala) <= m.maxWidthUser) {
         linea = palabra
       } else {
-        linea = prueba
+        // La palabra sola es más ancha que la caja → cortarla por sílabas (con guion).
+        const piezas = partirPalabra(palabra, m, escala)
+        for (let i = 0; i < piezas.length - 1; i++) out.push(piezas[i])
+        linea = piezas[piezas.length - 1]
       }
     }
     out.push(linea)
   }
   return out
+}
+
+// Corta una palabra larga en piezas que entran en la caja; todas menos la última
+// terminan en guion. Usa división silábica del español.
+function partirPalabra(palabra: string, m: Metrica, escala: number): string[] {
+  const sil = silabas(palabra)
+  if (sil.length <= 1) return [palabra] // no se puede cortar (1 sílaba)
+  const piezas: string[] = []
+  let actual = ''
+  for (let i = 0; i < sil.length; i++) {
+    const ultima = i === sil.length - 1
+    const tentativa = actual + sil[i]
+    const medir = ultima ? tentativa : tentativa + '-'
+    if (actual !== '' && medirAncho(medir, m, escala) > m.maxWidthUser) {
+      piezas.push(actual + '-')
+      actual = sil[i]
+    } else {
+      actual = tentativa
+    }
+  }
+  piezas.push(actual)
+  return piezas
+}
+
+// División silábica del español (aproximada, suficiente para cortar palabras).
+function silabas(palabra: string): string[] {
+  const w = palabra
+  if (w.length <= 3) return [w]
+  const esV = (c: string) => /[aeiouáéíóúüïàèìòù]/i.test(c)
+  const acentDebil = (c: string) => /[íú]/i.test(c)
+  const debil = (c: string) => /[iuü]/i.test(c)
+  const fuerte = (c: string) => esV(c) && !debil(c) && !acentDebil(c)
+
+  // 1) Núcleos vocálicos (uniendo diptongos/triptongos, separando hiatos).
+  const nucleos: Array<[number, number]> = []
+  let i = 0
+  const n = w.length
+  while (i < n) {
+    if (esV(w[i])) {
+      let j = i
+      while (j + 1 < n && esV(w[j + 1])) {
+        const a = w[j], b = w[j + 1]
+        const hiato = acentDebil(a) || acentDebil(b) || (fuerte(a) && fuerte(b))
+        if (hiato) break
+        j++
+      }
+      nucleos.push([i, j])
+      i = j + 1
+    } else i++
+  }
+  if (nucleos.length <= 1) return [w]
+
+  // 2) Punto de corte entre cada par de núcleos según las consonantes intermedias.
+  const cortes: number[] = []
+  for (let k = 0; k + 1 < nucleos.length; k++) {
+    const cons: number[] = []
+    for (let p = nucleos[k][1] + 1; p < nucleos[k + 1][0]; p++) cons.push(p)
+    const m2 = cons.length
+    let cut: number
+    if (m2 === 0) cut = nucleos[k + 1][0]
+    else if (m2 === 1) cut = cons[0]
+    else {
+      const c1 = w[cons[m2 - 2]], c2 = w[cons[m2 - 1]]
+      cut = grupoInseparable(c1, c2) ? cons[m2 - 2] : cons[m2 - 1]
+    }
+    cortes.push(cut)
+  }
+
+  // 3) Armar sílabas.
+  const sil: string[] = []
+  let prev = 0
+  for (const c of cortes) { sil.push(w.slice(prev, c)); prev = c }
+  sil.push(w.slice(prev))
+  return sil.filter((s) => s.length > 0)
+}
+
+// Pares de consonantes que NO se separan (consonante + l/r y dígrafos ch/ll/rr).
+function grupoInseparable(c1: string, c2: string): boolean {
+  const a = c1.toLowerCase(), b = c2.toLowerCase()
+  if ((a === 'c' && b === 'h') || (a === 'l' && b === 'l') || (a === 'r' && b === 'r')) return true
+  if (b === 'r' && 'bcdfgpt'.includes(a)) return true
+  if (b === 'l' && 'bcfgpt'.includes(a)) return true // bl,cl,fl,gl,pl,tl (no dl, rl)
+  return false
 }
 
 function ajustar(texto: string, m: Metrica): { lineas: string[]; escala: number } {
