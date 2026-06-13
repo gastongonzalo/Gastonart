@@ -182,7 +182,11 @@ export interface OpcionesPintado {
   lh: number
   x: string
   y: string | null
-  fontSizePx?: number | null // si se setea, sobreescribe el tamaño (para shrink)
+  fontSizePx?: number | null // si se setea, sobreescribe el tamaño (para shrink/manual)
+  weight?: string
+  italic?: boolean
+  family?: string
+  anchor?: 'start' | 'middle' | 'end' // alineación (text-anchor)
 }
 
 // Edita un campo en un SVG ya montado en el DOM (edición en vivo).
@@ -203,6 +207,10 @@ export function aplicarCampoDom(
 
   if (opts.fontSizePx) anchor.style.fontSize = opts.fontSizePx + 'px'
   else anchor.style.removeProperty('font-size')
+  if (opts.weight) anchor.style.fontWeight = opts.weight
+  anchor.style.fontStyle = opts.italic ? 'italic' : 'normal'
+  if (opts.family) anchor.style.fontFamily = opts.family
+  if (opts.anchor) anchor.style.textAnchor = opts.anchor
 
   const doc = anchor.ownerDocument
   const ls = lineas.length ? lineas : ['']

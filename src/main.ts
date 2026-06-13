@@ -50,11 +50,22 @@ interface Metrica {
   color: string
   maxWidthUser: number
   boxLines: number
+  italic?: boolean // sólo para medición
+}
+
+// Overrides de estilo por campo (aplicados por la barra de controles de texto).
+interface EstiloCampo {
+  fontSize?: number
+  bold?: boolean
+  italic?: boolean
+  align?: 'start' | 'middle' | 'end'
+  family?: string
 }
 
 let plantillaActual = rutasPlantilla[0]
 let facesPack: FontFace[] = []
 let valores: Record<string, string> = {}
+let estilos: Record<string, EstiloCampo> = {}
 let foto: Foto | null = null
 let frameFoto: FrameFoto | null = null
 let encuadre: Encuadre = { zoom: 1, ox: 0, oy: 0 }
@@ -88,14 +99,37 @@ function medirAncho(texto: string, m: Metrica, escala: number): number {
   const fs = m.fontSizeUser * escala
   textoMedidor.style.fontFamily = m.family
   textoMedidor.style.fontWeight = m.weight
+  textoMedidor.style.fontStyle = m.italic ? 'italic' : 'normal'
   textoMedidor.style.fontSize = fs + 'px'
   textoMedidor.textContent = texto
   try {
     const w = textoMedidor.getComputedTextLength()
     if (w > 0) return w
   } catch { /* usar canvas */ }
-  medidorCanvas.font = `${m.weight} ${fs}px ${m.family}`
+  medidorCanvas.font = `${m.italic ? 'italic ' : ''}${m.weight} ${fs}px ${m.family}`
   return medidorCanvas.measureText(texto).width
+}
+
+// Familias de fuente disponibles (de los archivos empaquetados), ordenadas.
+function familiasDisponibles(): string[] {
+  const s = new Set(facesPack.map((f) => f.family))
+  return Array.from(s).sort((a, b) => a.localeCompare(b))
+}
+
+// Estilo efectivo de un campo = base (métrica) + overrides del usuario.
+function estiloEfectivo(nombre: string): {
+  fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; manual: boolean
+} {
+  const m = metricas[nombre]
+  const e = estilos[nombre] ?? {}
+  return {
+    fontSize: e.fontSize ?? m.fontSizeUser,
+    weight: e.bold ? '700' : m.weight,
+    italic: !!e.italic,
+    family: (e.family ?? m.family).replace(/['"]/g, '').split(',')[0].trim(),
+    align: e.align ?? 'start',
+    manual: e.fontSize != null,
+  }
 }
 
 // ---------------------------------------------------------------
@@ -116,6 +150,22 @@ app.innerHTML = `
     <button id="btn-export">Exportar PNG (resvg)</button>
     <span class="estado" id="estado"></span>
   </header>
+
+  <div id="barra-texto" hidden>
+    <span class="bt-label">Texto</span>
+    <button data-bt="size-" title="Achicar">A−</button>
+    <span id="bt-size" class="bt-val">–</span>
+    <button data-bt="size+" title="Agrandar">A+</button>
+    <span class="bt-sep"></span>
+    <button data-bt="al:start" title="Alinear a la izquierda">⯇</button>
+    <button data-bt="al:middle" title="Centrar">≡</button>
+    <button data-bt="al:end" title="Alinear a la derecha">⯈</button>
+    <span class="bt-sep"></span>
+    <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
+    <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
+    <span class="bt-sep"></span>
+    <select id="bt-family" title="Tipografía"></select>
+  </div>
 
   <div id="escenario">
     <div id="lienzo"></div>
@@ -142,6 +192,11 @@ const panelExport = document.querySelector<HTMLDivElement>('#panel-export')!
 const peImg = document.querySelector<HTMLImageElement>('#pe-img')!
 const peDescargar = document.querySelector<HTMLAnchorElement>('#pe-descargar')!
 const inImgNueva = document.querySelector<HTMLInputElement>('#in-img-nueva')!
+const barraTexto = document.querySelector<HTMLDivElement>('#barra-texto')!
+const btSize = document.querySelector<HTMLSpanElement>('#bt-size')!
+const btBold = document.querySelector<HTMLButtonElement>('#bt-bold')!
+const btItalic = document.querySelector<HTMLButtonElement>('#bt-italic')!
+const btFamily = document.querySelector<HTMLSelectElement>('#bt-family')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
 document.querySelector('#btn-add-img')!.addEventListener('click', () => inImgNueva.click())
@@ -394,17 +449,36 @@ function pintarCampo(nombre: string): void {
   if (!svgEl) return
   const m = metricas[nombre]
   if (!m) return
+  const ef = estiloEfectivo(nombre)
+  // Métrica efectiva para medir/envolver (con tamaño/peso/cursiva/familia actuales).
+  const mEf: Metrica = { ...m, fontSizeUser: ef.fontSize, weight: ef.weight, family: ef.family, italic: ef.italic }
+  const lhBase = m.lh * (ef.fontSize / m.fontSizeUser) // interlineado escalado al tamaño actual
+  // Alineación → x del ancla (text-anchor) dentro de la caja.
+  const ax = ef.align === 'middle' ? m.maxWidthUser / 2 : ef.align === 'end' ? m.maxWidthUser : 0
+
   const v = valores[nombre] ?? ''
   if (v === '') {
-    aplicarCampoDom(svgEl, nombre, [''], { lh: m.lh, x: m.x, y: m.y, fontSizePx: null })
+    aplicarCampoDom(svgEl, nombre, [''], {
+      lh: lhBase, x: String(ax), y: m.y,
+      fontSizePx: ef.fontSize, weight: ef.weight, italic: ef.italic, family: ef.family, anchor: ef.align,
+    })
     return
   }
-  const { lineas, escala } = ajustar(v, m)
+
+  // Si el tamaño es manual, no auto-achicar; si no, aplicar shrink (≤5%).
+  const { lineas, escala } = ef.manual
+    ? { lineas: envolver(v, mEf, 1), escala: 1 }
+    : ajustar(v, mEf)
+
   aplicarCampoDom(svgEl, nombre, lineas, {
-    lh: m.lh * escala,
-    x: m.x,
+    lh: lhBase * escala,
+    x: String(ax),
     y: m.y,
-    fontSizePx: escala < 1 ? m.fontSizeUser * escala : null,
+    fontSizePx: ef.fontSize * escala,
+    weight: ef.weight,
+    italic: ef.italic,
+    family: ef.family,
+    anchor: ef.align,
   })
 }
 
@@ -793,23 +867,19 @@ function abrirEditor(nombre: string): void {
   ta.className = 'editor-text'
   ta.value = valorPrevio
   ta.spellcheck = false
-  Object.assign(ta.style, {
-    left: r.left + 'px',
-    top: r.top - 1 + 'px',
-    width: Math.max(m.maxWidthUser * k, 60) + 'px',
-    fontSize: m.fontSizeUser * k + 'px',
-    fontWeight: m.weight,
-    fontFamily: m.family,
-    lineHeight: m.lh * k + 'px',
-    color: m.color,
-    caretColor: m.color,
-  })
+  ta.style.left = r.left + 'px'
+  ta.style.top = r.top - 1 + 'px'
+  ta.style.width = Math.max(m.maxWidthUser * k, 60) + 'px'
+  ta.style.color = m.color
+  ta.style.caretColor = m.color
   lienzo.appendChild(ta)
+  aplicarEstiloTextarea(nombre) // tamaño/peso/cursiva/familia/alineación
   autoCrecer(ta)
   ta.focus()
   ta.setSelectionRange(ta.value.length, ta.value.length)
 
   editorActivo = { nombre, ta, valorPrevio, tocado: false, els }
+  sincronizarBarra(nombre)
   ta.addEventListener('input', () => {
     editorActivo!.tocado = true
     valores[nombre] = ta.value
@@ -822,6 +892,61 @@ function abrirEditor(nombre: string): void {
   })
 }
 
+// Aplica el estilo efectivo del campo al textarea (vista en vivo durante la edición).
+function aplicarEstiloTextarea(nombre: string): void {
+  const ta = document.querySelector<HTMLTextAreaElement>('.editor-text')
+  if (!ta || !svgEl) return
+  const m = metricas[nombre]
+  if (!m) return
+  const ef = estiloEfectivo(nombre)
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  ta.style.fontSize = ef.fontSize * k + 'px'
+  ta.style.fontWeight = ef.weight
+  ta.style.fontStyle = ef.italic ? 'italic' : 'normal'
+  ta.style.fontFamily = ef.family
+  ta.style.lineHeight = m.lh * (ef.fontSize / m.fontSizeUser) * k + 'px'
+  ta.style.textAlign = ef.align === 'middle' ? 'center' : ef.align === 'end' ? 'right' : 'left'
+  autoCrecer(ta)
+}
+
+// Refleja en la barra los valores actuales del campo y la muestra.
+function sincronizarBarra(nombre: string): void {
+  const ef = estiloEfectivo(nombre)
+  btSize.textContent = String(Math.round(ef.fontSize))
+  btBold.classList.toggle('activo', ef.weight === '700')
+  btItalic.classList.toggle('activo', ef.italic)
+  btFamily.value = ef.family
+  for (const b of Array.from(barraTexto.querySelectorAll('[data-bt^="al:"]'))) {
+    b.classList.toggle('activo', b.getAttribute('data-bt') === 'al:' + ef.align)
+  }
+  barraTexto.hidden = false
+}
+
+// Controles de la barra (operan sobre el campo en edición).
+barraTexto.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('[data-bt]')
+  if (!b || !editorActivo) return
+  const nombre = editorActivo.nombre
+  const bt = b.getAttribute('data-bt')!
+  const ef = estiloEfectivo(nombre)
+  const est = (estilos[nombre] ??= {})
+  if (bt === 'size-') est.fontSize = Math.max(8, Math.round(ef.fontSize) - 4)
+  else if (bt === 'size+') est.fontSize = Math.round(ef.fontSize) + 4
+  else if (bt.startsWith('al:')) est.align = bt.slice(3) as EstiloCampo['align']
+  else if (bt === 'bold') est.bold = ef.weight !== '700'
+  else if (bt === 'italic') est.italic = !ef.italic
+  aplicarEstiloTextarea(nombre)
+  sincronizarBarra(nombre)
+  if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
+})
+btFamily.addEventListener('change', () => {
+  if (!editorActivo) return
+  const nombre = editorActivo.nombre
+  ;(estilos[nombre] ??= {}).family = btFamily.value
+  aplicarEstiloTextarea(nombre)
+  if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
+})
+
 function autoCrecer(ta: HTMLTextAreaElement): void {
   ta.style.height = 'auto'
   ta.style.height = ta.scrollHeight + 'px'
@@ -829,6 +954,7 @@ function autoCrecer(ta: HTMLTextAreaElement): void {
 
 function commitEditor(): void {
   if (!editorActivo) return
+  barraTexto.hidden = true
   const { nombre, ta, tocado, els } = editorActivo
   editorActivo = null
   for (const el of els) (el as SVGElement).style.opacity = '' // restaurar SVG
@@ -844,6 +970,7 @@ function commitEditor(): void {
 
 function cancelarEditor(): void {
   if (!editorActivo) return
+  barraTexto.hidden = true
   const { nombre, ta, valorPrevio, tocado, els } = editorActivo
   editorActivo = null
   ta.remove()
@@ -955,6 +1082,7 @@ btnExport.addEventListener('click', async () => {
 selPlantilla.addEventListener('change', () => {
   plantillaActual = selPlantilla.value
   valores = {}
+  estilos = {}
   foto = null
   void montarPlantilla()
 })
@@ -974,4 +1102,7 @@ function escAttr(s: string): string {
 // ---------------------------------------------------------------
 inyectarFontFaces()
 await cargarPack()
+btFamily.innerHTML = familiasDisponibles()
+  .map((f) => `<option value="${escAttr(f)}">${escAttr(f)}</option>`)
+  .join('')
 await montarPlantilla()
