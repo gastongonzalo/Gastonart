@@ -88,6 +88,40 @@ body {
   background: rgba(56, 189, 248, 0.16);
   outline-color: var(--accent);
 }
+/* Elementos AGREGADOS por el usuario: borde permanente y cursor de mover. */
+.hit-agregado {
+  outline: 1.5px dashed rgba(56, 189, 248, 0.55);
+  cursor: move;
+}
+.hit-agregado:hover { outline-color: var(--accent); }
+
+.btn-eliminar {
+  position: absolute;
+  z-index: 5;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 0;
+  background: #e11d48;
+  color: #fff;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.resize-handle {
+  position: absolute;
+  z-index: 5;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--accent);
+  border: 2px solid #06121c;
+  cursor: nwse-resize;
+}
+
 /* La foto queda DEBAJO de los textos y con realce más sutil. */
 .hit-foto {
   z-index: 1;

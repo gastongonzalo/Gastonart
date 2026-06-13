@@ -70,6 +70,7 @@ let editorActivo:
   | null = null
 
 const SVGNS = 'http://www.w3.org/2000/svg'
+const XLINK = 'http://www.w3.org/1999/xlink'
 
 // Medidor de texto basado en SVG (mismo motor que el render → ancho consistente
 // con getComputedTextLength del lienzo y con resvg). Fallback a canvas por las dudas.
@@ -109,6 +110,8 @@ app.innerHTML = `
         ${rutasPlantilla.map((r) => `<option value="${escAttr(r)}">${escAttr(nombreCorto(r))}</option>`).join('')}
       </select>
     </label>
+    <button id="btn-add-texto" class="mini">+ Texto</button>
+    <button id="btn-add-img" class="mini">+ Imagen</button>
     <span class="sep"></span>
     <button id="btn-export">Exportar PNG (resvg)</button>
     <span class="estado" id="estado"></span>
@@ -118,6 +121,7 @@ app.innerHTML = `
     <div id="lienzo"></div>
   </div>
   <input type="file" id="in-foto" accept="image/*" hidden>
+  <input type="file" id="in-img-nueva" accept="image/*" hidden>
 
   <div id="panel-export" hidden>
     <div class="pe-head">
@@ -137,7 +141,22 @@ const inFoto = document.querySelector<HTMLInputElement>('#in-foto')!
 const panelExport = document.querySelector<HTMLDivElement>('#panel-export')!
 const peImg = document.querySelector<HTMLImageElement>('#pe-img')!
 const peDescargar = document.querySelector<HTMLAnchorElement>('#pe-descargar')!
+const inImgNueva = document.querySelector<HTMLInputElement>('#in-img-nueva')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
+document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
+document.querySelector('#btn-add-img')!.addEventListener('click', () => inImgNueva.click())
+inImgNueva.addEventListener('change', async () => {
+  const file = inImgNueva.files?.[0]
+  if (!file) return
+  try {
+    insertarImagen(await leerFoto(file))
+  } catch (err) {
+    estado.textContent = '❌ ' + (err instanceof Error ? err.message : String(err))
+  }
+  inImgNueva.value = ''
+})
+
+let contadorAgregados = 0 // para nombres únicos de elementos agregados
 
 // ---------------------------------------------------------------
 //  Fuentes (Poppins) a nivel documento
@@ -447,9 +466,148 @@ function rectFotoVisible(_img: Element, base: DOMRect): Rect | null {
   }
 }
 
+// Agrega un cuadro de texto nuevo (editable, movible, eliminable).
+function agregarTexto(): void {
+  if (!svgEl) return
+  contadorAgregados++
+  const nombre = `nuevo_${contadorAgregados}`
+  const vb = svgEl.viewBox.baseVal
+  const vw = vb.width || 1080
+  const x0 = 90
+  const y0 = 180 + (contadorAgregados % 6) * 40
+  const fs = 48
+
+  const t = document.createElementNS(SVGNS, 'text')
+  t.setAttribute('data-campo', nombre)
+  t.setAttribute('data-anchor', '1')
+  t.setAttribute('data-agregado', 'texto')
+  t.setAttribute('transform', `translate(${x0} ${y0})`)
+  t.style.fontFamily = "'Poppins'"
+  t.style.fontWeight = '600'
+  t.style.fontSize = fs + 'px'
+  t.style.fill = '#141930'
+  const ts = document.createElementNS(SVGNS, 'tspan')
+  ts.setAttribute('x', '0')
+  ts.setAttribute('y', '0')
+  ts.textContent = 'Texto nuevo'
+  t.appendChild(ts)
+  svgEl.appendChild(t)
+
+  camposActuales.push({ nombre, etiqueta: 'Texto nuevo' })
+  metaActual[nombre] = { lh: Math.round(fs * 1.3), x: '0', y: '0' }
+  metricas[nombre] = {
+    lh: Math.round(fs * 1.3),
+    x: '0',
+    y: '0',
+    fontSizeUser: fs,
+    weight: '600',
+    family: "'Poppins'",
+    color: 'rgb(20,25,48)',
+    maxWidthUser: Math.max(120, vw - x0 - 40),
+    boxLines: 50,
+  }
+  valores[nombre] = 'Texto nuevo'
+
+  construirOverlays()
+  abrirEditor(nombre)
+}
+
+// Elimina un campo agregado (o cualquier campo) del SVG y del estado.
+function eliminarCampo(nombre: string): void {
+  if (!svgEl) return
+  if (editorActivo && editorActivo.nombre === nombre) cancelarEditor()
+  svgEl.querySelectorAll(`[data-campo="${nombre}"]`).forEach((n) => n.remove())
+  camposActuales = camposActuales.filter((c) => c.nombre !== nombre)
+  delete metricas[nombre]
+  delete metaActual[nombre]
+  delete valores[nombre]
+  delete rectsIniciales[nombre]
+  construirOverlays()
+}
+
+// Inserta una imagen nueva (movible, redimensionable, eliminable).
+function insertarImagen(f: Foto): void {
+  if (!svgEl) return
+  contadorAgregados++
+  const vw = svgEl.viewBox.baseVal.width || 1080
+  const W = Math.min(450, vw * 0.5)
+  const H = (W * f.h) / f.w
+  const x = (vw - W) / 2
+  const y = 200
+
+  const img = document.createElementNS(SVGNS, 'image')
+  img.setAttribute('data-agregado', 'imagen')
+  img.setAttribute('width', String(W))
+  img.setAttribute('height', String(H))
+  img.setAttribute('transform', `translate(${x} ${y})`)
+  img.setAttribute('href', f.dataUrl)
+  img.setAttributeNS(XLINK, 'xlink:href', f.dataUrl)
+  svgEl.appendChild(img)
+  construirOverlays()
+}
+
+// Arrastre genérico de un elemento (mueve su transform translate).
+function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
+  hit.addEventListener('pointerdown', (e) => {
+    if (!svgEl) return
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const t = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+    let tx = t ? +t[1] : 0, ty = t ? +t[2] : 0
+    let sx = e.clientX, sy = e.clientY
+    let movido = false
+    const onMove = (ev: PointerEvent) => {
+      const dx = (ev.clientX - sx) / k, dy = (ev.clientY - sy) / k
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) movido = true
+      tx += dx; ty += dy
+      sx = ev.clientX; sy = ev.clientY
+      el.setAttribute('transform', `translate(${tx} ${ty})`)
+      hit.style.left = parseFloat(hit.style.left) + dx * k + 'px'
+      hit.style.top = parseFloat(hit.style.top) + dy * k + 'px'
+    }
+    const onUp = () => {
+      hit.removeEventListener('pointermove', onMove)
+      if (movido) hit.addEventListener('click', (ev) => ev.stopImmediatePropagation(), { capture: true, once: true })
+      construirOverlays()
+    }
+    try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
+    hit.addEventListener('pointermove', onMove)
+    hit.addEventListener('pointerup', onUp, { once: true })
+    hit.addEventListener('pointercancel', onUp, { once: true })
+  })
+}
+
+// Tirador para redimensionar una imagen (esquina inferior derecha, conserva proporción).
+function crearTiradorResize(r: Rect, img: SVGElement): HTMLDivElement {
+  const h = document.createElement('div')
+  h.className = 'resize-handle'
+  Object.assign(h.style, { left: r.left + r.width - 7 + 'px', top: r.top + r.height - 7 + 'px' })
+  h.addEventListener('pointerdown', (e) => {
+    if (!svgEl) return
+    e.preventDefault(); e.stopPropagation()
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const W0 = parseFloat(img.getAttribute('width') ?? '0')
+    const H0 = parseFloat(img.getAttribute('height') ?? '0')
+    const ar = H0 / W0
+    let sx = e.clientX
+    const onMove = (ev: PointerEvent) => {
+      const w = Math.max(40, W0 + (ev.clientX - sx) / k)
+      img.setAttribute('width', String(w))
+      img.setAttribute('height', String(w * ar))
+      h.style.left = parseFloat(h.style.left) + 0 + 'px' // (se reposiciona al soltar)
+    }
+    const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
+    try { h.setPointerCapture(e.pointerId) } catch { /* sin captura: igual redimensiona */ }
+    h.addEventListener('pointermove', onMove)
+    h.addEventListener('pointerup', onUp, { once: true })
+    h.addEventListener('pointercancel', onUp, { once: true })
+    void sx
+  })
+  return h
+}
+
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
@@ -470,13 +628,81 @@ function construirOverlays(): void {
   }
 
   for (const c of camposActuales) {
+    const el = svgEl.querySelector(`[data-campo="${c.nombre}"][data-anchor]`)
+    const agregado = el?.getAttribute('data-agregado') === 'texto'
     let r = rectUnion(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (!r || r.height < 10) r = rectsIniciales[c.nombre] ?? r
     if (!r) continue
     const hit = crearHit(r, c.nombre, () => abrirEditor(c.nombre))
-    hit.title = `Editar: ${c.nombre}`
+    hit.title = agregado ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
     lienzo.appendChild(hit)
+    if (agregado) {
+      hit.classList.add('hit-agregado')
+      habilitarArrastreTexto(hit, c.nombre)
+      lienzo.appendChild(crearBotonEliminar(r, () => eliminarCampo(c.nombre)))
+    }
   }
+
+  // Imágenes agregadas (movibles, redimensionables, eliminables).
+  for (const im of Array.from(svgEl.querySelectorAll<SVGElement>('image[data-agregado="imagen"]'))) {
+    const r = rectUnion([im], base)
+    if (!r) continue
+    const hit = crearHit(r, 'imagen', () => {})
+    hit.classList.add('hit-agregado')
+    hit.title = 'Arrastrá para mover'
+    habilitarArrastreEl(hit, im)
+    lienzo.appendChild(hit)
+    lienzo.appendChild(crearBotonEliminar(r, () => { im.remove(); construirOverlays() }))
+    lienzo.appendChild(crearTiradorResize(r, im))
+  }
+}
+
+// Botón ✕ para eliminar un elemento agregado (esquina sup. derecha de su caja).
+function crearBotonEliminar(r: Rect, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.className = 'btn-eliminar'
+  b.textContent = '✕'
+  b.title = 'Eliminar'
+  Object.assign(b.style, { left: r.left + r.width - 8 + 'px', top: r.top - 12 + 'px' })
+  b.addEventListener('click', (e) => { e.stopPropagation(); onClick() })
+  return b
+}
+
+// Arrastre de un cuadro de texto agregado: mueve su transform translate.
+// Click sin movimiento = editar (lo maneja el listener de click del hit).
+function habilitarArrastreTexto(hit: HTMLDivElement, nombre: string): void {
+  hit.addEventListener('pointerdown', (e) => {
+    if (!svgEl) return
+    const el = svgEl.querySelector(`[data-campo="${nombre}"][data-anchor]`) as SVGElement | null
+    if (!el) return
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const t = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+    let tx = t ? +t[1] : 0, ty = t ? +t[2] : 0
+    let sx = e.clientX, sy = e.clientY
+    let movido = false
+    const onMove = (ev: PointerEvent) => {
+      const dx = (ev.clientX - sx) / k, dy = (ev.clientY - sy) / k
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) movido = true
+      tx += dx; ty += dy
+      sx = ev.clientX; sy = ev.clientY
+      el.setAttribute('transform', `translate(${tx} ${ty})`)
+      // mover el hit en vivo
+      hit.style.left = parseFloat(hit.style.left) + dx * k + 'px'
+      hit.style.top = parseFloat(hit.style.top) + dy * k + 'px'
+    }
+    const onUp = () => {
+      hit.removeEventListener('pointermove', onMove)
+      if (movido) {
+        // evitar que el click dispare la edición tras arrastrar
+        hit.addEventListener('click', (ev) => ev.stopImmediatePropagation(), { capture: true, once: true })
+      }
+      construirOverlays()
+    }
+    try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
+    hit.addEventListener('pointermove', onMove)
+    hit.addEventListener('pointerup', onUp, { once: true })
+    hit.addEventListener('pointercancel', onUp, { once: true })
+  })
 }
 
 function crearHit(r: Rect, etiqueta: string, onClick: () => void): HTMLDivElement {
@@ -496,7 +722,7 @@ function habilitarPanZoom(hit: HTMLDivElement): void {
   hit.addEventListener('pointerdown', (e) => {
     if (!foto || !frameFoto || !svgEl) return
     e.preventDefault()
-    hit.setPointerCapture(e.pointerId)
+    try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
     hit.style.cursor = 'grabbing'
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
     let sx = e.clientX, sy = e.clientY
