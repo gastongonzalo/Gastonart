@@ -69,7 +69,33 @@ let editorActivo:
   | { nombre: string; ta: HTMLTextAreaElement; valorPrevio: string; tocado: boolean; els: Element[] }
   | null = null
 
-const medidor = document.createElement('canvas').getContext('2d')!
+const SVGNS = 'http://www.w3.org/2000/svg'
+
+// Medidor de texto basado en SVG (mismo motor que el render → ancho consistente
+// con getComputedTextLength del lienzo y con resvg). Fallback a canvas por las dudas.
+const medidorCanvas = document.createElement('canvas').getContext('2d')!
+const svgMedidor = document.createElementNS(SVGNS, 'svg')
+svgMedidor.setAttribute('width', '10')
+svgMedidor.setAttribute('height', '10')
+svgMedidor.style.cssText = 'position:absolute;left:-99999px;top:-99999px;visibility:hidden;'
+const textoMedidor = document.createElementNS(SVGNS, 'text')
+svgMedidor.appendChild(textoMedidor)
+document.body.appendChild(svgMedidor)
+
+// Ancho (en unidades del SVG) de un texto con la métrica de un campo.
+function medirAncho(texto: string, m: Metrica, escala: number): number {
+  const fs = m.fontSizeUser * escala
+  textoMedidor.style.fontFamily = m.family
+  textoMedidor.style.fontWeight = m.weight
+  textoMedidor.style.fontSize = fs + 'px'
+  textoMedidor.textContent = texto
+  try {
+    const w = textoMedidor.getComputedTextLength()
+    if (w > 0) return w
+  } catch { /* usar canvas */ }
+  medidorCanvas.font = `${m.weight} ${fs}px ${m.family}`
+  return medidorCanvas.measureText(texto).width
+}
 
 // ---------------------------------------------------------------
 //  UI base
@@ -226,15 +252,13 @@ function calcularMetricas(): void {
 //  Wrap + auto-shrink (≤5%)
 // ---------------------------------------------------------------
 function envolver(texto: string, m: Metrica, escala: number): string[] {
-  const fs = m.fontSizeUser * escala
-  medidor.font = `${m.weight} ${fs}px ${m.family}`
   const out: string[] = []
   for (const para of texto.split('\n')) {
     if (para === '') { out.push(''); continue }
     let linea = ''
     for (const palabra of para.split(/ +/)) {
       const prueba = linea ? linea + ' ' + palabra : palabra
-      if (medidor.measureText(prueba).width > m.maxWidthUser && linea) {
+      if (medirAncho(prueba, m, escala) > m.maxWidthUser && linea) {
         out.push(linea)
         linea = palabra
       } else {
