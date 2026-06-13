@@ -885,7 +885,13 @@ function abrirEditor(nombre: string): void {
     valores[nombre] = ta.value
     autoCrecer(ta)
   })
-  ta.addEventListener('blur', commitEditor)
+  ta.addEventListener('blur', (e) => {
+    // Si el foco va a la barra de controles (ej. el selector de fuente),
+    // NO cerramos el editor: queremos seguir editando ese campo.
+    const rt = e.relatedTarget as HTMLElement | null
+    if (rt && barraTexto.contains(rt)) return
+    commitEditor()
+  })
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); cancelarEditor() }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ta.blur() }
@@ -922,6 +928,12 @@ function sincronizarBarra(nombre: string): void {
   barraTexto.hidden = false
 }
 
+// Evitar que los botones de la barra roben el foco del textarea (si no, el
+// blur cierra el editor y el control no se aplica). El <select> sí debe abrirse.
+barraTexto.addEventListener('mousedown', (e) => {
+  if (!(e.target as HTMLElement).closest('select')) e.preventDefault()
+})
+
 // Controles de la barra (operan sobre el campo en edición).
 barraTexto.addEventListener('click', (e) => {
   const b = (e.target as HTMLElement).closest('[data-bt]')
@@ -945,6 +957,7 @@ btFamily.addEventListener('change', () => {
   ;(estilos[nombre] ??= {}).family = btFamily.value
   aplicarEstiloTextarea(nombre)
   if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
+  editorActivo.ta.focus() // volver a editar tras elegir fuente
 })
 
 function autoCrecer(ta: HTMLTextAreaElement): void {
@@ -1100,9 +1113,11 @@ function escAttr(s: string): string {
 // ---------------------------------------------------------------
 //  Arranque
 // ---------------------------------------------------------------
-inyectarFontFaces()
-await cargarPack()
-btFamily.innerHTML = familiasDisponibles()
-  .map((f) => `<option value="${escAttr(f)}">${escAttr(f)}</option>`)
-  .join('')
-await montarPlantilla()
+void (async () => {
+  inyectarFontFaces()
+  await cargarPack()
+  btFamily.innerHTML = familiasDisponibles()
+    .map((f) => `<option value="${escAttr(f)}">${escAttr(f)}</option>`)
+    .join('')
+  await montarPlantilla()
+})()
