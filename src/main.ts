@@ -566,8 +566,9 @@ function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
     }
     const onUp = () => {
       hit.removeEventListener('pointermove', onMove)
-      if (movido) hit.addEventListener('click', (ev) => ev.stopImmediatePropagation(), { capture: true, once: true })
-      construirOverlays()
+      // Sólo reconstruir si de verdad se movió. Si fue un clic, dejamos que el
+      // 'click' se dispare y abra el editor (reconstruir acá lo cancelaría).
+      if (movido) construirOverlays()
     }
     try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
     hit.addEventListener('pointermove', onMove)
@@ -692,11 +693,8 @@ function habilitarArrastreTexto(hit: HTMLDivElement, nombre: string): void {
     }
     const onUp = () => {
       hit.removeEventListener('pointermove', onMove)
-      if (movido) {
-        // evitar que el click dispare la edición tras arrastrar
-        hit.addEventListener('click', (ev) => ev.stopImmediatePropagation(), { capture: true, once: true })
-      }
-      construirOverlays()
+      // Sólo reconstruir si se movió; si fue clic, dejar que abra el editor.
+      if (movido) construirOverlays()
     }
     try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
     hit.addEventListener('pointermove', onMove)
@@ -882,6 +880,17 @@ inFoto.addEventListener('change', async () => {
 // (el navegador ya la dibuja derecha) y limita el tamaño para performance.
 const MAX_LADO_FOTO = 2000
 
+// Detecta si el canvas tiene algún píxel no totalmente opaco.
+function tieneTransparencia(ctx: CanvasRenderingContext2D, w: number, h: number): boolean {
+  try {
+    const data = ctx.getImageData(0, 0, w, h).data
+    for (let p = 3; p < data.length; p += 4) {
+      if (data[p] < 255) return true
+    }
+  } catch { /* canvas no legible: asumir opaca */ }
+  return false
+}
+
 function leerFoto(file: File): Promise<Foto> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -899,7 +908,11 @@ function leerFoto(file: File): Promise<Foto> {
         if (!ctx) return reject(new Error('No se pudo crear el canvas.'))
         ctx.drawImage(img, 0, 0, w, h)
         try {
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+          // Si la imagen tiene transparencia, guardamos PNG (conserva el alfa);
+          // si es opaca, JPEG (más liviano). Antes siempre JPEG → fondo negro.
+          const dataUrl = tieneTransparencia(ctx, w, h)
+            ? canvas.toDataURL('image/png')
+            : canvas.toDataURL('image/jpeg', 0.92)
           resolve({ dataUrl, w, h })
         } catch (e) {
           reject(new Error('No se pudo recodificar la imagen: ' + (e as Error).message))
