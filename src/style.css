@@ -209,6 +209,51 @@ body {
 .guia-v { width: 1px; }
 .guia-h { height: 1px; }
 
+/* Menú de figuras */
+.add-wrap { position: relative; display: inline-flex; }
+.menu-pop {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.menu-pop button {
+  width: 30px;
+  height: 30px;
+  background: #0b1018;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.menu-pop button:hover { border-color: var(--accent); }
+
+/* Swatch de color de figura/ícono */
+.swatch-figura {
+  position: absolute;
+  z-index: 5;
+  width: 24px;
+  height: 24px;
+}
+.swatch-figura input[type='color'] {
+  width: 24px;
+  height: 24px;
+  padding: 1px;
+  border: 1px solid #06121c;
+  border-radius: 50%;
+  background: #131a26;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
 /* La foto queda DEBAJO de los textos y con realce más sutil. */
 .hit-foto {
   z-index: 1;

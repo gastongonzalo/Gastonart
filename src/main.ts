@@ -150,6 +150,17 @@ app.innerHTML = `
     </label>
     <button id="btn-add-texto" class="mini">+ Texto</button>
     <button id="btn-add-img" class="mini">+ Imagen</button>
+    <span class="add-wrap">
+      <button id="btn-add-figura" class="mini">+ Figura ▾</button>
+      <div id="menu-figura" class="menu-pop" hidden>
+        <button data-fig="rect" title="Rectángulo">▭</button>
+        <button data-fig="redondeado" title="Rectángulo redondeado">▢</button>
+        <button data-fig="circulo" title="Círculo">●</button>
+        <button data-fig="triangulo" title="Triángulo">▲</button>
+        <button data-fig="linea" title="Línea">／</button>
+        <button data-fig="flecha" title="Flecha">➜</button>
+      </div>
+    </span>
     <span class="sep"></span>
     <button id="btn-export">Exportar PNG (resvg)</button>
     <span class="estado" id="estado"></span>
@@ -207,6 +218,15 @@ const btColor = document.querySelector<HTMLInputElement>('#bt-color')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
 document.querySelector('#btn-add-img')!.addEventListener('click', () => inImgNueva.click())
+const menuFigura = document.querySelector<HTMLDivElement>('#menu-figura')!
+document.querySelector('#btn-add-figura')!.addEventListener('click', (e) => {
+  e.stopPropagation()
+  menuFigura.hidden = !menuFigura.hidden
+})
+menuFigura.querySelectorAll<HTMLButtonElement>('button[data-fig]').forEach((b) => {
+  b.addEventListener('click', () => { insertarFigura(b.dataset.fig!); menuFigura.hidden = true })
+})
+document.addEventListener('click', () => { menuFigura.hidden = true })
 inImgNueva.addEventListener('change', async () => {
   const file = inImgNueva.files?.[0]
   if (!file) return
@@ -638,6 +658,47 @@ function insertarImagen(f: Foto): void {
   construirOverlays()
 }
 
+// Inserta una figura (movible, redimensionable por escala, color, eliminable).
+function insertarFigura(tipo: string): void {
+  if (!svgEl) return
+  contadorAgregados++
+  const vw = svgEl.viewBox.baseVal.width || 1080
+  const vh = svgEl.viewBox.baseVal.height || 1350
+  const S = 160
+  const color = '#38bdf8'
+  let el: SVGElement
+  let modo = 'fill'
+  if (tipo === 'rect' || tipo === 'redondeado') {
+    el = document.createElementNS(SVGNS, 'rect')
+    el.setAttribute('width', String(S)); el.setAttribute('height', String(Math.round(S * 0.66)))
+    if (tipo === 'redondeado') el.setAttribute('rx', '18')
+    el.setAttribute('fill', color)
+  } else if (tipo === 'circulo') {
+    el = document.createElementNS(SVGNS, 'circle')
+    el.setAttribute('cx', String(S / 2)); el.setAttribute('cy', String(S / 2)); el.setAttribute('r', String(S / 2))
+    el.setAttribute('fill', color)
+  } else if (tipo === 'triangulo') {
+    el = document.createElementNS(SVGNS, 'polygon')
+    el.setAttribute('points', `${S / 2},0 ${S},${S} 0,${S}`)
+    el.setAttribute('fill', color)
+  } else if (tipo === 'linea') {
+    el = document.createElementNS(SVGNS, 'line')
+    el.setAttribute('x1', '0'); el.setAttribute('y1', '0'); el.setAttribute('x2', String(S)); el.setAttribute('y2', '0')
+    el.setAttribute('stroke', color); el.setAttribute('stroke-width', '8'); el.setAttribute('stroke-linecap', 'round')
+    modo = 'stroke'
+  } else { // flecha
+    el = document.createElementNS(SVGNS, 'path')
+    el.setAttribute('d', `M0 ${S * 0.4} L${S * 0.66} ${S * 0.4} L${S * 0.66} ${S * 0.22} L${S} ${S * 0.5} L${S * 0.66} ${S * 0.78} L${S * 0.66} ${S * 0.6} L0 ${S * 0.6} Z`)
+    el.setAttribute('fill', color)
+  }
+  const x = Math.round((vw - S) / 2), y = Math.round((vh - S) / 2)
+  el.setAttribute('transform', `translate(${x} ${y}) scale(1)`)
+  el.setAttribute('data-agregado', 'figura')
+  el.setAttribute('data-colormode', modo)
+  svgEl.appendChild(el)
+  construirOverlays()
+}
+
 // Arrastre genérico de un elemento (mueve su transform translate).
 function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
   hit.addEventListener('pointerdown', (e) => {
@@ -645,6 +706,8 @@ function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
     const t = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
     const tx0 = t ? +t[1] : 0, ty0 = t ? +t[2] : 0
+    const escala = (el.getAttribute('transform') ?? '').match(/scale\([^)]*\)/)
+    const escalaPart = escala ? ' ' + escala[0] : ''
     const hitX0 = parseFloat(hit.style.left), hitY0 = parseFloat(hit.style.top)
     const boxW = hit.offsetWidth, boxH = hit.offsetHeight
     let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0
@@ -658,7 +721,7 @@ function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
       const base = lienzo.getBoundingClientRect()
       const rawBox: Rect = { left: hitX0 + accX * k, top: hitY0 + accY * k, width: boxW, height: boxH }
       const snap = calcularSnap(rawBox, base)
-      el.setAttribute('transform', `translate(${tx0 + accX + snap.dx / k} ${ty0 + accY + snap.dy / k})`)
+      el.setAttribute('transform', `translate(${tx0 + accX + snap.dx / k} ${ty0 + accY + snap.dy / k})${escalaPart}`)
       hit.style.left = rawBox.left + snap.dx + 'px'
       hit.style.top = rawBox.top + snap.dy + 'px'
       dibujarGuias(snap.guias)
@@ -703,6 +766,53 @@ function crearTiradorResize(r: Rect, img: SVGElement): HTMLDivElement {
     void sx
   })
   return h
+}
+
+// Tirador de escala (esquina) para figuras/íconos: cambia el scale del transform.
+function crearTiradorEscala(r: Rect, el: SVGElement): HTMLDivElement {
+  const h = document.createElement('div')
+  h.className = 'resize-handle'
+  Object.assign(h.style, { left: r.left + r.width - 7 + 'px', top: r.top + r.height - 7 + 'px' })
+  h.addEventListener('pointerdown', (e) => {
+    if (!svgEl) return
+    e.preventDefault(); e.stopPropagation()
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const tr = el.getAttribute('transform') ?? ''
+    const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+    const tx = tm ? +tm[1] : 0, ty = tm ? +tm[2] : 0
+    const sm = tr.match(/scale\(\s*([-\d.]+)/)
+    let s = sm ? +sm[1] : 1
+    let baseW = 100
+    try { baseW = (el as SVGGraphicsElement).getBBox().width || 100 } catch { /* default */ }
+    let sx = e.clientX
+    const onMove = (ev: PointerEvent) => {
+      const dxs = ev.clientX - sx; sx = ev.clientX
+      s = Math.max(0.08, s + dxs / (baseW * k))
+      el.setAttribute('transform', `translate(${tx} ${ty}) scale(${s})`)
+      h.style.left = parseFloat(h.style.left) + dxs + 'px'
+    }
+    const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
+    try { h.setPointerCapture(e.pointerId) } catch { /* igual escala */ }
+    h.addEventListener('pointermove', onMove)
+    h.addEventListener('pointerup', onUp, { once: true })
+    h.addEventListener('pointercancel', onUp, { once: true })
+  })
+  return h
+}
+
+// Selector de color para una figura/ícono (relleno o borde según data-colormode).
+function crearSwatchColor(r: Rect, el: SVGElement): HTMLLabelElement {
+  const wrap = document.createElement('label')
+  wrap.className = 'swatch-figura'
+  Object.assign(wrap.style, { left: r.left - 2 + 'px', top: r.top - 28 + 'px' })
+  const modo = el.getAttribute('data-colormode') || 'fill'
+  const inp = document.createElement('input')
+  inp.type = 'color'
+  inp.value = aHex(el.getAttribute(modo) || '#000000')
+  inp.addEventListener('input', () => el.setAttribute(modo, inp.value))
+  inp.addEventListener('pointerdown', (e) => e.stopPropagation())
+  wrap.appendChild(inp)
+  return wrap
 }
 
 // --- Caja contenedora de un campo de texto (para recortar/limitar) ---
@@ -809,7 +919,7 @@ function limpiarGuias(): void {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
@@ -870,6 +980,20 @@ function construirOverlays(): void {
     lienzo.appendChild(hit)
     lienzo.appendChild(crearBotonEliminar(r, () => { im.remove(); construirOverlays() }))
     lienzo.appendChild(crearTiradorResize(r, im))
+  }
+
+  // Figuras e íconos agregados (mover, escalar, color, eliminar).
+  for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="figura"], [data-agregado="icono"]'))) {
+    const r = rectUnion([el], base)
+    if (!r) continue
+    const hit = crearHit(r, 'figura', () => {})
+    hit.classList.add('hit-agregado')
+    hit.title = 'Arrastrá para mover'
+    habilitarArrastreEl(hit, el)
+    lienzo.appendChild(hit)
+    lienzo.appendChild(crearBotonEliminar(r, () => { el.remove(); construirOverlays() }))
+    lienzo.appendChild(crearTiradorEscala(r, el))
+    lienzo.appendChild(crearSwatchColor(r, el))
   }
 }
 
