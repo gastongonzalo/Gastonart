@@ -171,6 +171,7 @@ app.innerHTML = `
       <button id="btn-add-icono" class="mini">+ Ícono ▾</button>
       <div id="menu-icono" class="menu-pop menu-iconos" hidden></div>
     </span>
+    <button id="btn-pluma" class="mini" title="Pluma (puntos de ancla)">✒ Pluma</button>
     <span class="sep"></span>
     <button id="btn-export">Exportar PNG (resvg)</button>
     <span class="estado" id="estado"></span>
@@ -249,6 +250,11 @@ for (const raw of Object.values(iconosPack)) {
 document.querySelector('#btn-add-icono')!.addEventListener('click', (e) => {
   e.stopPropagation()
   menuIcono.hidden = !menuIcono.hidden
+})
+document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (plumaActiva) desactivarPluma()
+  else activarPluma()
 })
 document.addEventListener('click', () => { menuFigura.hidden = true; menuIcono.hidden = true })
 inImgNueva.addEventListener('change', async () => {
@@ -745,6 +751,140 @@ function insertarIcono(raw: string): void {
   const x = Math.round(vw / 2 - 12 * s), y = Math.round(vh / 2 - 12 * s)
   g.setAttribute('transform', `translate(${x} ${y}) scale(${s})`)
   svgEl.appendChild(g)
+  construirOverlays()
+}
+
+// ============ Pluma (Bézier con puntos de ancla) ============
+interface Ancla { x: number; y: number; hx: number; hy: number }
+let plumaActiva = false
+let plumaAnclas: Ancla[] = []
+let plumaPath: SVGPathElement | null = null
+let plumaCapa: HTMLDivElement | null = null
+const COLOR_PLUMA = '#141930'
+
+function screenToUser(clientX: number, clientY: number): { x: number; y: number } {
+  const o = svgEl!.getBoundingClientRect()
+  const k = svgEl!.clientWidth / (svgEl!.viewBox.baseVal.width || 1080)
+  return { x: (clientX - o.left) / k, y: (clientY - o.top) / k }
+}
+
+// Construye el atributo d de un path Bézier a partir de las anclas.
+function dPluma(anclas: Ancla[], cerrado: boolean): string {
+  if (!anclas.length) return ''
+  let d = `M ${anclas[0].x} ${anclas[0].y}`
+  for (let i = 1; i < anclas.length; i++) {
+    const p = anclas[i - 1], c = anclas[i]
+    if (p.hx || p.hy || c.hx || c.hy) {
+      d += ` C ${p.x + p.hx} ${p.y + p.hy} ${c.x - c.hx} ${c.y - c.hy} ${c.x} ${c.y}`
+    } else d += ` L ${c.x} ${c.y}`
+  }
+  if (cerrado) d += ' Z'
+  return d
+}
+
+function dibujarPluma(): void {
+  if (!svgEl) return
+  if (!plumaPath) {
+    plumaPath = document.createElementNS(SVGNS, 'path')
+    plumaPath.setAttribute('fill', 'none')
+    plumaPath.setAttribute('stroke', COLOR_PLUMA)
+    plumaPath.setAttribute('stroke-width', '4')
+    plumaPath.setAttribute('stroke-linecap', 'round')
+    plumaPath.setAttribute('stroke-linejoin', 'round')
+    svgEl.appendChild(plumaPath)
+  }
+  plumaPath.setAttribute('d', dPluma(plumaAnclas, false))
+  lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
+  const base = lienzo.getBoundingClientRect()
+  const o = svgEl.getBoundingClientRect()
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const aPx = (x: number, y: number) => ({ left: o.left - base.left + x * k, top: o.top - base.top + y * k })
+  plumaAnclas.forEach((a, i) => {
+    const s = aPx(a.x, a.y)
+    const pt = document.createElement('div')
+    pt.className = 'pluma-pt' + (i === 0 ? ' primero' : '')
+    pt.style.left = s.left + 'px'; pt.style.top = s.top + 'px'
+    lienzo.appendChild(pt)
+    if (a.hx || a.hy) for (const sg of [1, -1]) {
+      const h = aPx(a.x + sg * a.hx, a.y + sg * a.hy)
+      const dot = document.createElement('div'); dot.className = 'pluma-manija'
+      dot.style.left = h.left + 'px'; dot.style.top = h.top + 'px'
+      lienzo.appendChild(dot)
+    }
+  })
+}
+
+function activarPluma(): void {
+  if (!svgEl) return
+  cerrarEditor()
+  plumaActiva = true
+  plumaAnclas = []
+  document.querySelector('#btn-pluma')!.classList.add('activo-pluma')
+  plumaCapa = document.createElement('div')
+  plumaCapa.className = 'pluma-capa'
+  plumaCapa.addEventListener('pointerdown', plumaPointerDown)
+  plumaCapa.addEventListener('dblclick', () => finalizarPluma(false))
+  lienzo.appendChild(plumaCapa)
+  document.addEventListener('keydown', plumaKey)
+}
+
+function desactivarPluma(): void {
+  plumaActiva = false
+  document.querySelector('#btn-pluma')?.classList.remove('activo-pluma')
+  plumaCapa?.remove(); plumaCapa = null
+  plumaPath?.remove(); plumaPath = null
+  lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
+  document.removeEventListener('keydown', plumaKey)
+  plumaAnclas = []
+}
+
+function plumaKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape') desactivarPluma()
+  else if (e.key === 'Enter') finalizarPluma(false)
+}
+
+function plumaPointerDown(e: PointerEvent): void {
+  if (!svgEl || !plumaCapa) return
+  e.preventDefault()
+  const pt = screenToUser(e.clientX, e.clientY)
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  if (plumaAnclas.length >= 2) {
+    const a0 = plumaAnclas[0]
+    if (Math.hypot((pt.x - a0.x) * k, (pt.y - a0.y) * k) < 11) { finalizarPluma(true); return }
+  }
+  const ancla: Ancla = { x: pt.x, y: pt.y, hx: 0, hy: 0 }
+  plumaAnclas.push(ancla)
+  dibujarPluma()
+  const onMove = (ev: PointerEvent) => {
+    const p = screenToUser(ev.clientX, ev.clientY)
+    ancla.hx = p.x - ancla.x; ancla.hy = p.y - ancla.y
+    dibujarPluma()
+  }
+  const onUp = () => plumaCapa!.removeEventListener('pointermove', onMove)
+  try { plumaCapa.setPointerCapture(e.pointerId) } catch { /* igual dibuja */ }
+  plumaCapa.addEventListener('pointermove', onMove)
+  plumaCapa.addEventListener('pointerup', onUp, { once: true })
+  plumaCapa.addEventListener('pointercancel', onUp, { once: true })
+}
+
+function finalizarPluma(cerrado: boolean): void {
+  if (!svgEl || plumaAnclas.length < 2) { desactivarPluma(); return }
+  // Normalizar coords al origen (para que el scale del overlay no lo desplace).
+  let minX = Infinity, minY = Infinity
+  for (const a of plumaAnclas) { minX = Math.min(minX, a.x); minY = Math.min(minY, a.y) }
+  const norm = plumaAnclas.map((a) => ({ x: a.x - minX, y: a.y - minY, hx: a.hx, hy: a.hy }))
+  const p = document.createElementNS(SVGNS, 'path')
+  p.setAttribute('d', dPluma(norm, cerrado))
+  p.setAttribute('fill', 'none')
+  p.setAttribute('stroke', COLOR_PLUMA)
+  p.setAttribute('stroke-width', '4')
+  p.setAttribute('stroke-linecap', 'round')
+  p.setAttribute('stroke-linejoin', 'round')
+  p.setAttribute('transform', `translate(${minX} ${minY}) scale(1)`)
+  p.setAttribute('data-agregado', 'figura')
+  p.setAttribute('data-colormode', 'stroke')
+  svgEl.appendChild(p)
+  desactivarPluma()
   construirOverlays()
 }
 
