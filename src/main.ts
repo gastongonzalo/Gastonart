@@ -754,6 +754,100 @@ function insertarIcono(raw: string): void {
   construirOverlays()
 }
 
+// ============ Máscaras de recorte para imágenes agregadas ============
+
+// Devuelve la forma (en coords locales 0..W, 0..H) para una máscara.
+function formaMascara(tipo: string, W: number, H: number): SVGElement {
+  const cx = W / 2, cy = H / 2
+  const r = Math.min(W, H) / 2
+  if (tipo === 'circulo') {
+    const c = document.createElementNS(SVGNS, 'circle')
+    c.setAttribute('cx', String(cx)); c.setAttribute('cy', String(cy)); c.setAttribute('r', String(r))
+    return c
+  }
+  if (tipo === 'elipse') {
+    const e = document.createElementNS(SVGNS, 'ellipse')
+    e.setAttribute('cx', String(cx)); e.setAttribute('cy', String(cy))
+    e.setAttribute('rx', String(W / 2)); e.setAttribute('ry', String(H / 2))
+    return e
+  }
+  if (tipo === 'redondeado') {
+    const rc = document.createElementNS(SVGNS, 'rect')
+    rc.setAttribute('width', String(W)); rc.setAttribute('height', String(H))
+    rc.setAttribute('rx', String(Math.min(W, H) * 0.14))
+    return rc
+  }
+  if (tipo === 'triangulo') {
+    const p = document.createElementNS(SVGNS, 'polygon')
+    p.setAttribute('points', `${cx},0 ${W},${H} 0,${H}`)
+    return p
+  }
+  const pts: string[] = []
+  if (tipo === 'hexagono') {
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI / 180) * (60 * i - 30)
+      pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`)
+    }
+  } else { // estrella
+    const ri = r * 0.45
+    for (let i = 0; i < 10; i++) {
+      const rad = i % 2 === 0 ? r : ri
+      const a = -Math.PI / 2 + (i * Math.PI) / 5
+      pts.push(`${(cx + rad * Math.cos(a)).toFixed(1)},${(cy + rad * Math.sin(a)).toFixed(1)}`)
+    }
+  }
+  const poly = document.createElementNS(SVGNS, 'polygon')
+  poly.setAttribute('points', pts.join(' '))
+  return poly
+}
+
+// Aplica (o quita) una máscara de recorte a una imagen agregada.
+function aplicarMascara(img: SVGElement, tipo: string): void {
+  if (!svgEl) return
+  if (!img.id) { contadorAgregados++; img.id = 'agimg-' + contadorAgregados }
+  const id = 'mask-' + img.id
+  svgEl.querySelector('#' + id)?.remove()
+  if (tipo === 'ninguna') {
+    img.removeAttribute('clip-path')
+  } else {
+    const W = parseFloat(img.getAttribute('width') || '0')
+    const H = parseFloat(img.getAttribute('height') || '0')
+    let defs = svgEl.querySelector('defs')
+    if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
+    const cp = document.createElementNS(SVGNS, 'clipPath')
+    cp.id = id
+    cp.setAttribute('clipPathUnits', 'userSpaceOnUse')
+    cp.appendChild(formaMascara(tipo, W, H))
+    defs.appendChild(cp)
+    img.setAttribute('clip-path', `url(#${id})`)
+  }
+  construirOverlays()
+}
+
+// Botón ✂ (con menú de formas) para recortar una imagen agregada.
+function crearBotonMascara(r: Rect, img: SVGElement): HTMLDivElement {
+  const wrap = document.createElement('div')
+  wrap.className = 'mascara-wrap'
+  wrap.style.left = r.left - 2 + 'px'; wrap.style.top = r.top - 2 + 'px'
+  const btn = document.createElement('button')
+  btn.className = 'btn-mascara'; btn.textContent = '✂'; btn.title = 'Recorte (máscara)'
+  const pop = document.createElement('div')
+  pop.className = 'menu-pop mascara-pop'; pop.hidden = true
+  const formas: [string, string][] = [
+    ['ninguna', '⊘'], ['circulo', '●'], ['elipse', '⬭'], ['redondeado', '▢'],
+    ['triangulo', '▲'], ['hexagono', '⬡'], ['estrella', '★'],
+  ]
+  for (const [tipo, label] of formas) {
+    const b = document.createElement('button')
+    b.textContent = label; b.title = tipo
+    b.addEventListener('click', (e) => { e.stopPropagation(); aplicarMascara(img, tipo) })
+    pop.appendChild(b)
+  }
+  btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden = !pop.hidden })
+  wrap.appendChild(btn); wrap.appendChild(pop)
+  return wrap
+}
+
 // ============ Pluma (Bézier con puntos de ancla) ============
 interface Ancla { x: number; y: number; hx: number; hy: number }
 let plumaActiva = false
@@ -1108,7 +1202,7 @@ function limpiarGuias(): void {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
@@ -1169,6 +1263,7 @@ function construirOverlays(): void {
     lienzo.appendChild(hit)
     lienzo.appendChild(crearBotonEliminar(r, () => { im.remove(); construirOverlays() }))
     lienzo.appendChild(crearTiradorResize(r, im))
+    lienzo.appendChild(crearBotonMascara(r, im))
   }
 
   // Figuras e íconos agregados (mover, escalar, color, eliminar).

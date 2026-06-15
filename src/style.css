@@ -188,6 +188,21 @@ body {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 .btn-candado.abierto { background: var(--accent); border-color: var(--accent); }
+
+/* Botón y menú de máscara de recorte */
+.mascara-wrap { position: absolute; z-index: 6; }
+.btn-mascara {
+  width: 22px; height: 22px; padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #131a26;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.btn-mascara:hover { border-color: var(--accent); }
+.mascara-pop { top: 26px; left: 0; }
 .resize-caja {
   position: absolute;
   z-index: 5;
