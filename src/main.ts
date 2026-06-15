@@ -68,6 +68,7 @@ let facesPack: FontFace[] = []
 let valores: Record<string, string> = {}
 let estilos: Record<string, EstiloCampo> = {}
 let bloqueado: Record<string, boolean> = {} // textos de plantilla nacen bloqueados (no se mueven)
+let cajaAlto: Record<string, number> = {} // alto de la caja (user units). Definido ⇒ caja activa (recorta)
 let foto: Foto | null = null
 let frameFoto: FrameFoto | null = null
 let encuadre: Encuadre = { zoom: 1, ox: 0, oy: 0 }
@@ -290,6 +291,7 @@ function calcularMetricas(): void {
   metricas = {}
   rectsIniciales = {}
   bloqueado = {}
+  cajaAlto = {}
   const base = lienzo.getBoundingClientRect()
 
   for (const c of camposActuales) {
@@ -474,9 +476,15 @@ function pintarCampo(nombre: string): void {
   }
 
   // Si el tamaño es manual, no auto-achicar; si no, aplicar shrink (≤5%).
-  const { lineas, escala } = ef.manual
-    ? { lineas: envolver(v, mEf, 1), escala: 1 }
-    : ajustar(v, mEf)
+  const res = ef.manual ? { lineas: envolver(v, mEf, 1), escala: 1 } : ajustar(v, mEf)
+  let lineas = res.lineas
+  const escala = res.escala
+
+  // Caja con alto definido → recortar las líneas que no entran (no se renderizan).
+  if (cajaAlto[nombre] !== undefined) {
+    const maxLineas = Math.max(1, Math.floor(cajaAlto[nombre] / (lhBase * escala)))
+    if (lineas.length > maxLineas) lineas = lineas.slice(0, maxLineas)
+  }
 
   aplicarCampoDom(svgEl, nombre, lineas, {
     lh: lhBase * escala,
@@ -690,9 +698,49 @@ function crearTiradorResize(r: Rect, img: SVGElement): HTMLDivElement {
   return h
 }
 
+// --- Caja contenedora de un campo de texto (para recortar/limitar) ---
+
+// Bounding box del campo en coords del SVG: x = origen (translate x), y = top de
+// la primera línea, w/h naturales del texto.
+function bboxCampoUser(nombre: string): { x: number; y: number; w: number; h: number } | null {
+  if (!svgEl) return null
+  const els = Array.from(svgEl.querySelectorAll<SVGGraphicsElement>(`[data-campo="${nombre}"]`))
+  if (!els.length) return null
+  let minTx = Infinity, top = Infinity, bottom = -Infinity
+  for (const el of els) {
+    const t = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+    const tx = t ? +t[1] : 0, ty = t ? +t[2] : 0
+    let bb: DOMRect
+    try { bb = el.getBBox() } catch { continue }
+    minTx = Math.min(minTx, tx)
+    top = Math.min(top, ty + bb.y)
+    bottom = Math.max(bottom, ty + bb.y + bb.height)
+  }
+  if (minTx === Infinity) return null
+  return { x: minTx, y: top, w: Math.max(1, bottom - top), h: Math.max(1, bottom - top) }
+}
+
+// Caja efectiva (ancho = maxWidthUser, alto = override o natural).
+function cajaUser(nombre: string): { x: number; y: number; w: number; h: number } | null {
+  const bb = bboxCampoUser(nombre)
+  if (!bb) return null
+  const w = metricas[nombre]?.maxWidthUser ?? bb.w
+  const h = cajaAlto[nombre] ?? bb.h
+  return { x: bb.x, y: bb.y, w, h }
+}
+
+// Caja en píxeles del lienzo (para el outline/handles).
+function cajaScreen(nombre: string, base: DOMRect): Rect | null {
+  const c = cajaUser(nombre)
+  if (!c || !svgEl) return null
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const o = svgEl.getBoundingClientRect()
+  return { left: o.left - base.left + c.x * k, top: o.top - base.top + c.y * k, width: c.w * k, height: c.h * k }
+}
+
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
@@ -719,17 +767,26 @@ function construirOverlays(): void {
     let r = rectUnion(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (!r || r.height < 10) r = rectsIniciales[c.nombre] ?? r
     if (!r) continue
-    const hit = crearHit(r, c.nombre, () => abrirEditor(c.nombre))
+    // Si está desbloqueado, materializamos la caja (con alto) y usamos su rect.
+    if (libre && cajaAlto[c.nombre] === undefined) {
+      const bb = bboxCampoUser(c.nombre)
+      if (bb) cajaAlto[c.nombre] = bb.h + 6
+    }
+    const rCaja = libre ? (cajaScreen(c.nombre, base) ?? r) : r
+
+    const hit = crearHit(rCaja, c.nombre, () => abrirEditor(c.nombre))
     hit.title = libre ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
     lienzo.appendChild(hit)
-    lienzo.appendChild(crearBotonCandado(r, c.nombre))
+    lienzo.appendChild(crearBotonCandado(rCaja, c.nombre))
     if (libre) {
       hit.classList.add('hit-agregado')
       habilitarArrastreTexto(hit, c.nombre)
-      lienzo.appendChild(crearTiradorAnchoTexto(r, c.nombre))
+      lienzo.appendChild(crearTiradorCaja(rCaja, c.nombre, 'x'))
+      lienzo.appendChild(crearTiradorCaja(rCaja, c.nombre, 'y'))
+      lienzo.appendChild(crearTiradorCaja(rCaja, c.nombre, 'xy'))
     }
     if (agregado) {
-      lienzo.appendChild(crearBotonEliminar(r, () => eliminarCampo(c.nombre)))
+      lienzo.appendChild(crearBotonEliminar(rCaja, () => eliminarCampo(c.nombre)))
     }
   }
 
@@ -776,24 +833,29 @@ function crearBotonCandado(r: Rect, nombre: string): HTMLButtonElement {
 }
 
 // Tirador para ajustar el ANCHO de la caja de texto (borde derecho).
-function crearTiradorAnchoTexto(r: Rect, nombre: string): HTMLDivElement {
+// Tirador de la caja: 'x' = ancho (borde der), 'y' = alto (borde inf),
+// 'xy' = esquina (ambos). Cambia maxWidthUser y/o cajaAlto, re-wrappea y re-clipea.
+function crearTiradorCaja(r: Rect, nombre: string, eje: 'x' | 'y' | 'xy'): HTMLDivElement {
   const h = document.createElement('div')
-  h.className = 'resize-ancho'
-  h.title = 'Ajustar ancho de la caja'
-  Object.assign(h.style, { left: r.left + r.width - 3 + 'px', top: r.top + r.height / 2 - 11 + 'px' })
+  h.className = 'resize-caja resize-caja-' + eje
+  if (eje === 'x') Object.assign(h.style, { left: r.left + r.width - 4 + 'px', top: r.top + r.height / 2 - 11 + 'px' })
+  else if (eje === 'y') Object.assign(h.style, { left: r.left + r.width / 2 - 11 + 'px', top: r.top + r.height - 4 + 'px' })
+  else Object.assign(h.style, { left: r.left + r.width - 7 + 'px', top: r.top + r.height - 7 + 'px' })
   h.addEventListener('pointerdown', (e) => {
     if (!svgEl) return
     e.preventDefault(); e.stopPropagation()
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
-    let sx = e.clientX
+    let sx = e.clientX, sy = e.clientY
     const onMove = (ev: PointerEvent) => {
-      const dx = ev.clientX - sx
-      sx = ev.clientX
+      const dxs = ev.clientX - sx, dys = ev.clientY - sy
+      sx = ev.clientX; sy = ev.clientY
       const m = metricas[nombre]
-      m.maxWidthUser = Math.max(40, m.maxWidthUser + dx / k)
-      // Sólo re-acomodar si hay texto real; si es relleno, no lo borramos.
+      if (eje !== 'y') m.maxWidthUser = Math.max(40, m.maxWidthUser + dxs / k)
+      if (eje !== 'x') cajaAlto[nombre] = Math.max(20, (cajaAlto[nombre] ?? 0) + dys / k)
+      // Re-acomodar/recortar si hay texto real (el ancho re-wrappea, el alto re-recorta).
       if ((valores[nombre] ?? '').trim()) pintarCampo(nombre)
-      h.style.left = parseFloat(h.style.left) + dx + 'px'
+      if (eje !== 'y') h.style.left = parseFloat(h.style.left) + dxs + 'px'
+      if (eje !== 'x') h.style.top = parseFloat(h.style.top) + dys + 'px'
     }
     const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
     try { h.setPointerCapture(e.pointerId) } catch { /* igual redimensiona */ }

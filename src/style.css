@@ -188,16 +188,16 @@ body {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 .btn-candado.abierto { background: var(--accent); border-color: var(--accent); }
-.resize-ancho {
+.resize-caja {
   position: absolute;
   z-index: 5;
-  width: 8px;
-  height: 22px;
-  border-radius: 3px;
   background: var(--accent);
   border: 2px solid #06121c;
-  cursor: ew-resize;
+  border-radius: 3px;
 }
+.resize-caja-x { width: 8px; height: 22px; cursor: ew-resize; }
+.resize-caja-y { width: 22px; height: 8px; cursor: ns-resize; }
+.resize-caja-xy { width: 14px; height: 14px; cursor: nwse-resize; }
 
 /* La foto queda DEBAJO de los textos y con realce más sutil. */
 .hit-foto {
