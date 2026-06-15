@@ -60,6 +60,7 @@ interface EstiloCampo {
   italic?: boolean
   align?: 'start' | 'middle' | 'end'
   family?: string
+  color?: string
 }
 
 let plantillaActual = rutasPlantilla[0]
@@ -118,7 +119,7 @@ function familiasDisponibles(): string[] {
 
 // Estilo efectivo de un campo = base (métrica) + overrides del usuario.
 function estiloEfectivo(nombre: string): {
-  fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; manual: boolean
+  fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; color: string; manual: boolean
 } {
   const m = metricas[nombre]
   const e = estilos[nombre] ?? {}
@@ -128,6 +129,7 @@ function estiloEfectivo(nombre: string): {
     italic: !!e.italic,
     family: (e.family ?? m.family).replace(/['"]/g, '').split(',')[0].trim(),
     align: e.align ?? 'start',
+    color: e.color ?? m.color,
     manual: e.fontSize != null,
   }
 }
@@ -164,6 +166,8 @@ app.innerHTML = `
     <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
     <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
     <span class="bt-sep"></span>
+    <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
+    <span class="bt-sep"></span>
     <select id="bt-family" title="Tipografía"></select>
   </div>
 
@@ -197,6 +201,7 @@ const btSize = document.querySelector<HTMLSpanElement>('#bt-size')!
 const btBold = document.querySelector<HTMLButtonElement>('#bt-bold')!
 const btItalic = document.querySelector<HTMLButtonElement>('#bt-italic')!
 const btFamily = document.querySelector<HTMLSelectElement>('#bt-family')!
+const btColor = document.querySelector<HTMLInputElement>('#bt-color')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
 document.querySelector('#btn-add-img')!.addEventListener('click', () => inImgNueva.click())
@@ -460,7 +465,7 @@ function pintarCampo(nombre: string): void {
   if (v === '') {
     aplicarCampoDom(svgEl, nombre, [''], {
       lh: lhBase, x: String(ax), y: m.y,
-      fontSizePx: ef.fontSize, weight: ef.weight, italic: ef.italic, family: ef.family, anchor: ef.align,
+      fontSizePx: ef.fontSize, weight: ef.weight, italic: ef.italic, family: ef.family, anchor: ef.align, color: ef.color,
     })
     return
   }
@@ -479,6 +484,7 @@ function pintarCampo(nombre: string): void {
     italic: ef.italic,
     family: ef.family,
     anchor: ef.align,
+    color: ef.color,
   })
 }
 
@@ -912,6 +918,8 @@ function aplicarEstiloTextarea(nombre: string): void {
   ta.style.fontFamily = ef.family
   ta.style.lineHeight = m.lh * (ef.fontSize / m.fontSizeUser) * k + 'px'
   ta.style.textAlign = ef.align === 'middle' ? 'center' : ef.align === 'end' ? 'right' : 'left'
+  ta.style.color = ef.color
+  ta.style.caretColor = ef.color
   autoCrecer(ta)
 }
 
@@ -921,6 +929,7 @@ function sincronizarBarra(nombre: string): void {
   btSize.textContent = String(Math.round(ef.fontSize))
   btBold.classList.toggle('activo', ef.weight === '700')
   btItalic.classList.toggle('activo', ef.italic)
+  btColor.value = aHex(ef.color)
   btFamily.value = ef.family
   for (const b of Array.from(barraTexto.querySelectorAll('[data-bt^="al:"]'))) {
     b.classList.toggle('activo', b.getAttribute('data-bt') === 'al:' + ef.align)
@@ -959,6 +968,22 @@ btFamily.addEventListener('change', () => {
   if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
   editorActivo.ta.focus() // volver a editar tras elegir fuente
 })
+btColor.addEventListener('input', () => {
+  if (!editorActivo) return
+  const nombre = editorActivo.nombre
+  ;(estilos[nombre] ??= {}).color = btColor.value
+  aplicarEstiloTextarea(nombre)
+  if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
+})
+
+// Convierte "rgb(r,g,b)" o "#rrggbb" a "#rrggbb" para el input de color.
+function aHex(color: string): string {
+  if (color.startsWith('#')) return color
+  const m = color.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/)
+  if (!m) return '#000000'
+  const h = (n: string) => (+n).toString(16).padStart(2, '0')
+  return '#' + h(m[1]) + h(m[2]) + h(m[3])
+}
 
 function autoCrecer(ta: HTMLTextAreaElement): void {
   ta.style.height = 'auto'

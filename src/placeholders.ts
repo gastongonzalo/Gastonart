@@ -187,6 +187,7 @@ export interface OpcionesPintado {
   italic?: boolean
   family?: string
   anchor?: 'start' | 'middle' | 'end' // alineación (text-anchor)
+  color?: string
 }
 
 // Edita un campo en un SVG ya montado en el DOM (edición en vivo).
@@ -211,6 +212,7 @@ export function aplicarCampoDom(
   anchor.style.fontStyle = opts.italic ? 'italic' : 'normal'
   if (opts.family) anchor.style.fontFamily = opts.family
   if (opts.anchor) anchor.style.textAnchor = opts.anchor
+  if (opts.color) anchor.style.fill = opts.color
 
   const doc = anchor.ownerDocument
   const ls = lineas.length ? lineas : ['']

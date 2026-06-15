@@ -94,6 +94,19 @@ body {
   font-size: 13px;
   padding: 0 6px;
 }
+#barra-texto .bt-color {
+  display: inline-flex;
+  align-items: center;
+}
+#barra-texto input[type='color'] {
+  width: 30px;
+  height: 28px;
+  padding: 2px;
+  background: #0b1018;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
 
 /* --- Escenario / lienzo --- */
 #escenario {
