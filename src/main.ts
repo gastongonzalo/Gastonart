@@ -644,22 +644,29 @@ function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
     if (!svgEl) return
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
     const t = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
-    let tx = t ? +t[1] : 0, ty = t ? +t[2] : 0
-    let sx = e.clientX, sy = e.clientY
+    const tx0 = t ? +t[1] : 0, ty0 = t ? +t[2] : 0
+    const hitX0 = parseFloat(hit.style.left), hitY0 = parseFloat(hit.style.top)
+    const boxW = hit.offsetWidth, boxH = hit.offsetHeight
+    let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0
     let movido = false
+    excluirImg = el
     const onMove = (ev: PointerEvent) => {
-      const dx = (ev.clientX - sx) / k, dy = (ev.clientY - sy) / k
-      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) movido = true
-      tx += dx; ty += dy
+      const dxs = ev.clientX - sx, dys = ev.clientY - sy
+      if (Math.abs(dxs) + Math.abs(dys) > 3) movido = true
+      accX += dxs / k; accY += dys / k
       sx = ev.clientX; sy = ev.clientY
-      el.setAttribute('transform', `translate(${tx} ${ty})`)
-      hit.style.left = parseFloat(hit.style.left) + dx * k + 'px'
-      hit.style.top = parseFloat(hit.style.top) + dy * k + 'px'
+      const base = lienzo.getBoundingClientRect()
+      const rawBox: Rect = { left: hitX0 + accX * k, top: hitY0 + accY * k, width: boxW, height: boxH }
+      const snap = calcularSnap(rawBox, base)
+      el.setAttribute('transform', `translate(${tx0 + accX + snap.dx / k} ${ty0 + accY + snap.dy / k})`)
+      hit.style.left = rawBox.left + snap.dx + 'px'
+      hit.style.top = rawBox.top + snap.dy + 'px'
+      dibujarGuias(snap.guias)
     }
     const onUp = () => {
       hit.removeEventListener('pointermove', onMove)
-      // Sólo reconstruir si de verdad se movió. Si fue un clic, dejamos que el
-      // 'click' se dispare y abra el editor (reconstruir acá lo cancelaría).
+      excluirImg = null
+      limpiarGuias()
       if (movido) construirOverlays()
     }
     try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
@@ -738,9 +745,71 @@ function cajaScreen(nombre: string, base: DOMRect): Rect | null {
   return { left: o.left - base.left + c.x * k, top: o.top - base.top + c.y * k, width: c.w * k, height: c.h * k }
 }
 
+// --- Guías inteligentes (snap) al mover ---
+const UMBRAL_SNAP = 6 // px de pantalla
+
+// Rects (en px del lienzo) de los demás elementos arrastrables (para imantar).
+function rectsDeElementos(excluir: string | null, base: DOMRect): Rect[] {
+  if (!svgEl) return []
+  const out: Rect[] = []
+  for (const c of camposActuales) {
+    if (c.nombre === excluir) continue
+    const r = cajaScreen(c.nombre, base) ?? rectUnion(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
+    if (r) out.push(r)
+  }
+  for (const im of Array.from(svgEl.querySelectorAll('image[data-agregado="imagen"]'))) {
+    if (im === excluirImg) continue
+    const r = rectUnion([im], base)
+    if (r) out.push(r)
+  }
+  return out
+}
+let excluirImg: Element | null = null // imagen que se está arrastrando (no imantar consigo)
+
+interface Guia { tipo: 'v' | 'h'; pos: number }
+
+// Calcula el ajuste (dx,dy en px) para imantar el box a centro/bordes de la
+// placa y a otros elementos, y qué guías mostrar.
+function calcularSnap(box: Rect, base: DOMRect): { dx: number; dy: number; guias: Guia[] } {
+  const W = lienzo.clientWidth, H = lienzo.clientHeight
+  const vT = [0, W / 2, W]
+  const hT = [0, H / 2, H]
+  for (const r of rectsDeElementos(snapExcluir, base)) {
+    vT.push(r.left, r.left + r.width / 2, r.left + r.width)
+    hT.push(r.top, r.top + r.height / 2, r.top + r.height)
+  }
+  const ax = [box.left, box.left + box.width / 2, box.left + box.width]
+  const ay = [box.top, box.top + box.height / 2, box.top + box.height]
+  let bx = Infinity, bxt = 0
+  for (const a of ax) for (const t of vT) if (Math.abs(t - a) < Math.abs(bx)) { bx = t - a; bxt = t }
+  let by = Infinity, byt = 0
+  for (const a of ay) for (const t of hT) if (Math.abs(t - a) < Math.abs(by)) { by = t - a; byt = t }
+  const guias: Guia[] = []
+  const snapX = Math.abs(bx) <= UMBRAL_SNAP
+  const snapY = Math.abs(by) <= UMBRAL_SNAP
+  if (snapX) guias.push({ tipo: 'v', pos: bxt })
+  if (snapY) guias.push({ tipo: 'h', pos: byt })
+  return { dx: snapX ? bx : 0, dy: snapY ? by : 0, guias }
+}
+let snapExcluir: string | null = null // campo que se está arrastrando
+
+function dibujarGuias(guias: Guia[]): void {
+  limpiarGuias()
+  for (const g of guias) {
+    const d = document.createElement('div')
+    d.className = 'guia guia-' + g.tipo
+    if (g.tipo === 'v') { d.style.left = g.pos + 'px'; d.style.top = '0'; d.style.height = lienzo.clientHeight + 'px' }
+    else { d.style.top = g.pos + 'px'; d.style.left = '0'; d.style.width = lienzo.clientWidth + 'px' }
+    lienzo.appendChild(d)
+  }
+}
+function limpiarGuias(): void {
+  lienzo.querySelectorAll('.guia').forEach((n) => n.remove())
+}
+
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
@@ -880,19 +949,29 @@ function habilitarArrastreTexto(hit: HTMLDivElement, nombre: string): void {
       const m = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
       return { el, x: m ? +m[1] : 0, y: m ? +m[2] : 0 }
     })
+    const hitX0 = parseFloat(hit.style.left), hitY0 = parseFloat(hit.style.top)
+    const boxW = hit.offsetWidth, boxH = hit.offsetHeight
     let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0
     let movido = false
+    snapExcluir = nombre
     const onMove = (ev: PointerEvent) => {
       const dxs = ev.clientX - sx, dys = ev.clientY - sy
       if (Math.abs(dxs) + Math.abs(dys) > 3) movido = true
       accX += dxs / k; accY += dys / k
       sx = ev.clientX; sy = ev.clientY
-      for (const it of inicial) it.el.setAttribute('transform', `translate(${it.x + accX} ${it.y + accY})`)
-      hit.style.left = parseFloat(hit.style.left) + dxs + 'px'
-      hit.style.top = parseFloat(hit.style.top) + dys + 'px'
+      const base = lienzo.getBoundingClientRect()
+      const rawBox: Rect = { left: hitX0 + accX * k, top: hitY0 + accY * k, width: boxW, height: boxH }
+      const snap = calcularSnap(rawBox, base)
+      const ox = accX + snap.dx / k, oy = accY + snap.dy / k
+      for (const it of inicial) it.el.setAttribute('transform', `translate(${it.x + ox} ${it.y + oy})`)
+      hit.style.left = rawBox.left + snap.dx + 'px'
+      hit.style.top = rawBox.top + snap.dy + 'px'
+      dibujarGuias(snap.guias)
     }
     const onUp = () => {
       hit.removeEventListener('pointermove', onMove)
+      snapExcluir = null
+      limpiarGuias()
       if (movido) construirOverlays() // si fue clic, dejar que abra el editor
     }
     try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }

@@ -199,6 +199,16 @@ body {
 .resize-caja-y { width: 22px; height: 8px; cursor: ns-resize; }
 .resize-caja-xy { width: 14px; height: 14px; cursor: nwse-resize; }
 
+/* Guías de alineación (snap) */
+.guia {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  background: #ff2d78;
+}
+.guia-v { width: 1px; }
+.guia-h { height: 1px; }
+
 /* La foto queda DEBAJO de los textos y con realce más sutil. */
 .hit-foto {
   z-index: 1;
