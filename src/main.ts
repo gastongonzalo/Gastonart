@@ -67,6 +67,7 @@ let plantillaActual = rutasPlantilla[0]
 let facesPack: FontFace[] = []
 let valores: Record<string, string> = {}
 let estilos: Record<string, EstiloCampo> = {}
+let bloqueado: Record<string, boolean> = {} // textos de plantilla nacen bloqueados (no se mueven)
 let foto: Foto | null = null
 let frameFoto: FrameFoto | null = null
 let encuadre: Encuadre = { zoom: 1, ox: 0, oy: 0 }
@@ -288,9 +289,11 @@ function calcularMetricas(): void {
   if (!svgEl) return
   metricas = {}
   rectsIniciales = {}
+  bloqueado = {}
   const base = lienzo.getBoundingClientRect()
 
   for (const c of camposActuales) {
+    bloqueado[c.nombre] = true // los campos de plantilla nacen bloqueados
     const els = Array.from(svgEl.querySelectorAll<SVGTextElement>(`[data-campo="${c.nombre}"]`))
     if (!els.length) continue
     const anchor = els.find((e) => e.hasAttribute('data-anchor')) ?? els[0]
@@ -587,6 +590,7 @@ function agregarTexto(): void {
     boxLines: 50,
   }
   valores[nombre] = 'Texto nuevo'
+  bloqueado[nombre] = false // los cuadros agregados nacen movibles
 
   construirOverlays()
   abrirEditor(nombre)
@@ -688,7 +692,7 @@ function crearTiradorResize(r: Rect, img: SVGElement): HTMLDivElement {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
@@ -711,15 +715,20 @@ function construirOverlays(): void {
   for (const c of camposActuales) {
     const el = svgEl.querySelector(`[data-campo="${c.nombre}"][data-anchor]`)
     const agregado = el?.getAttribute('data-agregado') === 'texto'
+    const libre = !bloqueado[c.nombre] // desbloqueado → movible/redimensionable
     let r = rectUnion(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (!r || r.height < 10) r = rectsIniciales[c.nombre] ?? r
     if (!r) continue
     const hit = crearHit(r, c.nombre, () => abrirEditor(c.nombre))
-    hit.title = agregado ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
+    hit.title = libre ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
     lienzo.appendChild(hit)
-    if (agregado) {
+    lienzo.appendChild(crearBotonCandado(r, c.nombre))
+    if (libre) {
       hit.classList.add('hit-agregado')
       habilitarArrastreTexto(hit, c.nombre)
+      lienzo.appendChild(crearTiradorAnchoTexto(r, c.nombre))
+    }
+    if (agregado) {
       lienzo.appendChild(crearBotonEliminar(r, () => eliminarCampo(c.nombre)))
     }
   }
@@ -749,32 +758,80 @@ function crearBotonEliminar(r: Rect, onClick: () => void): HTMLButtonElement {
   return b
 }
 
+// Botón de candado: bloquea/desbloquea el campo (esquina sup. izquierda).
+function crearBotonCandado(r: Rect, nombre: string): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.className = 'btn-candado'
+  const locked = bloqueado[nombre]
+  b.textContent = locked ? '🔒' : '🔓'
+  b.title = locked ? 'Desbloquear (mover y redimensionar)' : 'Bloquear'
+  if (!locked) b.classList.add('abierto')
+  Object.assign(b.style, { left: r.left - 11 + 'px', top: r.top - 12 + 'px' })
+  b.addEventListener('click', (e) => {
+    e.stopPropagation()
+    bloqueado[nombre] = !bloqueado[nombre]
+    construirOverlays()
+  })
+  return b
+}
+
+// Tirador para ajustar el ANCHO de la caja de texto (borde derecho).
+function crearTiradorAnchoTexto(r: Rect, nombre: string): HTMLDivElement {
+  const h = document.createElement('div')
+  h.className = 'resize-ancho'
+  h.title = 'Ajustar ancho de la caja'
+  Object.assign(h.style, { left: r.left + r.width - 3 + 'px', top: r.top + r.height / 2 - 11 + 'px' })
+  h.addEventListener('pointerdown', (e) => {
+    if (!svgEl) return
+    e.preventDefault(); e.stopPropagation()
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    let sx = e.clientX
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - sx
+      sx = ev.clientX
+      const m = metricas[nombre]
+      m.maxWidthUser = Math.max(40, m.maxWidthUser + dx / k)
+      // Sólo re-acomodar si hay texto real; si es relleno, no lo borramos.
+      if ((valores[nombre] ?? '').trim()) pintarCampo(nombre)
+      h.style.left = parseFloat(h.style.left) + dx + 'px'
+    }
+    const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
+    try { h.setPointerCapture(e.pointerId) } catch { /* igual redimensiona */ }
+    h.addEventListener('pointermove', onMove)
+    h.addEventListener('pointerup', onUp, { once: true })
+    h.addEventListener('pointercancel', onUp, { once: true })
+  })
+  return h
+}
+
 // Arrastre de un cuadro de texto agregado: mueve su transform translate.
 // Click sin movimiento = editar (lo maneja el listener de click del hit).
 function habilitarArrastreTexto(hit: HTMLDivElement, nombre: string): void {
   hit.addEventListener('pointerdown', (e) => {
     if (!svgEl) return
-    const el = svgEl.querySelector(`[data-campo="${nombre}"][data-anchor]`) as SVGElement | null
-    if (!el) return
+    // Mover TODOS los <text> del campo juntos (un campo de plantilla sin editar
+    // puede tener varias líneas en <text> separados; mover sólo el ancla los rompe).
+    const els = Array.from(svgEl.querySelectorAll<SVGElement>(`[data-campo="${nombre}"]`))
+    if (!els.length) return
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
-    const t = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
-    let tx = t ? +t[1] : 0, ty = t ? +t[2] : 0
-    let sx = e.clientX, sy = e.clientY
+    const inicial = els.map((el) => {
+      const m = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+      return { el, x: m ? +m[1] : 0, y: m ? +m[2] : 0 }
+    })
+    let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0
     let movido = false
     const onMove = (ev: PointerEvent) => {
-      const dx = (ev.clientX - sx) / k, dy = (ev.clientY - sy) / k
-      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) movido = true
-      tx += dx; ty += dy
+      const dxs = ev.clientX - sx, dys = ev.clientY - sy
+      if (Math.abs(dxs) + Math.abs(dys) > 3) movido = true
+      accX += dxs / k; accY += dys / k
       sx = ev.clientX; sy = ev.clientY
-      el.setAttribute('transform', `translate(${tx} ${ty})`)
-      // mover el hit en vivo
-      hit.style.left = parseFloat(hit.style.left) + dx * k + 'px'
-      hit.style.top = parseFloat(hit.style.top) + dy * k + 'px'
+      for (const it of inicial) it.el.setAttribute('transform', `translate(${it.x + accX} ${it.y + accY})`)
+      hit.style.left = parseFloat(hit.style.left) + dxs + 'px'
+      hit.style.top = parseFloat(hit.style.top) + dys + 'px'
     }
     const onUp = () => {
       hit.removeEventListener('pointermove', onMove)
-      // Sólo reconstruir si se movió; si fue clic, dejar que abra el editor.
-      if (movido) construirOverlays()
+      if (movido) construirOverlays() // si fue clic, dejar que abra el editor
     }
     try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
     hit.addEventListener('pointermove', onMove)
