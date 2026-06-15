@@ -33,6 +33,12 @@ const fuentesPack = import.meta.glob('./assets/fonts/*.{ttf,otf,woff,woff2}', {
   eager: true,
 }) as Record<string, string>
 
+const iconosPack = import.meta.glob('./assets/iconos/*.svg', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
+
 const rutasPlantilla = Object.keys(plantillas).sort()
 const nombreCorto = (r: string) => r.split('/').pop()!.replace(/\.svg$/i, '')
 
@@ -161,6 +167,10 @@ app.innerHTML = `
         <button data-fig="flecha" title="Flecha">➜</button>
       </div>
     </span>
+    <span class="add-wrap">
+      <button id="btn-add-icono" class="mini">+ Ícono ▾</button>
+      <div id="menu-icono" class="menu-pop menu-iconos" hidden></div>
+    </span>
     <span class="sep"></span>
     <button id="btn-export">Exportar PNG (resvg)</button>
     <span class="estado" id="estado"></span>
@@ -226,7 +236,21 @@ document.querySelector('#btn-add-figura')!.addEventListener('click', (e) => {
 menuFigura.querySelectorAll<HTMLButtonElement>('button[data-fig]').forEach((b) => {
   b.addEventListener('click', () => { insertarFigura(b.dataset.fig!); menuFigura.hidden = true })
 })
-document.addEventListener('click', () => { menuFigura.hidden = true })
+
+const menuIcono = document.querySelector<HTMLDivElement>('#menu-icono')!
+for (const raw of Object.values(iconosPack)) {
+  const b = document.createElement('button')
+  b.innerHTML = raw
+  const svgIco = b.querySelector('svg')
+  if (svgIco) { svgIco.setAttribute('width', '22'); svgIco.setAttribute('height', '22') }
+  b.addEventListener('click', () => { insertarIcono(raw); menuIcono.hidden = true })
+  menuIcono.appendChild(b)
+}
+document.querySelector('#btn-add-icono')!.addEventListener('click', (e) => {
+  e.stopPropagation()
+  menuIcono.hidden = !menuIcono.hidden
+})
+document.addEventListener('click', () => { menuFigura.hidden = true; menuIcono.hidden = true })
 inImgNueva.addEventListener('change', async () => {
   const file = inImgNueva.files?.[0]
   if (!file) return
@@ -696,6 +720,31 @@ function insertarFigura(tipo: string): void {
   el.setAttribute('data-agregado', 'figura')
   el.setAttribute('data-colormode', modo)
   svgEl.appendChild(el)
+  construirOverlays()
+}
+
+// Inserta un ícono (Lucide) como <g> de trazos, escalable y coloreable.
+function insertarIcono(raw: string): void {
+  if (!svgEl) return
+  const doc = new DOMParser().parseFromString(raw, 'image/svg+xml')
+  const svgIco = doc.querySelector('svg')
+  if (!svgIco) return
+  contadorAgregados++
+  const g = document.createElementNS(SVGNS, 'g')
+  for (const child of Array.from(svgIco.childNodes)) g.appendChild(document.importNode(child, true))
+  g.setAttribute('fill', 'none')
+  g.setAttribute('stroke', '#141930')
+  g.setAttribute('stroke-width', '2')
+  g.setAttribute('stroke-linecap', 'round')
+  g.setAttribute('stroke-linejoin', 'round')
+  g.setAttribute('data-agregado', 'icono')
+  g.setAttribute('data-colormode', 'stroke')
+  const vw = svgEl.viewBox.baseVal.width || 1080
+  const vh = svgEl.viewBox.baseVal.height || 1350
+  const s = 5 // 24 * 5 = 120 px
+  const x = Math.round(vw / 2 - 12 * s), y = Math.round(vh / 2 - 12 * s)
+  g.setAttribute('transform', `translate(${x} ${y}) scale(${s})`)
+  svgEl.appendChild(g)
   construirOverlays()
 }
 

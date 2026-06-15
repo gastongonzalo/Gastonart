@@ -235,6 +235,14 @@ body {
   cursor: pointer;
 }
 .menu-pop button:hover { border-color: var(--accent); }
+.menu-iconos {
+  display: grid;
+  grid-template-columns: repeat(6, 32px);
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.menu-iconos button { color: #e6edf6; display: inline-flex; align-items: center; justify-content: center; }
 
 /* Swatch de color de figura/ícono */
 .swatch-figura {
