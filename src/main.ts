@@ -72,6 +72,8 @@ interface EstiloCampo {
 }
 
 let plantillaActual = rutasPlantilla[0]
+// SVG fuente del lienzo actual (plantilla, imagen en blanco o SVG importado).
+let svgActual: string = plantillas[plantillaActual]
 let facesPack: FontFace[] = []
 let valores: Record<string, string> = {}
 let estilos: Record<string, EstiloCampo> = {}
@@ -242,6 +244,7 @@ app.innerHTML = `
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
   <input type="file" id="in-font" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden>
+  <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml" hidden>
 
   <div id="panel-export" hidden>
     <div class="pe-head">
@@ -352,7 +355,7 @@ async function cargarPack(): Promise<void> {
 // ---------------------------------------------------------------
 async function montarPlantilla(): Promise<void> {
   cerrarEditor()
-  const prep = prepararEditor(plantillas[plantillaActual])
+  const prep = prepararEditor(svgActual)
   camposActuales = prep.campos
   metaActual = prep.meta
 
@@ -388,7 +391,7 @@ async function montarPlantilla(): Promise<void> {
   construirOverlays()
   suprimirHistorial = false
   reiniciarHistorial() // nueva placa = historial nuevo
-  estado.textContent = `${camposActuales.length} campo(s) · ${hayImagen(plantillas[plantillaActual]) ? 'foto editable' : 'sin foto'} · pasá el mouse y hacé clic`
+  estado.textContent = `${camposActuales.length} campo(s) · ${hayImagen(svgActual) ? 'foto editable' : 'sin foto'} · pasá el mouse y hacé clic`
 }
 
 // Mide, por campo, interlineado, tamaño, color y ANCHO de caja (del relleno).
@@ -1860,7 +1863,10 @@ btnExport.addEventListener('click', async () => {
     // Exportamos EXACTAMENTE el SVG vivo (ya tiene wrap + shrink + foto aplicados),
     // así el PNG es idéntico a lo que se ve en el editor.
     const svg = new XMLSerializer().serializeToString(svgEl)
-    const blob = await renderResvg(svg, facesPack.map((f) => f.bytes), 1080)
+    // Ancho de export = ancho del lienzo (viewBox), acotado para no exagerar.
+    const vbW = svgEl.viewBox.baseVal.width || 1080
+    const anchoExport = Math.round(Math.min(2480, Math.max(1080, vbW)))
+    const blob = await renderResvg(svg, facesPack.map((f) => f.bytes), anchoExport)
     const url = URL.createObjectURL(blob)
     peImg.src = url
     peDescargar.href = url
@@ -2024,12 +2030,7 @@ inProyecto.addEventListener('change', async () => {
   }
   inProyecto.value = ''
 })
-document.querySelector('#btn-nuevo')!.addEventListener('click', () => {
-  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
-  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
-  void montarPlantilla()
-  estado.textContent = 'Nuevo.'
-})
+document.querySelector('#btn-nuevo')!.addEventListener('click', () => mostrarInicio())
 document.querySelector('#btn-deshacer')!.addEventListener('click', () => void deshacer())
 document.querySelector('#btn-rehacer')!.addEventListener('click', () => void rehacer())
 document.addEventListener('keydown', (e) => {
@@ -2044,10 +2045,144 @@ document.addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------
 selPlantilla.addEventListener('change', () => {
   plantillaActual = selPlantilla.value
+  svgActual = plantillas[plantillaActual]
   valores = {}
   estilos = {}
   foto = null
   void montarPlantilla()
+})
+
+// ---------------------------------------------------------------
+//  Pantalla de inicio: imagen en blanco / plantilla / cargar SVG
+// ---------------------------------------------------------------
+interface PresetTamano { nombre: string; w: number; h: number; grupo: string }
+const PRESETS_TAMANO: PresetTamano[] = [
+  { nombre: 'Instagram · Post', w: 1080, h: 1080, grupo: 'Redes' },
+  { nombre: 'Instagram · Retrato', w: 1080, h: 1350, grupo: 'Redes' },
+  { nombre: 'Instagram · Historia', w: 1080, h: 1920, grupo: 'Redes' },
+  { nombre: 'Facebook · Post', w: 1200, h: 1200, grupo: 'Redes' },
+  { nombre: 'Facebook · Portada', w: 1640, h: 624, grupo: 'Redes' },
+  { nombre: 'X / Twitter · Post', w: 1600, h: 900, grupo: 'Redes' },
+  { nombre: 'YouTube · Miniatura', w: 1280, h: 720, grupo: 'Redes' },
+  { nombre: 'LinkedIn · Post', w: 1200, h: 1500, grupo: 'Redes' },
+  { nombre: 'A4 · Vertical', w: 2480, h: 3508, grupo: 'Impresión (300 dpi)' },
+  { nombre: 'A4 · Horizontal', w: 3508, h: 2480, grupo: 'Impresión (300 dpi)' },
+  { nombre: 'A5 · Vertical', w: 1748, h: 2480, grupo: 'Impresión (300 dpi)' },
+  { nombre: 'A5 · Horizontal', w: 2480, h: 1748, grupo: 'Impresión (300 dpi)' },
+]
+
+// SVG mínimo en blanco con fondo (fuente del lienzo "de cero").
+function svgEnBlanco(w: number, h: number, fondo = '#ffffff'): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">` +
+    `<rect x="0" y="0" width="${w}" height="${h}" fill="${fondo}"/></svg>`
+}
+
+// Monta un lienzo "de cero" con el tamaño dado.
+function nuevaPlacaEnBlanco(w: number, h: number, fondo = '#ffffff'): void {
+  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  svgActual = svgEnBlanco(w, h, fondo)
+  plantillaActual = `enblanco-${w}x${h}`
+  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
+  void montarPlantilla().then(() => { estado.textContent = `Lienzo ${w}×${h} px` })
+}
+
+// Monta una plantilla del paquete por su clave (ruta).
+function usarPlantilla(ruta: string): void {
+  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  plantillaActual = ruta
+  svgActual = plantillas[ruta]
+  if ([...selPlantilla.options].some((o) => o.value === ruta)) selPlantilla.value = ruta
+  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
+  void montarPlantilla()
+}
+
+// Monta un SVG importado por el usuario como lienzo editable.
+function usarSvgImportado(texto: string, nombre: string): void {
+  // Validación rápida: que parsee y tenga raíz <svg>.
+  const doc = new DOMParser().parseFromString(texto, 'image/svg+xml')
+  if (doc.querySelector('parsererror') || !doc.querySelector('svg')) {
+    estado.textContent = '❌ El archivo no es un SVG válido'
+    return
+  }
+  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  svgActual = texto
+  plantillaActual = nombre.replace(/\.svg$/i, '')
+  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
+  void montarPlantilla()
+}
+
+function cerrarInicio(): void {
+  document.querySelector('#pantalla-inicio')?.remove()
+}
+
+function mostrarInicio(): void {
+  cerrarInicio()
+  const grupos = [...new Set(PRESETS_TAMANO.map((p) => p.grupo))]
+  const seccionesTamano = grupos.map((g) => `
+    <div class="ini-grupo-tit">${g}</div>
+    <div class="ini-presets">
+      ${PRESETS_TAMANO.filter((p) => p.grupo === g).map((p) =>
+        `<button class="ini-preset" data-w="${p.w}" data-h="${p.h}">
+           <span class="ini-preset-nom">${escAttr(p.nombre)}</span>
+           <span class="ini-preset-dim">${p.w}×${p.h}</span>
+         </button>`).join('')}
+    </div>`).join('')
+
+  const opcionesPlantilla = rutasPlantilla.map((r) =>
+    `<button class="ini-plantilla" data-ruta="${escAttr(r)}">${escAttr(nombreCorto(r))}</button>`).join('')
+
+  const ov = document.createElement('div')
+  ov.id = 'pantalla-inicio'
+  ov.innerHTML = `
+    <div class="ini-card">
+      <div class="ini-head">
+        <strong>GastonART</strong>
+        <span>¿Cómo querés empezar?</span>
+        <button id="ini-cerrar" class="mini" title="Cerrar">✕</button>
+      </div>
+      <div class="ini-cols">
+        <section class="ini-col">
+          <h3>Imagen en blanco</h3>
+          ${seccionesTamano}
+          <div class="ini-grupo-tit">Personalizado</div>
+          <div class="ini-custom">
+            <input type="number" id="ini-w" min="16" max="8000" value="1080" aria-label="Ancho"> ×
+            <input type="number" id="ini-h" min="16" max="8000" value="1080" aria-label="Alto"> px
+            <button id="ini-crear-custom" class="ini-btn-acc">Crear</button>
+          </div>
+        </section>
+        <section class="ini-col">
+          <h3>Usar plantilla</h3>
+          <div class="ini-plantillas">${opcionesPlantilla}</div>
+          <h3 style="margin-top:18px">Cargar plantilla SVG</h3>
+          <button id="ini-cargar-svg" class="ini-btn-acc">Elegir archivo .svg…</button>
+        </section>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+
+  ov.querySelector('#ini-cerrar')!.addEventListener('click', () => cerrarInicio())
+  ov.querySelectorAll<HTMLButtonElement>('.ini-preset').forEach((b) =>
+    b.addEventListener('click', () => { cerrarInicio(); nuevaPlacaEnBlanco(+b.dataset.w!, +b.dataset.h!) }))
+  ov.querySelector('#ini-crear-custom')!.addEventListener('click', () => {
+    const w = Math.max(16, Math.min(8000, +(ov.querySelector<HTMLInputElement>('#ini-w')!.value) || 1080))
+    const h = Math.max(16, Math.min(8000, +(ov.querySelector<HTMLInputElement>('#ini-h')!.value) || 1080))
+    cerrarInicio(); nuevaPlacaEnBlanco(w, h)
+  })
+  ov.querySelectorAll<HTMLButtonElement>('.ini-plantilla').forEach((b) =>
+    b.addEventListener('click', () => { cerrarInicio(); usarPlantilla(b.dataset.ruta!) }))
+  ov.querySelector('#ini-cargar-svg')!.addEventListener('click', () => inSvgPlantilla.click())
+}
+
+const inSvgPlantilla = document.querySelector<HTMLInputElement>('#in-svg-plantilla')!
+inSvgPlantilla.addEventListener('change', async () => {
+  const file = inSvgPlantilla.files?.[0]
+  if (file) {
+    cerrarInicio()
+    try { usarSvgImportado(await file.text(), file.name) }
+    catch (e) { estado.textContent = '❌ ' + (e instanceof Error ? e.message : String(e)) }
+  }
+  inSvgPlantilla.value = ''
 })
 
 let tResize: number | undefined
@@ -2077,5 +2212,8 @@ void (async () => {
       localStorage.removeItem('gastonart-proyecto') // descartar autosave viejo pesado
     }
   } catch (e) { console.error('[restaurar] falló:', e) }
-  if (!restaurado) await montarPlantilla()
+  if (!restaurado) {
+    await montarPlantilla() // lienzo por defecto debajo
+    mostrarInicio() // ...y la pantalla de inicio encima
+  }
 })()
