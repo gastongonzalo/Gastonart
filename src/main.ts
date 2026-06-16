@@ -208,6 +208,7 @@ app.innerHTML = `
       <div id="menu-icono" class="menu-pop menu-iconos" hidden></div>
     </span>
     <button id="btn-pluma" class="mini" title="Pluma (puntos de ancla)">✒ Pluma</button>
+    <button id="btn-grafico" class="mini" title="Seleccionar y editar vectores/imágenes de la plantilla">✦ Gráficos</button>
     <button id="btn-import-font" class="mini" title="Importar tipografía (.ttf / .otf)">+ Aa</button>
     <span class="sep"></span>
     <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
@@ -302,8 +303,14 @@ document.querySelector('#btn-add-icono')!.addEventListener('click', (e) => {
 })
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
+  if (modoGrafico) desactivarGrafico()
   if (plumaActiva) desactivarPluma()
   else activarPluma()
+})
+document.querySelector('#btn-grafico')!.addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (modoGrafico) desactivarGrafico()
+  else activarGrafico()
 })
 document.addEventListener('click', () => { menuFigura.hidden = true; menuIcono.hidden = true })
 inImgNueva.addEventListener('change', async () => {
@@ -355,6 +362,7 @@ async function cargarPack(): Promise<void> {
 // ---------------------------------------------------------------
 async function montarPlantilla(): Promise<void> {
   cerrarEditor()
+  if (modoGrafico) desactivarGrafico()
   const prep = prepararEditor(svgActual)
   camposActuales = prep.campos
   metaActual = prep.meta
@@ -1113,6 +1121,161 @@ function finalizarPluma(cerrado: boolean): void {
   svgEl.appendChild(p)
   desactivarPluma()
   construirOverlays()
+}
+
+// ---------------------------------------------------------------
+//  Modo Gráficos: seleccionar/editar vectores e imágenes de la plantilla
+// ---------------------------------------------------------------
+const TAGS_GRAFICO = new Set(['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline', 'line', 'image', 'use'])
+let modoGrafico = false
+let grafSel: SVGElement | null = null
+
+// ¿El elemento (o un ancestro cercano) es un gráfico seleccionable?
+// Excluye el fondo (rect que cubre toda la placa) y lo que esté en <defs>.
+function graficoSeleccionable(t: Element | null): SVGElement | null {
+  let el: Element | null = t
+  while (el && el !== svgEl) {
+    const tag = el.tagName.toLowerCase()
+    if (el.closest('defs, clipPath, mask, pattern')) return null
+    if (TAGS_GRAFICO.has(tag)) {
+      // Saltar el fondo: rect en (0,0) que cubre ~todo el viewBox.
+      if (tag === 'rect' && esFondo(el as SVGRectElement)) return null
+      return el as SVGElement
+    }
+    el = el.parentElement
+  }
+  return null
+}
+
+function esFondo(rect: SVGRectElement): boolean {
+  if (!svgEl) return false
+  const vb = svgEl.viewBox.baseVal
+  const w = parseFloat(rect.getAttribute('width') ?? '0')
+  const h = parseFloat(rect.getAttribute('height') ?? '0')
+  const x = parseFloat(rect.getAttribute('x') ?? '0')
+  const y = parseFloat(rect.getAttribute('y') ?? '0')
+  return x <= 1 && y <= 1 && w >= vb.width * 0.98 && h >= vb.height * 0.98
+}
+
+function activarGrafico(): void {
+  if (!svgEl) return
+  cerrarEditor()
+  if (plumaActiva) desactivarPluma()
+  modoGrafico = true
+  document.querySelector('#btn-grafico')!.classList.add('activo-grafico')
+  lienzo.classList.add('modo-grafico')
+  svgEl.addEventListener('pointerdown', grafPointerDown)
+  document.addEventListener('keydown', grafKey)
+  estado.textContent = 'Modo gráficos: clic en un vector/imagen para editarlo'
+}
+
+function desactivarGrafico(): void {
+  modoGrafico = false
+  document.querySelector('#btn-grafico')?.classList.remove('activo-grafico')
+  lienzo.classList.remove('modo-grafico')
+  svgEl?.removeEventListener('pointerdown', grafPointerDown)
+  document.removeEventListener('keydown', grafKey)
+  grafSel = null
+  limpiarGraf()
+}
+
+function grafKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape') { if (grafSel) { grafSel = null; limpiarGraf() } else desactivarGrafico() }
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && grafSel) { e.preventDefault(); borrarGraf() }
+}
+
+function limpiarGraf(): void {
+  lienzo.querySelectorAll('.graf-sel, .graf-tools').forEach((n) => n.remove())
+}
+
+// Envuelve el elemento en un <g data-graf-wrap> (una vez) para mover sin
+// pisar su transform propio (matrix/rotate de Illustrator).
+function wrapperGraf(el: SVGElement): SVGGElement {
+  const p = el.parentNode as Element | null
+  if (p && p.getAttribute && p.getAttribute('data-graf-wrap') === '1') return p as unknown as SVGGElement
+  const g = document.createElementNS(SVGNS, 'g')
+  g.setAttribute('data-graf-wrap', '1')
+  p!.insertBefore(g, el)
+  g.appendChild(el)
+  return g
+}
+
+function grafPointerDown(e: PointerEvent): void {
+  if (!svgEl) return
+  const el = graficoSeleccionable(e.target as Element)
+  if (!el) { grafSel = null; limpiarGraf(); return }
+  e.preventDefault()
+  grafSel = el
+  dibujarSelGraf()
+  // Arrastre inmediato (mover el wrapper).
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const g = wrapperGraf(el)
+  const tm = (g.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+  const tx0 = tm ? +tm[1] : 0, ty0 = tm ? +tm[2] : 0
+  let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0, movido = false
+  const onMove = (ev: PointerEvent) => {
+    accX += (ev.clientX - sx) / k; accY += (ev.clientY - sy) / k
+    sx = ev.clientX; sy = ev.clientY
+    if (Math.abs(accX) + Math.abs(accY) > 1) movido = true
+    g.setAttribute('transform', `translate(${tx0 + accX} ${ty0 + accY})`)
+    dibujarSelGraf()
+  }
+  const onUp = () => {
+    svgEl!.removeEventListener('pointermove', onMove)
+    if (movido) { registrarHistorial(); autoguardar() }
+  }
+  try { svgEl.setPointerCapture(e.pointerId) } catch { /* igual arrastra */ }
+  svgEl.addEventListener('pointermove', onMove)
+  svgEl.addEventListener('pointerup', onUp, { once: true })
+  svgEl.addEventListener('pointercancel', onUp, { once: true })
+}
+
+function borrarGraf(): void {
+  if (!grafSel) return
+  const p = grafSel.parentNode as Element | null
+  if (p && p.getAttribute && p.getAttribute('data-graf-wrap') === '1') (p as Element).remove()
+  else grafSel.remove()
+  grafSel = null
+  limpiarGraf()
+  registrarHistorial(); autoguardar()
+}
+
+// Dibuja el recuadro de selección + mini-barra (relleno, contorno, borrar).
+function dibujarSelGraf(): void {
+  limpiarGraf()
+  if (!grafSel || !svgEl) return
+  const base = lienzo.getBoundingClientRect()
+  const rb = grafSel.getBoundingClientRect()
+  const r: Rect = { left: rb.left - base.left, top: rb.top - base.top, width: rb.width, height: rb.height }
+
+  const box = document.createElement('div')
+  box.className = 'graf-sel'
+  Object.assign(box.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' })
+  lienzo.appendChild(box)
+
+  const tools = document.createElement('div')
+  tools.className = 'graf-tools'
+  Object.assign(tools.style, { left: r.left + 'px', top: Math.max(0, r.top - 34) + 'px' })
+  tools.addEventListener('pointerdown', (e) => e.stopPropagation())
+
+  const cs = getComputedStyle(grafSel)
+  const fill = document.createElement('label'); fill.title = 'Relleno'; fill.className = 'graf-color'
+  const fi = document.createElement('input'); fi.type = 'color'
+  fi.value = cs.fill && cs.fill !== 'none' ? aHex(cs.fill) : '#ffffff'
+  fi.addEventListener('input', () => { grafSel!.style.fill = fi.value; registrarHistorial(); autoguardar() })
+  fill.appendChild(fi)
+
+  const stroke = document.createElement('label'); stroke.title = 'Contorno'; stroke.className = 'graf-color graf-stroke'
+  const si = document.createElement('input'); si.type = 'color'
+  si.value = cs.stroke && cs.stroke !== 'none' ? aHex(cs.stroke) : '#000000'
+  si.addEventListener('input', () => { grafSel!.style.stroke = si.value; registrarHistorial(); autoguardar() })
+  stroke.appendChild(si)
+
+  const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '✕'; del.title = 'Eliminar'
+  del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
+
+  tools.append(fill, stroke, del)
+  lienzo.appendChild(tools)
 }
 
 // Arrastre genérico de un elemento (mueve su transform translate).

@@ -307,6 +307,59 @@ body {
   pointer-events: none;
 }
 
+/* Modo Gráficos: seleccionar/editar vectores e imágenes de la plantilla */
+.mini.activo-grafico { background: var(--accent); color: #06121c; border-color: var(--accent); }
+.modo-grafico .hit,
+.modo-grafico .foto-tools,
+.modo-grafico .btn-eliminar,
+.modo-grafico .resize-handle,
+.modo-grafico .btn-candado,
+.modo-grafico .resize-caja,
+.modo-grafico .swatch-figura,
+.modo-grafico .mascara-wrap,
+.modo-grafico .mask-handle { pointer-events: none; }
+.modo-grafico svg { cursor: pointer; }
+.graf-sel {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  outline: 2px solid #ff2d78;
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.graf-tools {
+  position: absolute;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: rgba(11, 16, 24, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.graf-color input[type='color'] {
+  width: 24px;
+  height: 24px;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #0b1018;
+  cursor: pointer;
+}
+.graf-del {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 5px;
+  border: 0;
+  background: #e11d48;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* Swatch de color de figura/ícono */
 .swatch-figura {
   position: absolute;
