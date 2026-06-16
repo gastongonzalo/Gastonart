@@ -509,8 +509,10 @@ function grupoInseparable(c1: string, c2: string): boolean {
 }
 
 function ajustar(texto: string, m: Metrica): { lineas: string[]; escala: number } {
+  // Auto-achica hasta 50% para que el texto entre en las líneas de la caja
+  // antes de tener que recortar.
   let ultimo = { lineas: envolver(texto, m, 1), escala: 1 }
-  for (const escala of [1, 0.975, 0.95]) {
+  for (let escala = 1; escala >= 0.5; escala = +(escala - 0.05).toFixed(2)) {
     const lineas = envolver(texto, m, escala)
     if (lineas.length <= m.boxLines) return { lineas, escala }
     ultimo = { lineas, escala }
@@ -771,71 +773,80 @@ function insertarIcono(raw: string): void {
 
 // ============ Máscaras de recorte para imágenes agregadas ============
 
-// Devuelve la forma (en coords locales 0..W, 0..H) para una máscara.
-function formaMascara(tipo: string, W: number, H: number): SVGElement {
-  const cx = W / 2, cy = H / 2
-  const r = Math.min(W, H) / 2
+// Forma de máscara centrada en (cx,cy) con "radio" R (mitad del lado).
+function formaMascaraEn(tipo: string, cx: number, cy: number, R: number): SVGElement {
   if (tipo === 'circulo') {
     const c = document.createElementNS(SVGNS, 'circle')
-    c.setAttribute('cx', String(cx)); c.setAttribute('cy', String(cy)); c.setAttribute('r', String(r))
+    c.setAttribute('cx', String(cx)); c.setAttribute('cy', String(cy)); c.setAttribute('r', String(R))
     return c
   }
   if (tipo === 'elipse') {
     const e = document.createElementNS(SVGNS, 'ellipse')
     e.setAttribute('cx', String(cx)); e.setAttribute('cy', String(cy))
-    e.setAttribute('rx', String(W / 2)); e.setAttribute('ry', String(H / 2))
+    e.setAttribute('rx', String(R * 1.3)); e.setAttribute('ry', String(R * 0.85))
     return e
   }
   if (tipo === 'redondeado') {
     const rc = document.createElementNS(SVGNS, 'rect')
-    rc.setAttribute('width', String(W)); rc.setAttribute('height', String(H))
-    rc.setAttribute('rx', String(Math.min(W, H) * 0.14))
+    rc.setAttribute('x', String(cx - R)); rc.setAttribute('y', String(cy - R))
+    rc.setAttribute('width', String(2 * R)); rc.setAttribute('height', String(2 * R))
+    rc.setAttribute('rx', String(R * 0.28))
     return rc
   }
   if (tipo === 'triangulo') {
     const p = document.createElementNS(SVGNS, 'polygon')
-    p.setAttribute('points', `${cx},0 ${W},${H} 0,${H}`)
+    p.setAttribute('points', `${cx},${cy - R} ${cx + R},${cy + R} ${cx - R},${cy + R}`)
     return p
   }
   const pts: string[] = []
   if (tipo === 'hexagono') {
-    for (let i = 0; i < 6; i++) {
-      const a = (Math.PI / 180) * (60 * i - 30)
-      pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`)
-    }
-  } else { // estrella
-    const ri = r * 0.45
-    for (let i = 0; i < 10; i++) {
-      const rad = i % 2 === 0 ? r : ri
-      const a = -Math.PI / 2 + (i * Math.PI) / 5
-      pts.push(`${(cx + rad * Math.cos(a)).toFixed(1)},${(cy + rad * Math.sin(a)).toFixed(1)}`)
-    }
+    for (let i = 0; i < 6; i++) { const a = (Math.PI / 180) * (60 * i - 30); pts.push(`${(cx + R * Math.cos(a)).toFixed(1)},${(cy + R * Math.sin(a)).toFixed(1)}`) }
+  } else {
+    const ri = R * 0.45
+    for (let i = 0; i < 10; i++) { const rad = i % 2 === 0 ? R : ri; const a = -Math.PI / 2 + (i * Math.PI) / 5; pts.push(`${(cx + rad * Math.cos(a)).toFixed(1)},${(cy + rad * Math.sin(a)).toFixed(1)}`) }
   }
   const poly = document.createElementNS(SVGNS, 'polygon')
   poly.setAttribute('points', pts.join(' '))
   return poly
 }
 
-// Aplica (o quita) una máscara de recorte a una imagen agregada.
-function aplicarMascara(img: SVGElement, tipo: string): void {
+// (Re)construye el clipPath de una imagen desde sus params (data-mask-*).
+function construirMascara(img: SVGElement): void {
   if (!svgEl) return
+  const tipo = img.getAttribute('data-mask-tipo')
   if (!img.id) { contadorAgregados++; img.id = 'agimg-' + contadorAgregados }
   const id = 'mask-' + img.id
   svgEl.querySelector('#' + id)?.remove()
+  if (!tipo || tipo === 'ninguna') { img.removeAttribute('clip-path'); return }
+  const W = parseFloat(img.getAttribute('width') || '0')
+  const H = parseFloat(img.getAttribute('height') || '0')
+  const cx = parseFloat(img.getAttribute('data-mask-cx') ?? String(W / 2))
+  const cy = parseFloat(img.getAttribute('data-mask-cy') ?? String(H / 2))
+  const s = parseFloat(img.getAttribute('data-mask-s') ?? '1')
+  const R = (Math.min(W, H) / 2) * s
+  let defs = svgEl.querySelector('defs')
+  if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
+  const cp = document.createElementNS(SVGNS, 'clipPath')
+  cp.id = id
+  cp.setAttribute('clipPathUnits', 'userSpaceOnUse')
+  cp.appendChild(formaMascaraEn(tipo, cx, cy, R))
+  defs.appendChild(cp)
+  img.setAttribute('clip-path', `url(#${id})`)
+}
+
+// Aplica/quita una máscara (resetea centro y tamaño al default).
+function aplicarMascara(img: SVGElement, tipo: string): void {
   if (tipo === 'ninguna') {
-    img.removeAttribute('clip-path')
+    for (const a of ['data-mask-tipo', 'data-mask-cx', 'data-mask-cy', 'data-mask-s']) img.removeAttribute(a)
   } else {
     const W = parseFloat(img.getAttribute('width') || '0')
     const H = parseFloat(img.getAttribute('height') || '0')
-    let defs = svgEl.querySelector('defs')
-    if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
-    const cp = document.createElementNS(SVGNS, 'clipPath')
-    cp.id = id
-    cp.setAttribute('clipPathUnits', 'userSpaceOnUse')
-    cp.appendChild(formaMascara(tipo, W, H))
-    defs.appendChild(cp)
-    img.setAttribute('clip-path', `url(#${id})`)
+    img.setAttribute('data-mask-tipo', tipo)
+    img.setAttribute('data-mask-cx', String(W / 2))
+    img.setAttribute('data-mask-cy', String(H / 2))
+    img.setAttribute('data-mask-s', '1')
   }
+  construirMascara(img)
   construirOverlays()
 }
 
@@ -861,6 +872,67 @@ function crearBotonMascara(r: Rect, img: SVGElement): HTMLDivElement {
   btn.addEventListener('click', (e) => { e.stopPropagation(); pop.hidden = !pop.hidden })
   wrap.appendChild(btn); wrap.appendChild(pop)
   return wrap
+}
+
+// Handles para mover/redimensionar la máscara de recorte de una imagen.
+function handlesMascara(img: SVGElement, base: DOMRect): HTMLElement[] {
+  const tipo = img.getAttribute('data-mask-tipo')
+  if (!tipo || tipo === 'ninguna' || !svgEl) return []
+  const W = parseFloat(img.getAttribute('width') || '0')
+  const H = parseFloat(img.getAttribute('height') || '0')
+  const cx = parseFloat(img.getAttribute('data-mask-cx') ?? String(W / 2))
+  const cy = parseFloat(img.getAttribute('data-mask-cy') ?? String(H / 2))
+  const s = parseFloat(img.getAttribute('data-mask-s') ?? '1')
+  const R = (Math.min(W, H) / 2) * s
+  const tm = (img.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+  const tx = tm ? +tm[1] : 0, ty = tm ? +tm[2] : 0
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const o = svgEl.getBoundingClientRect()
+  const scr = (ux: number, uy: number) => ({ left: o.left - base.left + (tx + ux) * k, top: o.top - base.top + (ty + uy) * k })
+  const c = scr(cx, cy), e = scr(cx + R, cy)
+  const mov = document.createElement('div')
+  mov.className = 'mask-handle mask-mover'; mov.title = 'Mover el recorte'
+  mov.style.left = c.left + 'px'; mov.style.top = c.top + 'px'
+  habilitarDragMascara(mov, img, 'mover')
+  const esc = document.createElement('div')
+  esc.className = 'mask-handle mask-escalar'; esc.title = 'Tamaño del recorte'
+  esc.style.left = e.left + 'px'; esc.style.top = e.top + 'px'
+  habilitarDragMascara(esc, img, 'escalar')
+  return [mov, esc]
+}
+
+function habilitarDragMascara(h: HTMLElement, img: SVGElement, modo: 'mover' | 'escalar'): void {
+  h.addEventListener('pointerdown', (e) => {
+    if (!svgEl) return
+    e.preventDefault(); e.stopPropagation()
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const W = parseFloat(img.getAttribute('width') || '0')
+    const H = parseFloat(img.getAttribute('height') || '0')
+    const baseR = Math.min(W, H) / 2
+    let cx = parseFloat(img.getAttribute('data-mask-cx') ?? String(W / 2))
+    let cy = parseFloat(img.getAttribute('data-mask-cy') ?? String(H / 2))
+    let s = parseFloat(img.getAttribute('data-mask-s') ?? '1')
+    let sx = e.clientX, sy = e.clientY
+    const onMove = (ev: PointerEvent) => {
+      const dxs = ev.clientX - sx, dys = ev.clientY - sy
+      sx = ev.clientX; sy = ev.clientY
+      if (modo === 'mover') {
+        cx += dxs / k; cy += dys / k
+        img.setAttribute('data-mask-cx', String(cx)); img.setAttribute('data-mask-cy', String(cy))
+        h.style.left = parseFloat(h.style.left) + dxs + 'px'; h.style.top = parseFloat(h.style.top) + dys + 'px'
+      } else {
+        s = Math.max(0.06, s + (dxs / k) / baseR)
+        img.setAttribute('data-mask-s', String(s))
+        h.style.left = parseFloat(h.style.left) + dxs + 'px'
+      }
+      construirMascara(img)
+    }
+    const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
+    try { h.setPointerCapture(e.pointerId) } catch { /* igual ajusta */ }
+    h.addEventListener('pointermove', onMove)
+    h.addEventListener('pointerup', onUp, { once: true })
+    h.addEventListener('pointercancel', onUp, { once: true })
+  })
 }
 
 // ============ Pluma (Bézier con puntos de ancla) ============
@@ -1219,7 +1291,7 @@ function limpiarGuias(): void {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
@@ -1281,6 +1353,7 @@ function construirOverlays(): void {
     lienzo.appendChild(crearBotonEliminar(r, () => { im.remove(); construirOverlays() }))
     lienzo.appendChild(crearTiradorResize(r, im))
     lienzo.appendChild(crearBotonMascara(r, im))
+    for (const mh of handlesMascara(im, base)) lienzo.appendChild(mh)
   }
 
   // Figuras e íconos agregados (mover, escalar, color, eliminar).

@@ -203,6 +203,21 @@ body {
 }
 .btn-mascara:hover { border-color: var(--accent); }
 .mascara-pop { top: 26px; left: 0; }
+
+/* Handles de la máscara (mover / redimensionar el recorte) */
+.mask-handle {
+  position: absolute;
+  z-index: 7;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #ff2d78;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+.mask-mover { cursor: move; }
+.mask-escalar { background: #ff2d78; cursor: ew-resize; }
 .resize-caja {
   position: absolute;
   z-index: 5;
