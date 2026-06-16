@@ -84,6 +84,40 @@ export function interpretarNombreFuente(nombre: string): {
   return { family, weight, style }
 }
 
+// Lee el nombre de familia INTERNO de una fuente TTF/OTF (tabla 'name').
+// Necesario para que resvg matchee fuentes importadas. woff/woff2 → null (comprimido).
+export function familiaInternaDeFont(bytes: Uint8Array): string | null {
+  try {
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    const tag0 = dv.getUint32(0)
+    if (!(tag0 === 0x00010000 || tag0 === 0x4f54544f || tag0 === 0x74727565)) return null
+    const numTables = dv.getUint16(4)
+    let nameOff = 0
+    for (let i = 0; i < numTables; i++) {
+      const rec = 12 + i * 16
+      if (dv.getUint32(rec) === 0x6e616d65) { nameOff = dv.getUint32(rec + 8); break } // 'name'
+    }
+    if (!nameOff) return null
+    const count = dv.getUint16(nameOff + 2)
+    const strOff = dv.getUint16(nameOff + 4)
+    const cands: Record<number, string> = {}
+    for (let i = 0; i < count; i++) {
+      const rec = nameOff + 6 + i * 12
+      const plat = dv.getUint16(rec)
+      const nameID = dv.getUint16(rec + 6)
+      const len = dv.getUint16(rec + 8)
+      const off = dv.getUint16(rec + 10)
+      if (nameID !== 1 && nameID !== 16) continue
+      const sp = nameOff + strOff + off
+      let s = ''
+      if (plat === 3 || plat === 0) { for (let j = 0; j < len; j += 2) s += String.fromCharCode(dv.getUint16(sp + j)) }
+      else { for (let j = 0; j < len; j++) s += String.fromCharCode(dv.getUint8(sp + j)) }
+      if (s && !cands[nameID]) cands[nameID] = s
+    }
+    return (cands[16] || cands[1] || '').trim() || null
+  } catch { return null }
+}
+
 // Construye un FontFace a partir del nombre de archivo (ej. "Poppins-Bold.ttf").
 export function faceDesdeNombre(nombreArchivo: string, bytes: Uint8Array): FontFace {
   const base = nombreArchivo.replace(/\.[^.]+$/, '')

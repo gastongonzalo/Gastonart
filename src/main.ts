@@ -14,6 +14,8 @@ import {
   normalizarFuentesIllustrator,
   faceDesdeNombre,
   interpretarNombreFuente,
+  familiaInternaDeFont,
+  detectarFormatoCss,
   type FontFace,
 } from './font'
 import { renderResvg } from './render-resvg'
@@ -125,6 +127,38 @@ function familiasDisponibles(): string[] {
   return Array.from(s).sort((a, b) => a.localeCompare(b))
 }
 
+// (Re)llena el selector de tipografías de la barra de texto.
+function poblarFamilias(): void {
+  const sel = btFamily.value
+  btFamily.innerHTML = familiasDisponibles()
+    .map((f) => `<option value="${escAttr(f)}">${escAttr(f)}</option>`)
+    .join('')
+  if (sel) btFamily.value = sel
+}
+
+// Importa una tipografía desde un archivo .ttf/.otf (también .woff/.woff2).
+// Se registra para el editor (FontFace API) y para el render resvg (facesPack).
+async function importarFont(file: File): Promise<void> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const family = familiaInternaDeFont(bytes) || file.name.replace(/\.[^.]+$/, '')
+  if (facesPack.some((f) => f.family === family)) {
+    estado.textContent = `La tipografía «${family}» ya estaba cargada`
+    poblarFamilias(); return
+  }
+  try {
+    const ff = new FontFace(family, bytes)
+    await ff.load()
+    ;(document as Document & { fonts: FontFaceSet }).fonts.add(ff)
+  } catch (e) {
+    estado.textContent = '❌ No se pudo cargar la tipografía'
+    console.error('[importarFont]', e)
+    return
+  }
+  facesPack.push({ bytes, family, weight: 400, style: 'normal', formato: detectarFormatoCss(bytes) })
+  poblarFamilias()
+  estado.textContent = `Tipografía agregada: ${family}`
+}
+
 // Estilo efectivo de un campo = base (métrica) + overrides del usuario.
 function estiloEfectivo(nombre: string): {
   fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; color: string; manual: boolean
@@ -172,6 +206,7 @@ app.innerHTML = `
       <div id="menu-icono" class="menu-pop menu-iconos" hidden></div>
     </span>
     <button id="btn-pluma" class="mini" title="Pluma (puntos de ancla)">✒ Pluma</button>
+    <button id="btn-import-font" class="mini" title="Importar tipografía (.ttf / .otf)">+ Aa</button>
     <span class="sep"></span>
     <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
     <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
@@ -206,6 +241,7 @@ app.innerHTML = `
   </div>
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
+  <input type="file" id="in-font" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden>
 
   <div id="panel-export" hidden>
     <div class="pe-head">
@@ -276,6 +312,13 @@ inImgNueva.addEventListener('change', async () => {
     estado.textContent = '❌ ' + (err instanceof Error ? err.message : String(err))
   }
   inImgNueva.value = ''
+})
+
+const inFont = document.querySelector<HTMLInputElement>('#in-font')!
+document.querySelector<HTMLButtonElement>('#btn-import-font')!.addEventListener('click', () => inFont.click())
+inFont.addEventListener('change', async () => {
+  for (const file of Array.from(inFont.files ?? [])) await importarFont(file)
+  inFont.value = ''
 })
 
 let contadorAgregados = 0 // para nombres únicos de elementos agregados
@@ -2006,9 +2049,7 @@ function escAttr(s: string): string {
 void (async () => {
   inyectarFontFaces()
   await cargarPack()
-  btFamily.innerHTML = familiasDisponibles()
-    .map((f) => `<option value="${escAttr(f)}">${escAttr(f)}</option>`)
-    .join('')
+  poblarFamilias()
   // Auto-restaurar el último trabajo (si entra en localStorage), si no, montar.
   let restaurado = false
   try {
