@@ -41,6 +41,15 @@ const PESOS: Record<string, number> = {
   black: 900, heavy: 900,
 }
 
+// Familias cuyo nombre interno (el que necesita resvg) lleva espacios y no
+// coincide con el del archivo. Se mapea para que el render coincida.
+const FAMILIA_INTERNA: Record<string, string> = {
+  BebasNeue: 'Bebas Neue',
+  AbrilFatface: 'Abril Fatface',
+  ArchivoBlack: 'Archivo Black',
+  PlayfairDisplay: 'Playfair Display',
+}
+
 // Interpreta un nombre tipo "Poppins-SemiBold" / "Poppins-BoldItalic" / "Poppins".
 // Devuelve la familia base, el peso y el estilo.
 export function interpretarNombreFuente(nombre: string): {
@@ -50,9 +59,10 @@ export function interpretarNombreFuente(nombre: string): {
 } {
   const limpio = nombre.trim().replace(/['"]/g, '')
   const guion = limpio.indexOf('-')
-  if (guion === -1) return { family: limpio, weight: 400, style: 'normal' }
+  if (guion === -1) return { family: FAMILIA_INTERNA[limpio] ?? limpio, weight: 400, style: 'normal' }
 
-  const family = limpio.slice(0, guion)
+  const familiaBase = limpio.slice(0, guion)
+  const family = FAMILIA_INTERNA[familiaBase] ?? familiaBase
   const desc = limpio.slice(guion + 1)
   // Separar camelCase: "SemiBold" -> "Semi Bold"
   const tokens = desc
