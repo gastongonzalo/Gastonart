@@ -173,9 +173,13 @@ app.innerHTML = `
     </span>
     <button id="btn-pluma" class="mini" title="Pluma (puntos de ancla)">✒ Pluma</button>
     <span class="sep"></span>
+    <button id="btn-guardar" class="mini">💾 Guardar</button>
+    <button id="btn-cargar" class="mini">📂 Cargar</button>
+    <button id="btn-nuevo" class="mini">Nuevo</button>
     <button id="btn-export">Exportar PNG (resvg)</button>
     <span class="estado" id="estado"></span>
   </header>
+  <input type="file" id="in-proyecto" accept=".json,application/json" hidden>
 
   <div id="barra-texto" hidden>
     <span class="bt-label">Texto</span>
@@ -1279,6 +1283,7 @@ function construirOverlays(): void {
     lienzo.appendChild(crearTiradorEscala(r, el))
     lienzo.appendChild(crearSwatchColor(r, el))
   }
+  autoguardar()
 }
 
 // Botón ✕ para eliminar un elemento agregado (esquina sup. derecha de su caja).
@@ -1721,6 +1726,109 @@ btnExport.addEventListener('click', async () => {
 })
 
 // ---------------------------------------------------------------
+//  Guardar / cargar proyecto
+// ---------------------------------------------------------------
+interface Proyecto {
+  v: number
+  plantilla: string
+  valores: Record<string, string>
+  estilos: Record<string, EstiloCampo>
+  bloqueado: Record<string, boolean>
+  cajaAlto: Record<string, number>
+  metricas: Record<string, Metrica>
+  foto: Foto | null
+  encuadre: Encuadre
+  contador: number
+  svg: string
+}
+
+function snapshotProyecto(): Proyecto {
+  return {
+    v: 1,
+    plantilla: plantillaActual,
+    valores, estilos, bloqueado, cajaAlto, metricas,
+    foto, encuadre,
+    contador: contadorAgregados,
+    svg: svgEl ? new XMLSerializer().serializeToString(svgEl) : '',
+  }
+}
+
+async function restaurarProyecto(p: Proyecto): Promise<void> {
+  cerrarEditor()
+  plantillaActual = p.plantilla
+  if ([...selPlantilla.options].some((o) => o.value === p.plantilla)) selPlantilla.value = p.plantilla
+  valores = p.valores ?? {}
+  estilos = p.estilos ?? {}
+  bloqueado = p.bloqueado ?? {}
+  cajaAlto = p.cajaAlto ?? {}
+  metricas = p.metricas ?? {}
+  foto = p.foto ?? null
+  encuadre = p.encuadre ?? { zoom: 1, ox: 0, oy: 0 }
+  contadorAgregados = p.contador ?? 0
+
+  lienzo.innerHTML = p.svg
+  svgEl = lienzo.querySelector('svg')
+  if (svgEl) { svgEl.style.width = '100%'; svgEl.style.height = 'auto'; svgEl.style.display = 'block' }
+
+  await document.fonts.ready
+  camposActuales = Array.from(svgEl?.querySelectorAll('[data-campo][data-anchor]') ?? [])
+    .map((el) => ({ nombre: el.getAttribute('data-campo')!, etiqueta: el.getAttribute('data-campo')! }))
+  frameFoto = frameVisibleUser()
+  // Rects iniciales (fallback de hits).
+  rectsIniciales = {}
+  const base = lienzo.getBoundingClientRect()
+  for (const c of camposActuales) {
+    const r = rectUnion(svgEl!.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
+    if (r) rectsIniciales[c.nombre] = r
+  }
+  construirOverlays()
+  estado.textContent = 'Proyecto cargado.'
+}
+
+let tGuardar: number | undefined
+function autoguardar(): void {
+  clearTimeout(tGuardar)
+  tGuardar = window.setTimeout(() => {
+    try {
+      const json = JSON.stringify(snapshotProyecto())
+      // No autoguardar si pesa mucho (plantilla con foto embebida grande):
+      // evita saturar localStorage y pisar un proyecto chico bueno.
+      if (json.length > 4_000_000) return
+      localStorage.setItem('gastonart-proyecto', json)
+    } catch { /* quota: ignorar */ }
+  }, 600)
+}
+
+document.querySelector('#btn-guardar')!.addEventListener('click', () => {
+  cerrarEditor()
+  const blob = new Blob([JSON.stringify(snapshotProyecto())], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `${nombreCorto(plantillaActual)}.gastonart.json`
+  a.click()
+  estado.textContent = 'Proyecto guardado.'
+})
+const inProyecto = document.querySelector<HTMLInputElement>('#in-proyecto')!
+document.querySelector('#btn-cargar')!.addEventListener('click', () => inProyecto.click())
+inProyecto.addEventListener('change', async () => {
+  const file = inProyecto.files?.[0]
+  if (!file) return
+  try {
+    const p = JSON.parse(await file.text()) as Proyecto
+    await restaurarProyecto(p)
+  } catch (err) {
+    estado.textContent = '❌ No se pudo cargar: ' + (err instanceof Error ? err.message : String(err))
+  }
+  inProyecto.value = ''
+})
+document.querySelector('#btn-nuevo')!.addEventListener('click', () => {
+  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
+  void montarPlantilla()
+  estado.textContent = 'Nuevo.'
+})
+
+// ---------------------------------------------------------------
 //  Eventos varios
 // ---------------------------------------------------------------
 selPlantilla.addEventListener('change', () => {
@@ -1750,5 +1858,15 @@ void (async () => {
   btFamily.innerHTML = familiasDisponibles()
     .map((f) => `<option value="${escAttr(f)}">${escAttr(f)}</option>`)
     .join('')
-  await montarPlantilla()
+  // Auto-restaurar el último trabajo (si entra en localStorage), si no, montar.
+  let restaurado = false
+  try {
+    const guardado = localStorage.getItem('gastonart-proyecto')
+    if (guardado && guardado.length <= 4_000_000) {
+      await restaurarProyecto(JSON.parse(guardado) as Proyecto); restaurado = true
+    } else if (guardado) {
+      localStorage.removeItem('gastonart-proyecto') // descartar autosave viejo pesado
+    }
+  } catch (e) { console.error('[restaurar] falló:', e) }
+  if (!restaurado) await montarPlantilla()
 })()
