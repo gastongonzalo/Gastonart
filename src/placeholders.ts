@@ -46,18 +46,24 @@ function mapearCampos(doc: Document): GrupoCampo[] {
   const texts = Array.from(doc.querySelectorAll('text'))
   const grupos: GrupoCampo[] = []
   const usados = new Map<string, number>()
+  const enGrupo = new Set<Element>()
 
-  const cerrar = (els: Element[], texto: string) => {
-    const inner = texto.replace(/[{}]/g, ' ').replace(/\s+/g, ' ').trim()
-    const primera = inner.split(' ')[0] || 'campo'
-    let nombre = normalizarClave(primera) || 'campo'
+  const claveUnica = (primera: string): string => {
+    let nombre = normalizarClave(primera) || 'texto'
     const n = (usados.get(nombre) ?? 0) + 1
     usados.set(nombre, n)
-    if (n > 1) nombre = `${nombre}_${n}`
-    const etiqueta = inner.length > 40 ? inner.slice(0, 40) + '…' : inner
-    grupos.push({ els, nombre, etiqueta })
+    return n > 1 ? `${nombre}_${n}` : nombre
+  }
+  const etiquetaDe = (inner: string) => (inner.length > 40 ? inner.slice(0, 40) + '…' : inner || '(vacío)')
+
+  const cerrar = (els: Element[], texto: string) => {
+    els.forEach((e) => enGrupo.add(e))
+    const inner = texto.replace(/[{}]/g, ' ').replace(/\s+/g, ' ').trim()
+    const primera = inner.split(' ')[0] || 'campo'
+    grupos.push({ els, nombre: claveUnica(primera), etiqueta: etiquetaDe(inner) })
   }
 
+  // Paso 1: campos delimitados por llaves { ... } (pueden abarcar varios <text>).
   let els: Element[] | null = null
   let texto = ''
   for (const el of texts) {
@@ -65,22 +71,24 @@ function mapearCampos(doc: Document): GrupoCampo[] {
     if (els) {
       els.push(el)
       texto += ' ' + t
-      if (t.includes('}')) {
-        cerrar(els, texto)
-        els = null
-        texto = ''
-      }
+      if (t.includes('}')) { cerrar(els, texto); els = null; texto = '' }
     } else if (t.includes('{')) {
       els = [el]
       texto = t
-      if (t.includes('}')) {
-        cerrar(els, texto)
-        els = null
-        texto = ''
-      }
+      if (t.includes('}')) { cerrar(els, texto); els = null; texto = '' }
     }
   }
   if (els) cerrar(els, texto)
+
+  // Paso 2: TODO <text> restante también es editable (sin necesidad de llaves).
+  for (const el of texts) {
+    if (enGrupo.has(el)) continue
+    const inner = (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+    if (!inner) continue // saltar textos vacíos (no tienen caja clickeable)
+    const primera = inner.split(' ')[0] || 'texto'
+    grupos.push({ els: [el], nombre: claveUnica(primera), etiqueta: etiquetaDe(inner) })
+  }
+
   return grupos
 }
 
@@ -123,8 +131,8 @@ export function prepararEditor(svg: string): {
     const ft = anchor.querySelector('tspan')
     meta[grupo.nombre] = {
       lh: lineHeightDeGrupo(grupo.els, styleText),
-      x: ft?.getAttribute('x') ?? '0',
-      y: ft?.getAttribute('y') ?? null,
+      x: ft?.getAttribute('x') ?? anchor.getAttribute('x') ?? '0',
+      y: ft?.getAttribute('y') ?? anchor.getAttribute('y') ?? null,
     }
     for (const el of grupo.els) el.setAttribute('data-campo', grupo.nombre)
     anchor.setAttribute('data-anchor', '1')

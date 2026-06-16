@@ -1595,6 +1595,17 @@ function construirFotoTools(): void {
 // ---------------------------------------------------------------
 //  Editor en vivo (sin recuadro: el texto cambia sobre la imagen)
 // ---------------------------------------------------------------
+// Texto actual de un campo en el DOM, una línea por <tspan> (o por <text>).
+function textoActualCampo(nodos: NodeListOf<Element> | Element[]): string {
+  const lineas: string[] = []
+  for (const te of Array.from(nodos)) {
+    const ts = Array.from(te.querySelectorAll('tspan'))
+    if (ts.length) for (const t of ts) lineas.push(t.textContent ?? '')
+    else lineas.push(te.textContent ?? '')
+  }
+  return lineas.join('\n').replace(/\s+$/g, '')
+}
+
 function abrirEditor(nombre: string): void {
   if (!svgEl) return
   cerrarEditor()
@@ -1604,7 +1615,13 @@ function abrirEditor(nombre: string): void {
   const r = rectUnion(svgEl.querySelectorAll(`[data-campo="${nombre}"]`), base) ?? rectsIniciales[nombre]
   if (!r) return
   const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
-  const valorPrevio = valores[nombre] ?? ''
+  // Si el campo aún no tiene valor, sembramos el texto que ya trae la plantilla
+  // (salvo que sea un placeholder con llaves, que se edita desde cero).
+  let valorPrevio = valores[nombre]
+  if (valorPrevio == null) {
+    const actual = textoActualCampo(svgEl.querySelectorAll(`[data-campo="${nombre}"]`))
+    valorPrevio = /[{}]/.test(actual) ? '' : actual
+  }
 
   // Ocultamos el texto del SVG mientras se edita; el textarea (mismo color,
   // fuente y posición) lo reemplaza visualmente → el cursor queda alineado.
