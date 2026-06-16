@@ -257,7 +257,16 @@ body {
   max-height: 240px;
   overflow-y: auto;
 }
-.menu-iconos button { color: #e6edf6; display: inline-flex; align-items: center; justify-content: center; }
+.menu-iconos button {
+  color: #e6edf6;
+  width: 32px;
+  height: 32px;
+  padding: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.menu-iconos button svg { width: 20px; height: 20px; display: block; flex: none; }
 
 /* Pluma (Bézier) */
 .mini.activo-pluma { background: var(--accent); color: #06121c; border-color: var(--accent); }

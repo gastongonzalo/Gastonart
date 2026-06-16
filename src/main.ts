@@ -238,7 +238,9 @@ document.querySelector('#btn-add-img')!.addEventListener('click', () => inImgNue
 const menuFigura = document.querySelector<HTMLDivElement>('#menu-figura')!
 document.querySelector('#btn-add-figura')!.addEventListener('click', (e) => {
   e.stopPropagation()
-  menuFigura.hidden = !menuFigura.hidden
+  const abrir = menuFigura.hidden
+  document.querySelectorAll('.menu-pop').forEach((m) => ((m as HTMLElement).hidden = true))
+  menuFigura.hidden = !abrir
 })
 menuFigura.querySelectorAll<HTMLButtonElement>('button[data-fig]').forEach((b) => {
   b.addEventListener('click', () => { insertarFigura(b.dataset.fig!); menuFigura.hidden = true })
@@ -255,7 +257,9 @@ for (const raw of Object.values(iconosPack)) {
 }
 document.querySelector('#btn-add-icono')!.addEventListener('click', (e) => {
   e.stopPropagation()
-  menuIcono.hidden = !menuIcono.hidden
+  const abrir = menuIcono.hidden
+  document.querySelectorAll('.menu-pop').forEach((m) => ((m as HTMLElement).hidden = true))
+  menuIcono.hidden = !abrir
 })
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
@@ -732,6 +736,8 @@ function insertarFigura(tipo: string): void {
   }
   const x = Math.round((vw - S) / 2), y = Math.round((vh - S) / 2)
   el.setAttribute('transform', `translate(${x} ${y}) scale(1)`)
+  if (!el.getAttribute('stroke-width')) el.setAttribute('stroke-width', '4')
+  el.setAttribute('stroke-linejoin', 'round')
   el.setAttribute('data-agregado', 'figura')
   el.setAttribute('data-colormode', modo)
   svgEl.appendChild(el)
@@ -1093,15 +1099,17 @@ function crearTiradorEscala(r: Rect, el: SVGElement): HTMLDivElement {
 }
 
 // Selector de color para una figura/ícono (relleno o borde según data-colormode).
-function crearSwatchColor(r: Rect, el: SVGElement): HTMLLabelElement {
+// Swatch de color para 'fill' (relleno) o 'stroke' (contorno) de una figura/ícono.
+function crearSwatch(r: Rect, el: SVGElement, prop: 'fill' | 'stroke', idx: number): HTMLLabelElement {
   const wrap = document.createElement('label')
-  wrap.className = 'swatch-figura'
-  Object.assign(wrap.style, { left: r.left - 2 + 'px', top: r.top - 28 + 'px' })
-  const modo = el.getAttribute('data-colormode') || 'fill'
+  wrap.className = 'swatch-figura swatch-' + prop
+  wrap.title = prop === 'fill' ? 'Relleno' : 'Contorno'
+  Object.assign(wrap.style, { left: r.left - 2 + idx * 26 + 'px', top: r.top - 28 + 'px' })
+  const actual = el.getAttribute(prop) || ''
   const inp = document.createElement('input')
   inp.type = 'color'
-  inp.value = aHex(el.getAttribute(modo) || '#000000')
-  inp.addEventListener('input', () => el.setAttribute(modo, inp.value))
+  inp.value = actual && actual !== 'none' ? aHex(actual) : '#ffffff'
+  inp.addEventListener('input', () => { el.setAttribute(prop, inp.value); registrarHistorial() })
   inp.addEventListener('pointerdown', (e) => e.stopPropagation())
   wrap.appendChild(inp)
   return wrap
@@ -1286,7 +1294,8 @@ function construirOverlays(): void {
     lienzo.appendChild(hit)
     lienzo.appendChild(crearBotonEliminar(r, () => { el.remove(); construirOverlays() }))
     lienzo.appendChild(crearTiradorEscala(r, el))
-    lienzo.appendChild(crearSwatchColor(r, el))
+    lienzo.appendChild(crearSwatch(r, el, 'fill', 0))
+    lienzo.appendChild(crearSwatch(r, el, 'stroke', 1))
   }
   registrarHistorial()
   autoguardar()
