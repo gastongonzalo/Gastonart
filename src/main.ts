@@ -173,6 +173,8 @@ app.innerHTML = `
     </span>
     <button id="btn-pluma" class="mini" title="Pluma (puntos de ancla)">✒ Pluma</button>
     <span class="sep"></span>
+    <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
+    <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
     <button id="btn-guardar" class="mini">💾 Guardar</button>
     <button id="btn-cargar" class="mini">📂 Cargar</button>
     <button id="btn-nuevo" class="mini">Nuevo</button>
@@ -335,7 +337,10 @@ async function montarPlantilla(): Promise<void> {
     if (valores[nombre] && metricas[nombre]) pintarCampo(nombre)
   }
 
+  suprimirHistorial = true
   construirOverlays()
+  suprimirHistorial = false
+  reiniciarHistorial() // nueva placa = historial nuevo
   estado.textContent = `${camposActuales.length} campo(s) · ${hayImagen(plantillas[plantillaActual]) ? 'foto editable' : 'sin foto'} · pasá el mouse y hacé clic`
 }
 
@@ -1283,6 +1288,7 @@ function construirOverlays(): void {
     lienzo.appendChild(crearTiradorEscala(r, el))
     lienzo.appendChild(crearSwatchColor(r, el))
   }
+  registrarHistorial()
   autoguardar()
 }
 
@@ -1753,7 +1759,8 @@ function snapshotProyecto(): Proyecto {
   }
 }
 
-async function restaurarProyecto(p: Proyecto): Promise<void> {
+// Aplica un snapshot al DOM y estado (sin tocar el historial).
+async function aplicarSnapshot(p: Proyecto): Promise<void> {
   cerrarEditor()
   plantillaActual = p.plantilla
   if ([...selPlantilla.options].some((o) => o.value === p.plantilla)) selPlantilla.value = p.plantilla
@@ -1774,15 +1781,69 @@ async function restaurarProyecto(p: Proyecto): Promise<void> {
   camposActuales = Array.from(svgEl?.querySelectorAll('[data-campo][data-anchor]') ?? [])
     .map((el) => ({ nombre: el.getAttribute('data-campo')!, etiqueta: el.getAttribute('data-campo')! }))
   frameFoto = frameVisibleUser()
-  // Rects iniciales (fallback de hits).
   rectsIniciales = {}
   const base = lienzo.getBoundingClientRect()
   for (const c of camposActuales) {
     const r = rectUnion(svgEl!.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (r) rectsIniciales[c.nombre] = r
   }
+  suprimirHistorial = true
   construirOverlays()
+  suprimirHistorial = false
+}
+
+// Carga un proyecto (Cargar / auto-restaurar): aplica + reinicia el historial.
+async function restaurarProyecto(p: Proyecto): Promise<void> {
+  await aplicarSnapshot(p)
+  reiniciarHistorial()
   estado.textContent = 'Proyecto cargado.'
+}
+
+// ---------------------------------------------------------------
+//  Historial (deshacer / rehacer)
+// ---------------------------------------------------------------
+let historial: string[] = []
+let histIdx = -1
+let suprimirHistorial = false
+
+function reiniciarHistorial(): void {
+  historial = [JSON.stringify(snapshotProyecto())]
+  histIdx = 0
+  actualizarBotonesHistorial()
+}
+
+function registrarHistorial(): void {
+  if (suprimirHistorial) return
+  const snap = JSON.stringify(snapshotProyecto())
+  if (historial[histIdx] === snap) return
+  historial = historial.slice(0, histIdx + 1)
+  historial.push(snap)
+  histIdx++
+  // Tope por tamaño total (≈120 MB) — soporta muchos chicos o pocos grandes.
+  let total = historial.reduce((a, s) => a + s.length, 0)
+  while (historial.length > 1 && total > 120_000_000) { total -= historial[0].length; historial.shift(); histIdx-- }
+  actualizarBotonesHistorial()
+}
+
+async function deshacer(): Promise<void> {
+  if (histIdx <= 0) return
+  histIdx--
+  await aplicarSnapshot(JSON.parse(historial[histIdx]))
+  actualizarBotonesHistorial()
+  estado.textContent = 'Deshacer.'
+}
+async function rehacer(): Promise<void> {
+  if (histIdx >= historial.length - 1) return
+  histIdx++
+  await aplicarSnapshot(JSON.parse(historial[histIdx]))
+  actualizarBotonesHistorial()
+  estado.textContent = 'Rehacer.'
+}
+function actualizarBotonesHistorial(): void {
+  const u = document.querySelector<HTMLButtonElement>('#btn-deshacer')
+  const r = document.querySelector<HTMLButtonElement>('#btn-rehacer')
+  if (u) u.disabled = histIdx <= 0
+  if (r) r.disabled = histIdx >= historial.length - 1
 }
 
 let tGuardar: number | undefined
@@ -1826,6 +1887,14 @@ document.querySelector('#btn-nuevo')!.addEventListener('click', () => {
   valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
   void montarPlantilla()
   estado.textContent = 'Nuevo.'
+})
+document.querySelector('#btn-deshacer')!.addEventListener('click', () => void deshacer())
+document.querySelector('#btn-rehacer')!.addEventListener('click', () => void rehacer())
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return
+  const k = e.key.toLowerCase()
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); void deshacer() }
+  else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); void rehacer() }
 })
 
 // ---------------------------------------------------------------
