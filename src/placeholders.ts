@@ -116,7 +116,7 @@ export function prepararEditor(svg: string): {
   svg: string
   campos: CampoTexto[]
   meta: Record<string, MetaCampo>
-  frameFoto: FrameFoto | null
+  frames: Record<string, FrameFoto>
 } {
   const doc = parsear(svg)
   const styleText = Array.from(doc.querySelectorAll('style'))
@@ -138,19 +138,20 @@ export function prepararEditor(svg: string): {
     anchor.setAttribute('data-anchor', '1')
   }
 
-  let frameFoto: FrameFoto | null = null
-  const img = doc.querySelector('image')
-  if (img) {
-    img.setAttribute('data-foto', '1')
+  // Cada <image> de la plantilla es un hueco de foto editable (data-foto="0","1",…).
+  const frames: Record<string, FrameFoto> = {}
+  Array.from(doc.querySelectorAll('image')).forEach((img, i) => {
+    const id = String(i)
+    img.setAttribute('data-foto', id)
     const W = parseFloat(img.getAttribute('width') ?? '0')
     const H = parseFloat(img.getAttribute('height') ?? '0')
     const pos = transformXY(img) ?? { x: 0, y: 0 }
     const s = escalaDe(img)
-    frameFoto = { x: pos.x, y: pos.y, w: W * s, h: H * s }
-  }
+    frames[id] = { x: pos.x, y: pos.y, w: W * s, h: H * s }
+  })
 
   const campos = grupos.map(({ nombre, etiqueta }) => ({ nombre, etiqueta }))
-  return { svg: new XMLSerializer().serializeToString(doc), campos, meta, frameFoto }
+  return { svg: new XMLSerializer().serializeToString(doc), campos, meta, frames }
 }
 
 // Aplica la foto del usuario al <image> del SVG vivo, con zoom y desplazamiento
@@ -158,11 +159,12 @@ export function prepararEditor(svg: string): {
 // a los límites válidos (para que el estado no se desborde).
 export function aplicarFotoDom(
   root: Element,
+  id: string,
   foto: Foto,
   frame: FrameFoto,
   enc: Encuadre,
 ): { ox: number; oy: number } {
-  const img = root.querySelector('[data-foto]') as SVGElement | null
+  const img = root.querySelector(`[data-foto="${id}"]`) as SVGElement | null
   if (!img) return { ox: enc.ox, oy: enc.oy }
 
   const cover = Math.max(frame.w / foto.w, frame.h / foto.h)

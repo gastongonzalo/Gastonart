@@ -41,7 +41,7 @@ const iconosPack = import.meta.glob('./assets/iconos/*.svg', {
   eager: true,
 }) as Record<string, string>
 
-const rutasPlantilla = Object.keys(plantillas).sort()
+const rutasPlantilla = Object.keys(plantillas).sort() // mutable: se le suman las plantillas que carga el usuario
 const nombreCorto = (r: string) => r.split('/').pop()!.replace(/\.svg$/i, '')
 
 // ---------------------------------------------------------------
@@ -79,10 +79,24 @@ let valores: Record<string, string> = {}
 let estilos: Record<string, EstiloCampo> = {}
 let bloqueado: Record<string, boolean> = {} // textos de plantilla nacen bloqueados (no se mueven)
 let cajaAlto: Record<string, number> = {} // alto de la caja (user units). Definido ⇒ caja activa (recorta)
-let foto: Foto | null = null
-let frameFoto: FrameFoto | null = null
-let encuadre: Encuadre = { zoom: 1, ox: 0, oy: 0 }
+// Cada <image> de la plantilla es un hueco de foto editable, identificado por su
+// id (data-foto="0","1",…). El estado de foto/encuadre se guarda por id.
+let fotos: Record<string, Foto> = {}
+let framesFoto: Record<string, FrameFoto> = {}
+let encuadres: Record<string, Encuadre> = {}
+let fotoActiva: string | null = null // slot al que se sube/cambia la foto
 let zoomSlider: HTMLInputElement | null = null
+
+// Ids de los huecos de foto presentes en el SVG montado (en orden del documento).
+function idsFoto(): string[] {
+  if (!svgEl) return []
+  return Array.from(svgEl.querySelectorAll('[data-foto]'))
+    .map((e) => e.getAttribute('data-foto'))
+    .filter((v): v is string => v != null)
+}
+function encuadreDe(id: string): Encuadre {
+  return (encuadres[id] ??= { zoom: 1, ox: 0, oy: 0 })
+}
 
 let svgEl: SVGSVGElement | null = null
 let camposActuales: CampoTexto[] = []
@@ -377,14 +391,18 @@ async function montarPlantilla(): Promise<void> {
     svgEl.style.display = 'block'
   }
 
-  // Marco visible de la foto (máscara de recorte ∩ placa) — base del encuadre.
-  frameFoto = frameVisibleUser() ?? prep.frameFoto
+  // Marco visible de cada foto (máscara de recorte ∩ placa) — base del encuadre.
+  framesFoto = {}
+  for (const id of idsFoto()) framesFoto[id] = frameVisibleUser(id) ?? prep.frames[id]
 
-  // Foto del usuario (si hay), con su encuadre.
-  if (foto && frameFoto) {
-    const c = aplicarFotoDom(svgEl!, foto, frameFoto, encuadre)
-    encuadre.ox = c.ox
-    encuadre.oy = c.oy
+  // Foto del usuario por hueco (si hay), con su encuadre.
+  for (const id of idsFoto()) {
+    const f = fotos[id], fr = framesFoto[id]
+    if (f && fr) {
+      const enc = encuadreDe(id)
+      const c = aplicarFotoDom(svgEl!, id, f, fr, enc)
+      enc.ox = c.ox; enc.oy = c.oy
+    }
   }
 
   await document.fonts.ready
@@ -636,9 +654,9 @@ function rectUnion(els: ArrayLike<Element>, base: DOMRect): Rect | null {
 // Marco VISIBLE de la foto en unidades del SVG: bbox de la máscara de recorte
 // (clip-path) recortada a la placa. Es lo que la foto debe cubrir y la base
 // del encuadre. Si no hay clip, usa toda la placa.
-function frameVisibleUser(): FrameFoto | null {
+function frameVisibleUser(id: string): FrameFoto | null {
   if (!svgEl) return null
-  const img = svgEl.querySelector('[data-foto]')
+  const img = svgEl.querySelector(`[data-foto="${id}"]`)
   if (!img) return null
 
   const vb = svgEl.viewBox.baseVal
@@ -664,15 +682,17 @@ function frameVisibleUser(): FrameFoto | null {
 }
 
 // El mismo marco visible, pero en píxeles del lienzo (para el overlay/hit).
-function rectFotoVisible(_img: Element, base: DOMRect): Rect | null {
-  if (!svgEl || !frameFoto) return null
+function rectFotoVisible(img: Element, base: DOMRect): Rect | null {
+  const id = img.getAttribute('data-foto')
+  const fr = id != null ? framesFoto[id] : null
+  if (!svgEl || !fr) return null
   const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
   const svgRect = svgEl.getBoundingClientRect()
   return {
-    left: svgRect.left - base.left + frameFoto.x * k,
-    top: svgRect.top - base.top + frameFoto.y * k,
-    width: frameFoto.w * k,
-    height: frameFoto.h * k,
+    left: svgRect.left - base.left + fr.x * k,
+    top: svgRect.top - base.top + fr.y * k,
+    width: fr.w * k,
+    height: fr.h * k,
   }
 }
 
@@ -1546,19 +1566,19 @@ function construirOverlays(): void {
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
 
-  // Foto primero (queda DEBAJO de los textos).
-  const img = svgEl.querySelector('[data-foto]')
-  if (img) {
+  // Fotos primero (quedan DEBAJO de los textos). Una por cada hueco de la plantilla.
+  for (const img of Array.from(svgEl.querySelectorAll('[data-foto]'))) {
+    const id = img.getAttribute('data-foto')!
     const r = rectFotoVisible(img, base)
-    if (r) {
-      const hit = crearHit(r, 'foto', () => { if (!foto) inFoto.click() })
-      hit.classList.add('hit-foto')
-      hit.title = foto ? 'Arrastrá para encuadrar · rueda para zoom' : 'Subir foto'
-      lienzo.appendChild(hit)
-      if (foto && frameFoto) {
-        habilitarPanZoom(hit)
-        construirFotoTools()
-      }
+    if (!r) continue
+    const tieneFoto = !!fotos[id]
+    const hit = crearHit(r, 'foto', () => { if (!fotos[id]) { fotoActiva = id; inFoto.click() } })
+    hit.classList.add('hit-foto')
+    hit.title = tieneFoto ? 'Arrastrá para encuadrar · rueda para zoom' : 'Subir foto'
+    lienzo.appendChild(hit)
+    if (tieneFoto && framesFoto[id]) {
+      habilitarPanZoom(hit, id)
+      construirFotoTools(id, r)
     }
   }
 
@@ -1744,23 +1764,25 @@ function crearHit(r: Rect, etiqueta: string, onClick: () => void): HTMLDivElemen
   return div
 }
 
-// Arrastrar para reencuadrar la foto + rueda para zoom.
-function habilitarPanZoom(hit: HTMLDivElement): void {
+// Arrastrar para reencuadrar la foto + rueda para zoom (por hueco de foto).
+function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
   hit.style.cursor = 'grab'
   hit.addEventListener('pointerdown', (e) => {
-    if (!foto || !frameFoto || !svgEl) return
+    const foto = fotos[id], fr = framesFoto[id]
+    if (!foto || !fr || !svgEl) return
     e.preventDefault()
     try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
     hit.style.cursor = 'grabbing'
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const enc = encuadreDe(id)
     let sx = e.clientX, sy = e.clientY
     const onMove = (ev: PointerEvent) => {
       const dx = (ev.clientX - sx) / k
       const dy = (ev.clientY - sy) / k
       sx = ev.clientX; sy = ev.clientY
-      encuadre.ox += dx; encuadre.oy += dy
-      const c = aplicarFotoDom(svgEl!, foto!, frameFoto!, encuadre)
-      encuadre.ox = c.ox; encuadre.oy = c.oy
+      enc.ox += dx; enc.oy += dy
+      const c = aplicarFotoDom(svgEl!, id, foto, fr, enc)
+      enc.ox = c.ox; enc.oy = c.oy
     }
     const onUp = () => {
       hit.removeEventListener('pointermove', onMove)
@@ -1771,30 +1793,35 @@ function habilitarPanZoom(hit: HTMLDivElement): void {
     hit.addEventListener('pointercancel', onUp, { once: true })
   })
   hit.addEventListener('wheel', (e) => {
-    if (!foto || !frameFoto || !svgEl) return
+    const foto = fotos[id], fr = framesFoto[id]
+    if (!foto || !fr || !svgEl) return
     e.preventDefault()
+    const enc = encuadreDe(id)
     const f = e.deltaY < 0 ? 1.08 : 1 / 1.08
-    encuadre.zoom = Math.min(5, Math.max(1, encuadre.zoom * f))
-    const c = aplicarFotoDom(svgEl, foto, frameFoto, encuadre)
-    encuadre.ox = c.ox; encuadre.oy = c.oy
-    if (zoomSlider) zoomSlider.value = String(encuadre.zoom)
+    enc.zoom = Math.min(5, Math.max(1, enc.zoom * f))
+    const c = aplicarFotoDom(svgEl, id, foto, fr, enc)
+    enc.ox = c.ox; enc.oy = c.oy
+    if (zoomSlider) zoomSlider.value = String(enc.zoom)
   }, { passive: false })
 }
 
-// Mini-barra de la foto: cambiar y zoom.
-function construirFotoTools(): void {
+// Mini-barra de la foto: cambiar y zoom. Se posiciona sobre cada hueco.
+function construirFotoTools(id: string, r: Rect): void {
+  const enc = encuadreDe(id)
   const tools = document.createElement('div')
   tools.className = 'foto-tools'
+  Object.assign(tools.style, { right: 'auto', left: r.left + 8 + 'px', top: r.top + 8 + 'px' })
   tools.innerHTML =
     `<button class="ft-cambiar mini">Cambiar foto</button>` +
-    `<label class="ft-zoom">Zoom <input type="range" min="1" max="5" step="0.01" value="${encuadre.zoom}"></label>`
-  tools.querySelector('.ft-cambiar')!.addEventListener('click', () => inFoto.click())
+    `<label class="ft-zoom">Zoom <input type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label>`
+  tools.querySelector('.ft-cambiar')!.addEventListener('click', () => { fotoActiva = id; inFoto.click() })
   const slider = tools.querySelector('input')!
   slider.addEventListener('input', () => {
-    if (!foto || !frameFoto || !svgEl) return
-    encuadre.zoom = parseFloat(slider.value)
-    const c = aplicarFotoDom(svgEl, foto, frameFoto, encuadre)
-    encuadre.ox = c.ox; encuadre.oy = c.oy
+    const foto = fotos[id], fr = framesFoto[id]
+    if (!foto || !fr || !svgEl) return
+    enc.zoom = parseFloat(slider.value)
+    const c = aplicarFotoDom(svgEl, id, foto, fr, enc)
+    enc.ox = c.ox; enc.oy = c.oy
   })
   zoomSlider = slider
   lienzo.appendChild(tools)
@@ -1996,14 +2023,16 @@ function cerrarEditor(): void {
 // ---------------------------------------------------------------
 inFoto.addEventListener('change', async () => {
   const file = inFoto.files?.[0]
-  if (!file) return
+  const id = fotoActiva ?? idsFoto()[0]
+  if (!file || id == null) { inFoto.value = ''; return }
   try {
-    foto = await leerFoto(file)
-    encuadre = { zoom: 1, ox: 0, oy: 0 } // foto nueva: encuadre por defecto (cover centrado)
+    fotos[id] = await leerFoto(file)
+    encuadres[id] = { zoom: 1, ox: 0, oy: 0 } // foto nueva: encuadre por defecto (cover centrado)
     await montarPlantilla()
   } catch (err) {
     estado.textContent = '❌ ' + (err instanceof Error ? err.message : String(err))
   }
+  fotoActiva = null
   inFoto.value = ''
 })
 
@@ -2095,18 +2124,20 @@ interface Proyecto {
   bloqueado: Record<string, boolean>
   cajaAlto: Record<string, number>
   metricas: Record<string, Metrica>
-  foto: Foto | null
-  encuadre: Encuadre
+  fotos?: Record<string, Foto>
+  encuadres?: Record<string, Encuadre>
+  foto?: Foto | null // formato viejo (1 sola foto) — se migra al cargar
+  encuadre?: Encuadre
   contador: number
   svg: string
 }
 
 function snapshotProyecto(): Proyecto {
   return {
-    v: 1,
+    v: 2,
     plantilla: plantillaActual,
     valores, estilos, bloqueado, cajaAlto, metricas,
-    foto, encuadre,
+    fotos, encuadres,
     contador: contadorAgregados,
     svg: svgEl ? new XMLSerializer().serializeToString(svgEl) : '',
   }
@@ -2122,8 +2153,14 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   bloqueado = p.bloqueado ?? {}
   cajaAlto = p.cajaAlto ?? {}
   metricas = p.metricas ?? {}
-  foto = p.foto ?? null
-  encuadre = p.encuadre ?? { zoom: 1, ox: 0, oy: 0 }
+  // Multi-foto (v2). Migrar saves viejos (v1: una sola foto → hueco "0").
+  if (p.fotos || p.encuadres) {
+    fotos = p.fotos ?? {}
+    encuadres = p.encuadres ?? {}
+  } else {
+    fotos = p.foto ? { '0': p.foto } : {}
+    encuadres = p.encuadre ? { '0': p.encuadre } : {}
+  }
   contadorAgregados = p.contador ?? 0
 
   lienzo.innerHTML = p.svg
@@ -2133,7 +2170,8 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   await document.fonts.ready
   camposActuales = Array.from(svgEl?.querySelectorAll('[data-campo][data-anchor]') ?? [])
     .map((el) => ({ nombre: el.getAttribute('data-campo')!, etiqueta: el.getAttribute('data-campo')! }))
-  frameFoto = frameVisibleUser()
+  framesFoto = {}
+  for (const id of idsFoto()) { const fr = frameVisibleUser(id); if (fr) framesFoto[id] = fr }
   rectsIniciales = {}
   const base = lienzo.getBoundingClientRect()
   for (const c of camposActuales) {
@@ -2253,7 +2291,7 @@ selPlantilla.addEventListener('change', () => {
   svgActual = plantillas[plantillaActual]
   valores = {}
   estilos = {}
-  foto = null
+  fotos = {}; encuadres = {}; fotoActiva = null
   void montarPlantilla()
 })
 
@@ -2287,7 +2325,7 @@ function nuevaPlacaEnBlanco(w: number, h: number, fondo = '#ffffff'): void {
   try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
   svgActual = svgEnBlanco(w, h, fondo)
   plantillaActual = `enblanco-${w}x${h}`
-  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
+  valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
   void montarPlantilla().then(() => { estado.textContent = `Lienzo ${w}×${h} px` })
 }
 
@@ -2297,8 +2335,26 @@ function usarPlantilla(ruta: string): void {
   plantillaActual = ruta
   svgActual = plantillas[ruta]
   if ([...selPlantilla.options].some((o) => o.value === ruta)) selPlantilla.value = ruta
-  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
+  valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
   void montarPlantilla()
+}
+
+// Registra una plantilla en el sistema (selector + pantalla de inicio) y devuelve
+// su clave. Al cargar un SVG nuevo se suma como una plantilla más, con su propio
+// nombre (sin pisar las efemérides existentes).
+function registrarPlantilla(nombre: string, svg: string): string {
+  const base = nombre.replace(/\.svg$/i, '').trim() || 'plantilla'
+  const existentes = new Set(rutasPlantilla.map(nombreCorto))
+  let nom = base, n = 2
+  while (existentes.has(nom)) nom = `${base} (${n++})`
+  const ruta = `./assets/templates/${nom}.svg`
+  plantillas[ruta] = svg
+  rutasPlantilla.push(ruta)
+  const opt = document.createElement('option')
+  opt.value = ruta
+  opt.textContent = nom
+  selPlantilla.appendChild(opt)
+  return ruta
 }
 
 // Monta un SVG importado por el usuario como lienzo editable.
@@ -2310,9 +2366,10 @@ function usarSvgImportado(texto: string, nombre: string): void {
     return
   }
   try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  plantillaActual = registrarPlantilla(nombre, texto)
   svgActual = texto
-  plantillaActual = nombre.replace(/\.svg$/i, '')
-  valores = {}; estilos = {}; foto = null; encuadre = { zoom: 1, ox: 0, oy: 0 }
+  selPlantilla.value = plantillaActual
+  valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
   void montarPlantilla()
 }
 
