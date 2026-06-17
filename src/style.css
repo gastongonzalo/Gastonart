@@ -241,6 +241,7 @@ body {
 
 /* Menú de figuras */
 .add-wrap { position: relative; display: inline-flex; }
+.menu-pop[hidden] { display: none; }
 .menu-pop {
   position: absolute;
   top: 32px;
