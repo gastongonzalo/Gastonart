@@ -1830,13 +1830,26 @@ function construirFotoTools(id: string, r: Rect): void {
 // ---------------------------------------------------------------
 //  Editor en vivo (sin recuadro: el texto cambia sobre la imagen)
 // ---------------------------------------------------------------
-// Texto actual de un campo en el DOM, una línea por <tspan> (o por <text>).
+// Texto actual de un campo en el DOM. Una línea = una baseline: los <tspan> hoja
+// que comparten el mismo `y` son una sola línea (Illustrator parte una línea en
+// varios tspan con `x` propio para hacer kerning manual). Un `y` nuevo (o un `dy`)
+// abre una línea. Varios <text> sueltos aportan cada uno su(s) línea(s).
 function textoActualCampo(nodos: NodeListOf<Element> | Element[]): string {
   const lineas: string[] = []
   for (const te of Array.from(nodos)) {
-    const ts = Array.from(te.querySelectorAll('tspan'))
-    if (ts.length) for (const t of ts) lineas.push(t.textContent ?? '')
-    else lineas.push(te.textContent ?? '')
+    const hojas = Array.from(te.querySelectorAll('tspan')).filter((t) => !t.querySelector('tspan'))
+    const src: Element[] = hojas.length ? hojas : [te]
+    let linea = '', curY: string | null = null, abierta = false
+    for (const t of src) {
+      const y = t.getAttribute('y')
+      const dy = t.getAttribute('dy')
+      const nueva = !abierta ? true : dy != null || (y != null && y !== curY)
+      if (nueva && abierta) { lineas.push(linea); linea = '' }
+      if (y != null) curY = y
+      linea += t.textContent ?? ''
+      abierta = true
+    }
+    if (abierta) lineas.push(linea)
   }
   return lineas.join('\n').replace(/\s+$/g, '')
 }
