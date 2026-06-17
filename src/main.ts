@@ -1185,7 +1185,7 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle').forEach((n) => n.remove())
 }
 
 // Envuelve el elemento en un <g data-graf-wrap> (una vez) para mover sin
@@ -1276,6 +1276,48 @@ function dibujarSelGraf(): void {
 
   tools.append(fill, stroke, del)
   lienzo.appendChild(tools)
+
+  lienzo.appendChild(crearTiradorEscalaGraf(r))
+}
+
+// Tirador de escala para un gráfico de la plantilla: escala su wrapper
+// (g data-graf-wrap) manteniendo fija la esquina superior-izquierda.
+function crearTiradorEscalaGraf(r: Rect): HTMLDivElement {
+  const h = document.createElement('div')
+  h.className = 'resize-handle'
+  Object.assign(h.style, { left: r.left + r.width - 7 + 'px', top: r.top + r.height - 7 + 'px' })
+  h.addEventListener('pointerdown', (e) => {
+    if (!svgEl || !grafSel) return
+    e.preventDefault(); e.stopPropagation()
+    const g = wrapperGraf(grafSel)
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const tr = g.getAttribute('transform') ?? ''
+    const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+    const cx0 = tm ? +tm[1] : 0, cy0 = tm ? +tm[2] : 0
+    const sm = tr.match(/scale\(\s*([-\d.]+)/)
+    const s0 = sm ? +sm[1] : 1
+    let bb = { x: 0, y: 0, width: 100, height: 100 }
+    try { bb = g.getBBox() } catch { /* default */ }
+    const px = bb.x, py = bb.y                 // pivote = esquina sup-izq (coords del hijo)
+    const ax = cx0 + s0 * px, ay = cy0 + s0 * py // posición fija del pivote (coords del padre)
+    let s = s0, sx = e.clientX
+    const onMove = (ev: PointerEvent) => {
+      const dxs = ev.clientX - sx; sx = ev.clientX
+      s = Math.max(0.05, s + dxs / ((bb.width || 100) * k))
+      g.setAttribute('transform', `translate(${ax - s * px} ${ay - s * py}) scale(${s})`)
+      h.style.left = parseFloat(h.style.left) + dxs + 'px'
+    }
+    const onUp = () => {
+      h.removeEventListener('pointermove', onMove)
+      registrarHistorial(); autoguardar()
+      dibujarSelGraf()
+    }
+    try { h.setPointerCapture(e.pointerId) } catch { /* igual escala */ }
+    h.addEventListener('pointermove', onMove)
+    h.addEventListener('pointerup', onUp, { once: true })
+    h.addEventListener('pointercancel', onUp, { once: true })
+  })
+  return h
 }
 
 // Arrastre genérico de un elemento (mueve su transform translate).
