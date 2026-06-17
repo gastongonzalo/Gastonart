@@ -506,7 +506,9 @@ body {
   font-size: 13px;
 }
 .ini-plantillas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ini-plantilla-wrap { position: relative; display: flex; }
 .ini-plantilla {
+  flex: 1;
   padding: 10px;
   background: #0b1018;
   border: 1px solid var(--border);
@@ -515,6 +517,24 @@ body {
   cursor: pointer;
 }
 .ini-plantilla:hover { border-color: var(--accent); }
+.ini-plantilla-del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #e11d48;
+  color: #fff;
+  font-size: 11px;
+  line-height: 20px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.ini-plantilla-wrap:hover .ini-plantilla-del { opacity: 1; }
 .ini-btn-acc {
   background: var(--accent);
   color: #06121c;

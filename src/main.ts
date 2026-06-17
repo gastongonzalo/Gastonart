@@ -229,6 +229,7 @@ app.innerHTML = `
     <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
     <button id="btn-guardar" class="mini">💾 Guardar</button>
     <button id="btn-cargar" class="mini">📂 Cargar</button>
+    <button id="btn-guardar-plantilla" class="mini" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Guardar plantilla</button>
     <button id="btn-nuevo" class="mini">Nuevo</button>
     <button id="btn-export">Exportar PNG (resvg)</button>
     <span class="estado" id="estado"></span>
@@ -2449,6 +2450,11 @@ inProyecto.addEventListener('change', async () => {
   }
   inProyecto.value = ''
 })
+document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () => {
+  const sug = rutasUsuario.has(plantillaActual) ? nombreCorto(plantillaActual) : ''
+  const nombre = prompt('Nombre de la plantilla:', sug || 'Mi plantilla')
+  if (nombre) guardarComoPlantilla(nombre)
+})
 document.querySelector('#btn-nuevo')!.addEventListener('click', () => mostrarInicio())
 document.querySelector('#btn-deshacer')!.addEventListener('click', () => void deshacer())
 document.querySelector('#btn-rehacer')!.addEventListener('click', () => void rehacer())
@@ -2533,6 +2539,59 @@ function registrarPlantilla(nombre: string, svg: string): string {
   return ruta
 }
 
+// --- Plantillas guardadas por el usuario (persistidas en el navegador) ---
+const LS_PLANTILLAS = 'gastonart-plantillas-usuario'
+const rutasUsuario = new Set<string>() // plantillas guardadas por el usuario (borrables, persistidas)
+
+function persistirPlantillas(): void {
+  const data: Record<string, string> = {}
+  for (const ruta of rutasUsuario) data[nombreCorto(ruta)] = plantillas[ruta]
+  try { localStorage.setItem(LS_PLANTILLAS, JSON.stringify(data)) }
+  catch (e) { estado.textContent = '⚠ No se pudieron guardar las plantillas (sin espacio)'; console.error('[persistirPlantillas]', e) }
+}
+
+function cargarPlantillasUsuario(): void {
+  let data: Record<string, string> = {}
+  try { data = JSON.parse(localStorage.getItem(LS_PLANTILLAS) || '{}') } catch { /* ignorar */ }
+  for (const [nombre, svg] of Object.entries(data)) {
+    if (typeof svg !== 'string') continue
+    rutasUsuario.add(registrarPlantilla(nombre, svg))
+  }
+}
+
+// Guarda el lienzo actual como plantilla reutilizable. Sobreescribe si ya existe
+// una plantilla del usuario con ese nombre.
+function guardarComoPlantilla(nombre: string): string | null {
+  const nom = nombre.trim()
+  if (!nom || !svgEl) return null
+  const svg = new XMLSerializer().serializeToString(svgEl)
+  const previa = [...rutasUsuario].find((r) => nombreCorto(r) === nom)
+  let ruta: string
+  if (previa) { plantillas[previa] = svg; ruta = previa }
+  else { ruta = registrarPlantilla(nom, svg); rutasUsuario.add(ruta) }
+  persistirPlantillas()
+  plantillaActual = ruta
+  if ([...selPlantilla.options].some((o) => o.value === ruta)) selPlantilla.value = ruta
+  estado.textContent = `Plantilla guardada: ${nombreCorto(ruta)}`
+  return ruta
+}
+
+// Borra una plantilla del usuario (las del paquete no se pueden borrar).
+function borrarPlantilla(ruta: string): void {
+  if (!rutasUsuario.has(ruta)) return
+  delete plantillas[ruta]
+  const i = rutasPlantilla.indexOf(ruta)
+  if (i >= 0) rutasPlantilla.splice(i, 1)
+  rutasUsuario.delete(ruta)
+  selPlantilla.querySelector(`option[value="${CSS.escape(ruta)}"]`)?.remove()
+  persistirPlantillas()
+  if (plantillaActual === ruta) {
+    if (rutasPlantilla[0]) usarPlantilla(rutasPlantilla[0])
+    else nuevaPlacaEnBlanco(1080, 1080)
+  }
+  estado.textContent = 'Plantilla borrada'
+}
+
 // Monta un SVG importado por el usuario como lienzo editable.
 function usarSvgImportado(texto: string, nombre: string): void {
   // Validación rápida: que parsee y tenga raíz <svg>.
@@ -2566,8 +2625,13 @@ function mostrarInicio(): void {
          </button>`).join('')}
     </div>`).join('')
 
-  const opcionesPlantilla = rutasPlantilla.map((r) =>
-    `<button class="ini-plantilla" data-ruta="${escAttr(r)}">${escAttr(nombreCorto(r))}</button>`).join('')
+  const opcionesPlantilla = rutasPlantilla.map((r) => {
+    const delBtn = rutasUsuario.has(r)
+      ? `<button class="ini-plantilla-del" data-ruta="${escAttr(r)}" title="Borrar plantilla">✕</button>` : ''
+    return `<span class="ini-plantilla-wrap">
+      <button class="ini-plantilla" data-ruta="${escAttr(r)}">${escAttr(nombreCorto(r))}</button>${delBtn}
+    </span>`
+  }).join('')
 
   const ov = document.createElement('div')
   ov.id = 'pantalla-inicio'
@@ -2609,6 +2673,11 @@ function mostrarInicio(): void {
   })
   ov.querySelectorAll<HTMLButtonElement>('.ini-plantilla').forEach((b) =>
     b.addEventListener('click', () => { cerrarInicio(); usarPlantilla(b.dataset.ruta!) }))
+  ov.querySelectorAll<HTMLButtonElement>('.ini-plantilla-del').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (confirm(`¿Borrar la plantilla «${nombreCorto(b.dataset.ruta!)}»?`)) { borrarPlantilla(b.dataset.ruta!); mostrarInicio() }
+    }))
   ov.querySelector('#ini-cargar-svg')!.addEventListener('click', () => inSvgPlantilla.click())
 }
 
@@ -2640,6 +2709,7 @@ void (async () => {
   inyectarFontFaces()
   await cargarPack()
   poblarFamilias()
+  cargarPlantillasUsuario() // sumar al listado las plantillas que el usuario guardó
   // Auto-restaurar el último trabajo (si entra en localStorage), si no, montar.
   let restaurado = false
   try {
