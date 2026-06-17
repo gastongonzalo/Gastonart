@@ -1148,7 +1148,7 @@ function finalizarPluma(cerrado: boolean): void {
 // ---------------------------------------------------------------
 const TAGS_GRAFICO = new Set(['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline', 'line', 'image', 'use'])
 let modoGrafico = false
-let grafSel: SVGElement | null = null
+let grafSeleccion: SVGElement[] = []
 
 // ¿El elemento (o un ancestro cercano) es un gráfico seleccionable?
 // Excluye el fondo (rect que cubre toda la placa) y lo que esté en <defs>.
@@ -1170,15 +1170,21 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
     el = el.parentElement
   }
   if (!hallado) return null
-  // Subir hasta el grupo recortado más externo (si lo hay).
+  // Subir a la unidad de selección: un grupo nuestro (data-grupo) tiene prioridad;
+  // si no, el grupo recortado (clip-path) más externo. Así los grupos y los logos
+  // recortados se manejan como una sola pieza.
+  let grupo: SVGElement | null = null
   let recortado: SVGElement | null = null
   let a: Element | null = hallado
   while (a && a !== svgEl) {
-    const cp = getComputedStyle(a).clipPath
-    if (cp && cp !== 'none') recortado = a as SVGElement
+    if (a.getAttribute && a.getAttribute('data-grupo') === '1') grupo = a as SVGElement
+    else if (!(a.getAttribute && a.getAttribute('data-graf-wrap') === '1')) {
+      const cp = getComputedStyle(a).clipPath
+      if (cp && cp !== 'none') recortado = a as SVGElement
+    }
     a = a.parentElement
   }
-  return recortado ?? hallado
+  return grupo ?? recortado ?? hallado
 }
 
 function esFondo(rect: SVGRectElement): boolean {
@@ -1209,17 +1215,29 @@ function desactivarGrafico(): void {
   lienzo.classList.remove('modo-grafico')
   svgEl?.removeEventListener('pointerdown', grafPointerDown)
   document.removeEventListener('keydown', grafKey)
-  grafSel = null
+  grafSeleccion = []
   limpiarGraf()
 }
 
 function grafKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') { if (grafSel) { grafSel = null; limpiarGraf() } else desactivarGrafico() }
-  else if ((e.key === 'Delete' || e.key === 'Backspace') && grafSel) { e.preventDefault(); borrarGraf() }
+  if (e.key === 'Escape') {
+    if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() } else desactivarGrafico()
+  } else if ((e.key === 'Delete' || e.key === 'Backspace') && grafSeleccion.length) {
+    e.preventDefault(); borrarGraf()
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+    e.preventDefault()
+    if (e.shiftKey) desagruparSel(); else agruparSel()
+  }
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee').forEach((n) => n.remove())
+}
+
+// Nodo realmente manipulable: si el elemento ya está envuelto para mover, su wrapper.
+function nodoManip(el: SVGElement): SVGElement {
+  const p = el.parentNode as Element | null
+  return (p && p.getAttribute && p.getAttribute('data-graf-wrap') === '1') ? (p as unknown as SVGElement) : el
 }
 
 // Envuelve el elemento en un <g data-graf-wrap> (una vez) para mover sin
@@ -1237,21 +1255,42 @@ function wrapperGraf(el: SVGElement): SVGGElement {
 function grafPointerDown(e: PointerEvent): void {
   if (!svgEl) return
   const el = graficoSeleccionable(e.target as Element)
-  if (!el) { grafSel = null; limpiarGraf(); return }
+  const aditivo = e.ctrlKey || e.metaKey
+  if (!el) {
+    // Clic en vacío: recuadro de selección (marquee). Sin Ctrl, limpia primero.
+    if (!aditivo) { grafSeleccion = []; limpiarGraf() }
+    iniciarMarquee(e)
+    return
+  }
   e.preventDefault()
-  grafSel = el
+  if (aditivo) {
+    // Ctrl+clic: agrega/quita de la selección (no arrastra).
+    const i = grafSeleccion.indexOf(el)
+    if (i >= 0) grafSeleccion.splice(i, 1); else grafSeleccion.push(el)
+    dibujarSelGraf()
+    return
+  }
+  // Clic normal: si no estaba seleccionado, pasa a ser la única selección.
+  if (!grafSeleccion.includes(el)) grafSeleccion = [el]
   dibujarSelGraf()
-  // Arrastre inmediato (mover el wrapper).
+  iniciarArrastreGraf(e)
+}
+
+// Arrastra todos los elementos seleccionados con el mismo delta.
+function iniciarArrastreGraf(e: PointerEvent): void {
+  if (!svgEl) return
   const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
-  const g = wrapperGraf(el)
-  const tm = (g.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
-  const tx0 = tm ? +tm[1] : 0, ty0 = tm ? +tm[2] : 0
+  const wraps = grafSeleccion.map((el) => {
+    const g = wrapperGraf(el)
+    const tm = (g.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+    return { g, tx0: tm ? +tm[1] : 0, ty0: tm ? +tm[2] : 0 }
+  })
   let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0, movido = false
   const onMove = (ev: PointerEvent) => {
     accX += (ev.clientX - sx) / k; accY += (ev.clientY - sy) / k
     sx = ev.clientX; sy = ev.clientY
     if (Math.abs(accX) + Math.abs(accY) > 1) movido = true
-    g.setAttribute('transform', `translate(${tx0 + accX} ${ty0 + accY})`)
+    for (const w of wraps) w.g.setAttribute('transform', `translate(${w.tx0 + accX} ${w.ty0 + accY})`)
     dibujarSelGraf()
   }
   const onUp = () => {
@@ -1264,66 +1303,169 @@ function grafPointerDown(e: PointerEvent): void {
   svgEl.addEventListener('pointercancel', onUp, { once: true })
 }
 
+// Recuadro de selección por arrastre: selecciona todo lo que toca.
+function iniciarMarquee(e: PointerEvent): void {
+  if (!svgEl) return
+  const base = lienzo.getBoundingClientRect()
+  const x0 = e.clientX, y0 = e.clientY
+  const div = document.createElement('div')
+  div.className = 'graf-marquee'
+  lienzo.appendChild(div)
+  let movido = false
+  const onMove = (ev: PointerEvent) => {
+    const l = Math.min(x0, ev.clientX), t = Math.min(y0, ev.clientY)
+    const w = Math.abs(ev.clientX - x0), h = Math.abs(ev.clientY - y0)
+    if (w + h > 3) movido = true
+    Object.assign(div.style, { left: l - base.left + 'px', top: t - base.top + 'px', width: w + 'px', height: h + 'px' })
+  }
+  const onUp = (ev: PointerEvent) => {
+    svgEl!.removeEventListener('pointermove', onMove)
+    div.remove()
+    if (movido) {
+      const rect = { left: Math.min(x0, ev.clientX), top: Math.min(y0, ev.clientY), right: Math.max(x0, ev.clientX), bottom: Math.max(y0, ev.clientY) }
+      const hallados = elementosEnRect(rect)
+      if (e.ctrlKey || e.metaKey) for (const el of hallados) { if (!grafSeleccion.includes(el)) grafSeleccion.push(el) }
+      else grafSeleccion = hallados
+      dibujarSelGraf()
+    }
+  }
+  try { svgEl.setPointerCapture(e.pointerId) } catch { /* igual */ }
+  svgEl.addEventListener('pointermove', onMove)
+  svgEl.addEventListener('pointerup', onUp, { once: true })
+  svgEl.addEventListener('pointercancel', onUp, { once: true })
+}
+
+// Unidades seleccionables cuyo bounding-box (en px) toca el rect dado.
+function elementosEnRect(rect: { left: number; top: number; right: number; bottom: number }): SVGElement[] {
+  if (!svgEl) return []
+  const vistos = new Set<SVGElement>()
+  const out: SVGElement[] = []
+  for (const leaf of Array.from(svgEl.querySelectorAll<SVGElement>('rect,circle,ellipse,path,polygon,polyline,line,image,use'))) {
+    const u = graficoSeleccionable(leaf)
+    if (!u || vistos.has(u)) continue
+    vistos.add(u)
+    const b = u.getBoundingClientRect()
+    if (b.width < 0.5 && b.height < 0.5) continue
+    if (b.left < rect.right && b.right > rect.left && b.top < rect.bottom && b.bottom > rect.top) out.push(u)
+  }
+  return out
+}
+
 function borrarGraf(): void {
-  if (!grafSel) return
-  const p = grafSel.parentNode as Element | null
-  if (p && p.getAttribute && p.getAttribute('data-graf-wrap') === '1') (p as Element).remove()
-  else grafSel.remove()
-  grafSel = null
+  if (!grafSeleccion.length) return
+  for (const el of grafSeleccion) nodoManip(el).remove()
+  grafSeleccion = []
   limpiarGraf()
   registrarHistorial(); autoguardar()
 }
 
-// Dibuja el recuadro de selección + mini-barra (relleno, contorno, borrar).
+// Agrupa la selección (≥2) en un <g data-grupo> para manejarla como una unidad.
+function agruparSel(): void {
+  if (!svgEl || grafSeleccion.length < 2) return
+  const nodos = grafSeleccion.map(nodoManip)
+  // Orden de documento para preservar el apilado (z-order).
+  nodos.sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1))
+  const ref = nodos[nodos.length - 1] // el grupo va donde está el más alto en z
+  const g = document.createElementNS(SVGNS, 'g')
+  g.setAttribute('data-grupo', '1')
+  ref.parentNode!.insertBefore(g, ref.nextSibling)
+  for (const n of nodos) g.appendChild(n)
+  grafSeleccion = [g]
+  dibujarSelGraf()
+  registrarHistorial(); autoguardar()
+}
+
+// Desagrupa el grupo seleccionado (uno solo): saca los hijos preservando posición.
+function desagruparSel(): void {
+  if (!svgEl || grafSeleccion.length !== 1) return
+  const sel = grafSeleccion[0]
+  const wrap = (sel.getAttribute('data-graf-wrap') === '1') ? sel : null
+  const grupo = wrap ? (wrap.firstElementChild as SVGElement | null) : sel
+  if (!grupo || grupo.tagName.toLowerCase() !== 'g') return
+  const objetivo = wrap ?? grupo
+  // Hornear los transforms (wrapper + grupo) en cada hijo para no perder posición.
+  const pre = [wrap?.getAttribute('transform') ?? '', grupo.getAttribute('transform') ?? ''].filter(Boolean).join(' ')
+  const hijos = Array.from(grupo.children) as SVGElement[]
+  for (const kid of hijos) {
+    if (pre) { const prev = kid.getAttribute('transform') ?? ''; kid.setAttribute('transform', (pre + ' ' + prev).trim()) }
+    objetivo.parentNode!.insertBefore(kid, objetivo)
+  }
+  objetivo.remove()
+  grafSeleccion = hijos
+  dibujarSelGraf()
+  registrarHistorial(); autoguardar()
+}
+
+// Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
 function dibujarSelGraf(): void {
   limpiarGraf()
-  if (!grafSel || !svgEl) return
+  if (!grafSeleccion.length || !svgEl) return
   const base = lienzo.getBoundingClientRect()
-  const rb = grafSel.getBoundingClientRect()
-  const r: Rect = { left: rb.left - base.left, top: rb.top - base.top, width: rb.width, height: rb.height }
-
-  const box = document.createElement('div')
-  box.className = 'graf-sel'
-  Object.assign(box.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' })
-  lienzo.appendChild(box)
+  const rects = grafSeleccion.map((el) => {
+    const rb = el.getBoundingClientRect()
+    return { left: rb.left - base.left, top: rb.top - base.top, width: rb.width, height: rb.height }
+  })
+  for (const r of rects) {
+    const box = document.createElement('div')
+    box.className = 'graf-sel'
+    Object.assign(box.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' })
+    lienzo.appendChild(box)
+  }
+  const minL = Math.min(...rects.map((r) => r.left))
+  const minT = Math.min(...rects.map((r) => r.top))
+  const maxR = Math.max(...rects.map((r) => r.left + r.width))
+  const maxB = Math.max(...rects.map((r) => r.top + r.height))
+  const uni: Rect = { left: minL, top: minT, width: maxR - minL, height: maxB - minT }
 
   const tools = document.createElement('div')
   tools.className = 'graf-tools'
-  Object.assign(tools.style, { left: r.left + 'px', top: Math.max(0, r.top - 34) + 'px' })
+  Object.assign(tools.style, { left: uni.left + 'px', top: Math.max(0, uni.top - 34) + 'px' })
   tools.addEventListener('pointerdown', (e) => e.stopPropagation())
 
-  const cs = getComputedStyle(grafSel)
+  const multi = grafSeleccion.length > 1
+  const cs = getComputedStyle(grafSeleccion[0])
   const fill = document.createElement('label'); fill.title = 'Relleno'; fill.className = 'graf-color'
   const fi = document.createElement('input'); fi.type = 'color'
   fi.value = cs.fill && cs.fill !== 'none' ? aHex(cs.fill) : '#ffffff'
-  fi.addEventListener('input', () => { grafSel!.style.fill = fi.value; registrarHistorial(); autoguardar() })
+  fi.addEventListener('input', () => { for (const el of grafSeleccion) el.style.fill = fi.value; registrarHistorial(); autoguardar() })
   fill.appendChild(fi)
 
   const stroke = document.createElement('label'); stroke.title = 'Contorno'; stroke.className = 'graf-color graf-stroke'
   const si = document.createElement('input'); si.type = 'color'
   si.value = cs.stroke && cs.stroke !== 'none' ? aHex(cs.stroke) : '#000000'
-  si.addEventListener('input', () => { grafSel!.style.stroke = si.value; registrarHistorial(); autoguardar() })
+  si.addEventListener('input', () => { for (const el of grafSeleccion) el.style.stroke = si.value; registrarHistorial(); autoguardar() })
   stroke.appendChild(si)
+  tools.append(fill, stroke)
+
+  if (multi) {
+    const grp = document.createElement('button'); grp.className = 'graf-btn'; grp.textContent = 'Agrupar'; grp.title = 'Agrupar (Ctrl+G)'
+    grp.addEventListener('click', (e) => { e.stopPropagation(); agruparSel() })
+    tools.appendChild(grp)
+  } else if (grafSeleccion[0].tagName.toLowerCase() === 'g') {
+    const ung = document.createElement('button'); ung.className = 'graf-btn'; ung.textContent = 'Desagrupar'; ung.title = 'Desagrupar (Ctrl+Shift+G)'
+    ung.addEventListener('click', (e) => { e.stopPropagation(); desagruparSel() })
+    tools.appendChild(ung)
+  }
 
   const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '✕'; del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
-
-  tools.append(fill, stroke, del)
+  tools.appendChild(del)
   lienzo.appendChild(tools)
 
-  lienzo.appendChild(crearTiradorEscalaGraf(r))
+  if (!multi) lienzo.appendChild(crearTiradorEscalaGraf(uni)) // escala solo para 1 elemento/grupo
 }
 
-// Tirador de escala para un gráfico de la plantilla: escala su wrapper
-// (g data-graf-wrap) manteniendo fija la esquina superior-izquierda.
+// Tirador de escala para un gráfico/grupo: escala su wrapper (g data-graf-wrap)
+// manteniendo fija la esquina superior-izquierda.
 function crearTiradorEscalaGraf(r: Rect): HTMLDivElement {
   const h = document.createElement('div')
   h.className = 'resize-handle'
   Object.assign(h.style, { left: r.left + r.width - 7 + 'px', top: r.top + r.height - 7 + 'px' })
   h.addEventListener('pointerdown', (e) => {
-    if (!svgEl || !grafSel) return
+    const sel = grafSeleccion[0]
+    if (!svgEl || !sel) return
     e.preventDefault(); e.stopPropagation()
-    const g = wrapperGraf(grafSel)
+    const g = wrapperGraf(sel)
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
     const tr = g.getAttribute('transform') ?? ''
     const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
@@ -2208,7 +2350,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   // innerHTML reemplazó el nodo <svg>: si el modo gráficos estaba activo, se
   // perdió su listener de selección. Re-engancharlo al nuevo svg y limpiar la
   // selección vieja (apuntaba a un nodo ya descartado).
-  grafSel = null
+  grafSeleccion = []
   limpiarGraf()
   if (modoGrafico && svgEl) svgEl.addEventListener('pointerdown', grafPointerDown)
 
