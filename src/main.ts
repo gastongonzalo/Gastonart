@@ -1152,19 +1152,33 @@ let grafSel: SVGElement | null = null
 
 // ¿El elemento (o un ancestro cercano) es un gráfico seleccionable?
 // Excluye el fondo (rect que cubre toda la placa) y lo que esté en <defs>.
+// Si el gráfico vive dentro de un grupo recortado (clip-path), devuelve ESE
+// grupo: así al mover/escalar, el recorte viaja con el contenido en vez de
+// enmascarar parte del dibujo (caso típico del logo de Illustrator).
 function graficoSeleccionable(t: Element | null): SVGElement | null {
   let el: Element | null = t
+  let hallado: SVGElement | null = null
   while (el && el !== svgEl) {
     const tag = el.tagName.toLowerCase()
     if (el.closest('defs, clipPath, mask, pattern')) return null
     if (TAGS_GRAFICO.has(tag)) {
       // Saltar el fondo: rect en (0,0) que cubre ~todo el viewBox.
       if (tag === 'rect' && esFondo(el as SVGRectElement)) return null
-      return el as SVGElement
+      hallado = el as SVGElement
+      break
     }
     el = el.parentElement
   }
-  return null
+  if (!hallado) return null
+  // Subir hasta el grupo recortado más externo (si lo hay).
+  let recortado: SVGElement | null = null
+  let a: Element | null = hallado
+  while (a && a !== svgEl) {
+    const cp = getComputedStyle(a).clipPath
+    if (cp && cp !== 'none') recortado = a as SVGElement
+    a = a.parentElement
+  }
+  return recortado ?? hallado
 }
 
 function esFondo(rect: SVGRectElement): boolean {
@@ -2191,6 +2205,13 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
     const r = rectUnion(svgEl!.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (r) rectsIniciales[c.nombre] = r
   }
+  // innerHTML reemplazó el nodo <svg>: si el modo gráficos estaba activo, se
+  // perdió su listener de selección. Re-engancharlo al nuevo svg y limpiar la
+  // selección vieja (apuntaba a un nodo ya descartado).
+  grafSel = null
+  limpiarGraf()
+  if (modoGrafico && svgEl) svgEl.addEventListener('pointerdown', grafPointerDown)
+
   suprimirHistorial = true
   construirOverlays()
   suprimirHistorial = false
