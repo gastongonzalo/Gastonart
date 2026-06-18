@@ -10,6 +10,7 @@
 * { box-sizing: border-box; }
 
 /* --- Aviso de fuentes faltantes --- */
+#aviso-fuentes[hidden] { display: none; }
 #aviso-fuentes {
   display: flex;
   align-items: center;

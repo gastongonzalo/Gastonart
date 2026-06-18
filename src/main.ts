@@ -667,29 +667,31 @@ function calcularMetricas(): void {
 
     // Líneas REALES: los <tspan> de cada <text> del campo (o el <text> si no tiene).
     // En noticias el título es un <text> con varios <tspan>; en efeméride son
-    // varios <text>. Medir por línea real evita sumar todas las líneas.
-    const lineEls: Element[] = []
-    for (const te of els) {
-      const ts = Array.from(te.querySelectorAll('tspan'))
-      if (ts.length) lineEls.push(...ts)
-      else lineEls.push(te)
-    }
-    const conTexto = lineEls.filter((e) => (e.textContent ?? '').trim() !== '')
-    const usar = conTexto.length ? conTexto : lineEls
-    const anchos = usar.map((e) => {
-      try { return (e as unknown as SVGTextContentElement).getComputedTextLength() } catch { return 0 }
+    // Líneas reales (agrupando tspans kerneados por baseline) y su ANCHO NATURAL
+    // (lo que va a usar el textarea y el render reconstruido). Medir cada tspan
+    // suelto daba un maxWidthUser = ancho de un carácter en texto kerneado.
+    const fsUser = parseFloat(cs.fontSize) || 16
+    textoMedidor.style.fontFamily = cs.fontFamily || "'Poppins'"
+    textoMedidor.style.fontWeight = cs.fontWeight || '400'
+    textoMedidor.style.fontStyle = cs.fontStyle || 'normal'
+    textoMedidor.style.fontSize = fsUser + 'px'
+    const lineas = lineasDeNodos(els).filter((l) => l.trim() !== '')
+    const usarLineas = lineas.length ? lineas : ['']
+    const anchos = usarLineas.map((ln) => {
+      textoMedidor.textContent = ln || ' '
+      try { return textoMedidor.getComputedTextLength() } catch { return 0 }
     })
 
     metricas[c.nombre] = {
       lh: metaActual[c.nombre].lh,
       x: metaActual[c.nombre].x,
       y: metaActual[c.nombre].y,
-      fontSizeUser: parseFloat(cs.fontSize),
+      fontSizeUser: fsUser,
       weight: cs.fontWeight || '400',
       family: cs.fontFamily || "'Poppins'",
       color: cs.fill && cs.fill !== 'none' ? cs.fill : '#111',
       maxWidthUser: Math.max(...anchos, 1),
-      boxLines: usar.length,
+      boxLines: usarLineas.length,
     }
     const r = rectUnion(els, base)
     if (r) rectsIniciales[c.nombre] = r
@@ -2219,7 +2221,10 @@ function construirFotoTools(id: string, r: Rect): void {
 // que comparten el mismo `y` son una sola línea (Illustrator parte una línea en
 // varios tspan con `x` propio para hacer kerning manual). Un `y` nuevo (o un `dy`)
 // abre una línea. Varios <text> sueltos aportan cada uno su(s) línea(s).
-function textoActualCampo(nodos: NodeListOf<Element> | Element[]): string {
+// Líneas reales de un campo: agrupa los <tspan> hoja por baseline (los fragmentos
+// kerneados de Illustrator con el mismo `y` son UNA línea). Un `y` nuevo o un `dy`
+// abre línea; cada <text> suelto aporta su(s) línea(s).
+function lineasDeNodos(nodos: NodeListOf<Element> | Element[]): string[] {
   const lineas: string[] = []
   for (const te of Array.from(nodos)) {
     const hojas = Array.from(te.querySelectorAll('tspan')).filter((t) => !t.querySelector('tspan'))
@@ -2236,7 +2241,11 @@ function textoActualCampo(nodos: NodeListOf<Element> | Element[]): string {
     }
     if (abierta) lineas.push(linea)
   }
-  return lineas.join('\n').replace(/\s+$/g, '')
+  return lineas
+}
+
+function textoActualCampo(nodos: NodeListOf<Element> | Element[]): string {
+  return lineasDeNodos(nodos).join('\n').replace(/\s+$/g, '')
 }
 
 function abrirEditor(nombre: string): void {
