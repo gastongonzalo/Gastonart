@@ -408,6 +408,21 @@ app.innerHTML = `
     <div id="pi-grid" class="pi-grid"></div>
   </div>
 
+  <div id="panel-imagen" hidden>
+    <div class="pg-head">
+      <strong>Agregar imagen</strong>
+      <button id="pm-cerrar" class="mini" title="Cerrar">✕</button>
+    </div>
+    <button id="pm-subir" class="ini-btn-acc pm-subir">⬆ Subir desde el dispositivo</button>
+    <div class="pm-sep">o buscá en el banco de imágenes libres</div>
+    <div class="pg-buscar">
+      <input id="pm-input" type="text" placeholder="Buscar (inglés): mountain, city, people…" autocomplete="off">
+      <button id="pm-buscar" class="ini-btn-acc">Buscar</button>
+    </div>
+    <div id="pm-estado" class="pg-estado"></div>
+    <div id="pm-grid" class="pi-grid"></div>
+  </div>
+
   <div class="cuerpo">
     <nav class="toolbar-izq" aria-label="Insertar elementos">
       <button id="btn-add-texto" class="herr" title="Agregar texto"><span class="herr-ic">T</span><span>Texto</span></button>
@@ -458,7 +473,7 @@ const btWeight = document.querySelector<HTMLSelectElement>('#bt-weight')!
 const btColor = document.querySelector<HTMLInputElement>('#bt-color')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
-document.querySelector('#btn-add-img')!.addEventListener('click', () => inImgNueva.click())
+document.querySelector('#btn-add-img')!.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelImagen() })
 const menuFigura = document.querySelector<HTMLDivElement>('#menu-figura')!
 // Tipos de figura disponibles (orden del selector).
 const TIPOS_FIGURA = [
@@ -475,9 +490,9 @@ for (const tipo of TIPOS_FIGURA) {
   b.addEventListener('click', () => { insertarFigura(tipo); menuFigura.hidden = true })
   menuFigura.appendChild(b)
 }
-// Cierra los paneles flotantes (Figura, Íconos, Google Fonts) excepto uno.
+// Cierra los paneles flotantes (Figura, Íconos, Imagen, Google Fonts) excepto uno.
 function cerrarPanelesFlotantes(excepto?: Element): void {
-  for (const sel of ['#menu-figura', '#panel-iconos', '#panel-gfonts']) {
+  for (const sel of ['#menu-figura', '#panel-iconos', '#panel-imagen', '#panel-gfonts']) {
     const p = document.querySelector<HTMLElement>(sel)
     if (p && p !== excepto) p.hidden = true
   }
@@ -504,13 +519,45 @@ function mostrarIconosFavoritos(): void {
     piGrid.appendChild(b)
   }
 }
+// Diccionario español→inglés para el buscador (los nombres de Iconify son en inglés).
+const DIC_ICONOS: Record<string, string> = {
+  corazon: 'heart', flecha: 'arrow', casa: 'home', hogar: 'home', estrella: 'star',
+  usuario: 'user', persona: 'user', gente: 'users', buscar: 'search', busqueda: 'search',
+  ajustes: 'settings', configuracion: 'settings', engranaje: 'settings', basura: 'trash',
+  eliminar: 'trash', borrar: 'trash', editar: 'edit', lapiz: 'pencil', descargar: 'download',
+  subir: 'upload', archivo: 'file', carpeta: 'folder', calendario: 'calendar', fecha: 'calendar',
+  reloj: 'clock', hora: 'clock', campana: 'bell', notificacion: 'bell', correo: 'mail',
+  email: 'mail', sobre: 'mail', candado: 'lock', bloqueo: 'lock', ojo: 'eye', camara: 'camera',
+  foto: 'photo', imagen: 'image', musica: 'music', nota: 'music', telefono: 'phone',
+  llamada: 'phone', carrito: 'shopping-cart', compra: 'shopping-cart', dinero: 'cash',
+  plata: 'cash', tarjeta: 'credit-card', mapa: 'map', ubicacion: 'map-pin', pin: 'map-pin',
+  bandera: 'flag', etiqueta: 'tag', fuego: 'flame', rayo: 'bolt', sol: 'sun', luna: 'moon',
+  nube: 'cloud', lluvia: 'cloud-rain', tilde: 'check', check: 'check', cruz: 'x', equis: 'x',
+  mas: 'plus', menos: 'minus', menu: 'menu', compartir: 'share', megusta: 'thumb-up',
+  pulgar: 'thumb-up', premio: 'award', medalla: 'medal', regalo: 'gift', mensaje: 'message',
+  chat: 'message-circle', wifi: 'wifi', bateria: 'battery', libro: 'book', pincel: 'brush',
+  paleta: 'palette', tijera: 'scissors', llave: 'key', escudo: 'shield', candidato: 'user',
+  globo: 'globe', mundo: 'world', avion: 'plane', auto: 'car', coche: 'car', bici: 'bike',
+  bicicleta: 'bike', trofeo: 'trophy', voto: 'check', urna: 'box', verificado: 'badge-check',
+  whatsapp: 'brand-whatsapp', instagram: 'brand-instagram', facebook: 'brand-facebook',
+  flechaderecha: 'arrow-right', flechaizquierda: 'arrow-left', comillas: 'quote',
+}
+function traducirBusqueda(q: string): string {
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const todo = norm(q.trim().replace(/\s+/g, ''))
+  if (DIC_ICONOS[todo]) return DIC_ICONOS[todo]
+  // por palabra: traducir las que estén en el diccionario
+  return q.trim().split(/\s+/).map((w) => DIC_ICONOS[norm(w)] ?? w).join(' ')
+}
+
 async function buscarIconos(q: string): Promise<void> {
   q = q.trim()
   if (!q) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos(); return }
+  const consulta = traducirBusqueda(q)
   piEstado.textContent = 'Buscando…'; piGrid.innerHTML = ''
   let iconos: string[] = []
   try {
-    const data = await (await fetchTimeout(`https://api.iconify.design/search?query=${encodeURIComponent(q)}&limit=120`)).json()
+    const data = await (await fetchTimeout(`https://api.iconify.design/search?query=${encodeURIComponent(consulta)}&limit=120`)).json()
     iconos = (data as { icons?: string[] }).icons ?? []
   } catch { piEstado.textContent = 'No se pudo buscar (¿sin conexión?)'; return }
   if (!iconos.length) { piEstado.textContent = `Sin resultados para «${q}»`; return }
@@ -544,6 +591,54 @@ document.querySelector('#pi-cerrar')!.addEventListener('click', () => { panelIco
 document.querySelector('#pi-buscar')!.addEventListener('click', () => void buscarIconos(piInput.value))
 piInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarIconos(piInput.value) })
 panelIconos.addEventListener('click', (e) => e.stopPropagation())
+
+// --- Panel de imagen: subir del dispositivo o banco de imágenes libres (Openverse) ---
+const panelImagen = document.querySelector<HTMLDivElement>('#panel-imagen')!
+const pmInput = document.querySelector<HTMLInputElement>('#pm-input')!
+const pmEstado = document.querySelector<HTMLDivElement>('#pm-estado')!
+const pmGrid = document.querySelector<HTMLDivElement>('#pm-grid')!
+function abrirPanelImagen(): void {
+  cerrarPanelesFlotantes(panelImagen)
+  panelImagen.hidden = false
+  pmInput.focus()
+}
+async function buscarImagenes(q: string): Promise<void> {
+  q = q.trim()
+  if (!q) return
+  const consulta = traducirBusqueda(q)
+  pmEstado.textContent = 'Buscando…'; pmGrid.innerHTML = ''
+  let resultados: { id: string; thumbnail?: string; title?: string }[] = []
+  try {
+    const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(consulta)}&page_size=20`
+    const data = await (await fetchTimeout(url)).json()
+    resultados = (data as { results?: typeof resultados }).results ?? []
+  } catch { pmEstado.textContent = 'No se pudo buscar (¿sin conexión?)'; return }
+  const conThumb = resultados.filter((r) => r.thumbnail)
+  if (!conThumb.length) { pmEstado.textContent = `Sin resultados para «${q}»`; return }
+  pmEstado.textContent = `${conThumb.length} imágenes`
+  for (const r of conThumb) {
+    const b = document.createElement('button'); b.className = 'pi-item pm-item'; b.title = r.title ?? ''
+    const img = document.createElement('img'); img.src = r.thumbnail!; img.loading = 'lazy'; img.alt = r.title ?? ''
+    b.appendChild(img)
+    b.addEventListener('click', () => void agregarImagenBanco(r.thumbnail!))
+    pmGrid.appendChild(b)
+  }
+}
+async function agregarImagenBanco(url: string): Promise<void> {
+  pmEstado.textContent = 'Agregando imagen…'
+  try {
+    const blob = await (await fetchTimeout(url)).blob()
+    const foto = await leerFoto(new File([blob], 'banco', { type: blob.type || 'image/jpeg' }))
+    insertarImagen(foto)
+    panelImagen.hidden = true
+    estado.textContent = 'Imagen agregada desde el banco'
+  } catch { pmEstado.textContent = 'No se pudo agregar la imagen' }
+}
+document.querySelector('#pm-subir')!.addEventListener('click', () => { panelImagen.hidden = true; inImgNueva.click() })
+document.querySelector('#pm-cerrar')!.addEventListener('click', () => { panelImagen.hidden = true })
+document.querySelector('#pm-buscar')!.addEventListener('click', () => void buscarImagenes(pmInput.value))
+pmInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarImagenes(pmInput.value) })
+panelImagen.addEventListener('click', (e) => e.stopPropagation())
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
   if (modoGrafico) desactivarGrafico()

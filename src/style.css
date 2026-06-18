@@ -103,6 +103,29 @@
 .pi-item:hover { border-color: var(--accent); }
 .pi-item svg, .pi-item img { width: 26px; height: 26px; display: block; }
 
+/* --- Panel de imagen (subir + banco) --- */
+#panel-imagen {
+  position: fixed;
+  top: 96px;
+  left: 96px;
+  z-index: 60;
+  width: 380px;
+  max-height: 74vh;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+#panel-imagen[hidden] { display: none; }
+.pm-subir { width: 100%; margin: 4px 0 12px; padding: 11px; }
+.pm-sep { text-align: center; font-size: 11px; color: var(--dim); margin: 0 0 10px; }
+#pm-grid { grid-template-columns: repeat(4, 1fr); }
+.pm-item { aspect-ratio: 1; padding: 0; overflow: hidden; }
+.pm-item img { width: 100%; height: 100%; object-fit: cover; }
+
 body {
   margin: 0;
   background: var(--bg);
