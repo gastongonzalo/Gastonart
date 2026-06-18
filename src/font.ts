@@ -75,8 +75,10 @@ export function interpretarNombreFuente(nombre: string): {
   let style: 'normal' | 'italic' = 'normal'
   // Reconstruir tokens compuestos como "semibold" si vinieron juntos.
   const unido = tokens.join('')
-  for (const [clave, w] of Object.entries(PESOS)) {
-    if (tokens.includes(clave) || unido.includes(clave)) weight = w
+  // Probar las claves más específicas primero (semibold antes que bold) y cortar
+  // en la primera coincidencia: si no, "bold" pisaría a "semibold"/"extrabold".
+  for (const clave of Object.keys(PESOS).sort((a, b) => b.length - a.length)) {
+    if (tokens.includes(clave) || unido.includes(clave)) { weight = PESOS[clave]; break }
   }
   if (tokens.includes('italic') || tokens.includes('oblique') || unido.includes('italic')) {
     style = 'italic'

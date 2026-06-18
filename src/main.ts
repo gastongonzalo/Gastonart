@@ -64,12 +64,19 @@ interface Metrica {
 // Overrides de estilo por campo (aplicados por la barra de controles de texto).
 interface EstiloCampo {
   fontSize?: number
-  bold?: boolean
+  bold?: boolean // legado: se sigue leyendo de proyectos viejos
+  weight?: number // peso explícito (100–900); tiene prioridad sobre bold
   italic?: boolean
   align?: 'start' | 'middle' | 'end'
   family?: string
   color?: string
   lineHeight?: number // factor sobre el interlineado base (1 = original)
+}
+
+// Nombre legible de cada peso para el selector de variantes.
+const NOMBRE_PESO: Record<number, string> = {
+  100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium',
+  600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black',
 }
 
 let plantillaActual = rutasPlantilla[0]
@@ -144,6 +151,13 @@ function familiasDisponibles(): string[] {
   return Array.from(s).sort((a, b) => a.localeCompare(b))
 }
 
+// Pesos cargados para una familia (variantes reales que tenemos para el export).
+function pesosDisponibles(family: string): number[] {
+  const fam = family.replace(/['"]/g, '').split(',')[0].trim().toLowerCase()
+  const pesos = [...new Set(facesPack.filter((f) => f.family.toLowerCase() === fam).map((f) => f.weight))]
+  return pesos.length ? pesos.sort((a, b) => a - b) : [400]
+}
+
 // (Re)llena el selector de tipografías de la barra de texto.
 function poblarFamilias(): void {
   const sel = btFamily.value
@@ -200,7 +214,8 @@ async function traerGoogleFont(familia: string): Promise<string | null> {
   if (!fam) return null
   const ya = facesPack.find((f) => f.family.toLowerCase() === fam.toLowerCase())
   if (ya) { poblarFamilias(); return ya.family }
-  const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}:wght@400;700&display=swap`
+  // Pedimos todas las variantes; Google devuelve solo las que la fuente tiene.
+  const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}:wght@100;200;300;400;500;600;700;800;900&display=swap`
   let css: string
   try {
     const r = await fetchTimeout(url)
@@ -209,14 +224,12 @@ async function traerGoogleFont(familia: string): Promise<string | null> {
   } catch { return null }
   // Google parte la fuente en subsets (latin, cyrillic, greek…). Hay que elegir
   // el LATINO (el único con A-Z, á, ñ); tomar otro deja el texto sin glifos.
-  // Para cada peso (400/700) guardamos la URL del subset latino, o el último
-  // como fallback si ningún bloque declara unicode-range latino.
+  // Para cada peso guardamos la URL del subset latino (o el primero como fallback).
   const porPeso = new Map<number, string>()
   for (const bloque of css.split('@font-face').slice(1)) {
     const um = bloque.match(/url\((https:[^)]+\.woff2)\)/)
     if (!um) continue
     const peso = +(bloque.match(/font-weight:\s*(\d+)/)?.[1] ?? '400')
-    if (peso !== 400 && peso !== 700) continue
     const latino = /U\+0000-00FF/i.test(bloque.match(/unicode-range:\s*([^;}]+)/i)?.[1] ?? '')
     if (latino || !porPeso.has(peso)) porPeso.set(peso, um[1])
   }
@@ -275,7 +288,7 @@ function estiloEfectivo(nombre: string): {
   const e = estilos[nombre] ?? {}
   return {
     fontSize: e.fontSize ?? m.fontSizeUser,
-    weight: e.bold ? '700' : m.weight,
+    weight: String(e.weight ?? (e.bold ? 700 : m.weight)),
     italic: !!e.italic,
     family: (e.family ?? m.family).replace(/['"]/g, '').split(',')[0].trim(),
     align: e.align ?? 'start',
@@ -291,65 +304,50 @@ function estiloEfectivo(nombre: string): {
 const app = document.querySelector<HTMLDivElement>('#app')!
 app.innerHTML = `
   <header class="topbar">
-    <strong>GastonART</strong>
-    <label>Plantilla
-      <select id="sel-plantilla">
-        ${rutasPlantilla.map((r) => `<option value="${escAttr(r)}">${escAttr(nombreCorto(r))}</option>`).join('')}
-      </select>
-    </label>
-    <button id="btn-add-texto" class="mini">+ Texto</button>
-    <button id="btn-add-img" class="mini">+ Imagen</button>
-    <span class="add-wrap">
-      <button id="btn-add-figura" class="mini">+ Figura ▾</button>
-      <div id="menu-figura" class="menu-pop" hidden>
-        <button data-fig="rect" title="Rectángulo">▭</button>
-        <button data-fig="redondeado" title="Rectángulo redondeado">▢</button>
-        <button data-fig="circulo" title="Círculo">●</button>
-        <button data-fig="triangulo" title="Triángulo">▲</button>
-        <button data-fig="linea" title="Línea">／</button>
-        <button data-fig="flecha" title="Flecha">➜</button>
-      </div>
-    </span>
-    <span class="add-wrap">
-      <button id="btn-add-icono" class="mini">+ Ícono ▾</button>
-      <div id="menu-icono" class="menu-pop menu-iconos" hidden></div>
-    </span>
-    <button id="btn-pluma" class="mini" title="Pluma (puntos de ancla)">✒ Pluma</button>
-    <button id="btn-grafico" class="mini" title="Seleccionar y editar vectores/imágenes de la plantilla">✦ Gráficos</button>
-    <button id="btn-import-font" class="mini" title="Importar tipografía (.ttf / .otf)">+ Aa</button>
-    <span class="sep"></span>
-    <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
-    <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
-    <button id="btn-guardar" class="mini">💾 Guardar</button>
-    <button id="btn-cargar" class="mini">📂 Cargar</button>
-    <button id="btn-guardar-plantilla" class="mini" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Guardar plantilla</button>
-    <button id="btn-nuevo" class="mini">Nuevo</button>
-    <button id="btn-export">Exportar PNG (resvg)</button>
+    <div class="tb-marca">
+      <strong>GastonART</strong>
+      <label>Plantilla
+        <select id="sel-plantilla">
+          ${rutasPlantilla.map((r) => `<option value="${escAttr(r)}">${escAttr(nombreCorto(r))}</option>`).join('')}
+        </select>
+      </label>
+    </div>
     <span class="estado" id="estado"></span>
+    <div class="tb-acciones">
+      <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
+      <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
+      <span class="tb-div"></span>
+      <button id="btn-import-font" class="mini" title="Importar tipografía (.ttf / .otf)">+ Aa</button>
+      <button id="btn-guardar" class="mini">💾 Guardar</button>
+      <button id="btn-cargar" class="mini">📂 Cargar</button>
+      <button id="btn-guardar-plantilla" class="mini" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Plantilla</button>
+      <button id="btn-nuevo" class="mini">Nuevo</button>
+      <button id="btn-export">⬇ Exportar PNG</button>
+    </div>
   </header>
   <input type="file" id="in-proyecto" accept=".json,application/json" hidden>
 
-  <div id="barra-texto" hidden>
+  <div id="barra-texto" class="barra-formato" hidden>
     <span class="bt-label">Texto</span>
+    <select id="bt-family" title="Tipografía"></select>
+    <select id="bt-weight" title="Variante / peso"></select>
+    <button id="bt-gfonts" class="mini" title="Buscar y agregar una fuente de Google Fonts">🔤 Google</button>
+    <span class="bt-sep"></span>
     <button data-bt="size-" title="Achicar">A−</button>
     <span id="bt-size" class="bt-val">–</span>
     <button data-bt="size+" title="Agrandar">A+</button>
     <span class="bt-sep"></span>
-    <button data-bt="lh-" title="Menos interlineado">↕−</button>
-    <span id="bt-lh" class="bt-val" title="Interlineado">–</span>
-    <button data-bt="lh+" title="Más interlineado">↕+</button>
+    <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
+    <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
+    <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
     <span class="bt-sep"></span>
     <button data-bt="al:start" title="Alinear a la izquierda">⯇</button>
     <button data-bt="al:middle" title="Centrar">≡</button>
     <button data-bt="al:end" title="Alinear a la derecha">⯈</button>
     <span class="bt-sep"></span>
-    <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
-    <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
-    <span class="bt-sep"></span>
-    <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
-    <span class="bt-sep"></span>
-    <select id="bt-family" title="Tipografía"></select>
-    <button id="bt-gfonts" class="mini" title="Buscar y agregar una fuente de Google Fonts">🔤 Google</button>
+    <button data-bt="lh-" title="Menos interlineado">↕−</button>
+    <span id="bt-lh" class="bt-val" title="Interlineado">–</span>
+    <button data-bt="lh+" title="Más interlineado">↕+</button>
   </div>
 
   <div id="aviso-fuentes" hidden></div>
@@ -368,8 +366,31 @@ app.innerHTML = `
     <div id="pg-populares" class="pg-populares"></div>
   </div>
 
-  <div id="escenario">
-    <div id="lienzo"></div>
+  <div class="cuerpo">
+    <nav class="toolbar-izq" aria-label="Insertar elementos">
+      <button id="btn-add-texto" class="herr" title="Agregar texto"><span class="herr-ic">T</span><span>Texto</span></button>
+      <button id="btn-add-img" class="herr" title="Agregar imagen"><span class="herr-ic">▣</span><span>Imagen</span></button>
+      <span class="add-wrap">
+        <button id="btn-add-figura" class="herr" title="Agregar figura"><span class="herr-ic">▢</span><span>Figura</span></button>
+        <div id="menu-figura" class="menu-pop" hidden>
+          <button data-fig="rect" title="Rectángulo">▭</button>
+          <button data-fig="redondeado" title="Rectángulo redondeado">▢</button>
+          <button data-fig="circulo" title="Círculo">●</button>
+          <button data-fig="triangulo" title="Triángulo">▲</button>
+          <button data-fig="linea" title="Línea">／</button>
+          <button data-fig="flecha" title="Flecha">➜</button>
+        </div>
+      </span>
+      <span class="add-wrap">
+        <button id="btn-add-icono" class="herr" title="Agregar ícono"><span class="herr-ic">★</span><span>Ícono</span></button>
+        <div id="menu-icono" class="menu-pop menu-iconos" hidden></div>
+      </span>
+      <button id="btn-pluma" class="herr" title="Pluma (puntos de ancla)"><span class="herr-ic">✒</span><span>Pluma</span></button>
+      <button id="btn-grafico" class="herr" title="Seleccionar y editar vectores/imágenes de la plantilla"><span class="herr-ic">✦</span><span>Gráficos</span></button>
+    </nav>
+    <div id="escenario">
+      <div id="lienzo"></div>
+    </div>
   </div>
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
@@ -401,6 +422,7 @@ const btLh = document.querySelector<HTMLSpanElement>('#bt-lh')!
 const btBold = document.querySelector<HTMLButtonElement>('#bt-bold')!
 const btItalic = document.querySelector<HTMLButtonElement>('#bt-italic')!
 const btFamily = document.querySelector<HTMLSelectElement>('#bt-family')!
+const btWeight = document.querySelector<HTMLSelectElement>('#bt-weight')!
 const btColor = document.querySelector<HTMLInputElement>('#bt-color')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
@@ -2279,6 +2301,11 @@ function sincronizarBarra(nombre: string): void {
   btItalic.classList.toggle('activo', ef.italic)
   btColor.value = aHex(ef.color)
   btFamily.value = ef.family
+  // Variantes/pesos disponibles para la familia actual.
+  const pesos = pesosDisponibles(ef.family)
+  btWeight.innerHTML = pesos.map((p) => `<option value="${p}">${NOMBRE_PESO[p] ?? p}</option>`).join('')
+  btWeight.value = pesos.includes(+ef.weight) ? ef.weight : String(pesos[0])
+  btWeight.disabled = pesos.length < 2
   for (const b of Array.from(barraTexto.querySelectorAll('[data-bt^="al:"]'))) {
     b.classList.toggle('activo', b.getAttribute('data-bt') === 'al:' + ef.align)
   }
@@ -2313,7 +2340,7 @@ barraTexto.addEventListener('click', (e) => {
   else if (bt === 'lh-') est.lineHeight = Math.max(0.5, Math.round((ef.lineHeight - 0.1) * 10) / 10)
   else if (bt === 'lh+') est.lineHeight = Math.min(3, Math.round((ef.lineHeight + 0.1) * 10) / 10)
   else if (bt.startsWith('al:')) est.align = bt.slice(3) as EstiloCampo['align']
-  else if (bt === 'bold') est.bold = ef.weight !== '700'
+  else if (bt === 'bold') { est.weight = ef.weight === '700' ? 400 : 700; delete est.bold } // N = atajo a Bold
   else if (bt === 'italic') est.italic = !ef.italic
   aplicarEstiloTextarea(nombre)
   sincronizarBarra(nombre)
@@ -2323,8 +2350,18 @@ btFamily.addEventListener('change', () => {
   if (!editorActivo) return
   ;(estilos[editorActivo.nombre] ??= {}).family = btFamily.value
   aplicarEstiloTextarea(editorActivo.nombre)
+  sincronizarBarra(editorActivo.nombre) // refrescar variantes de la familia nueva
   marcarCampoEditado()
   editorActivo.ta.focus() // volver a editar tras elegir fuente
+})
+btWeight.addEventListener('change', () => {
+  if (!editorActivo) return
+  const est = (estilos[editorActivo.nombre] ??= {})
+  est.weight = +btWeight.value; delete est.bold
+  aplicarEstiloTextarea(editorActivo.nombre)
+  sincronizarBarra(editorActivo.nombre)
+  marcarCampoEditado()
+  editorActivo.ta.focus()
 })
 btColor.addEventListener('input', () => {
   if (!editorActivo) return
