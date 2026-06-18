@@ -272,6 +272,8 @@ async function cargarFuentesGuardadas(): Promise<void> {
   try { const a = JSON.parse(localStorage.getItem(LS_FUENTES) || '[]'); if (Array.isArray(a)) lista = a.filter((x) => typeof x === 'string') } catch { /* ignorar */ }
   if (!lista.length) return
   await Promise.all(lista.map((fam) => traerGoogleFont(fam)))
+  // Si ya hay una plantilla montada, re-evaluar y repintar con las fuentes recién cargadas.
+  if (svgEl) { void revisarFuentes(); await refrescarTrasFuente() }
 }
 
 // Tras cargar una fuente nueva: re-medir y repintar los campos (la fuente cambia
@@ -570,35 +572,31 @@ async function cargarPack(): Promise<void> {
   )
 }
 
-// Muestra/oculta el aviso de fuentes faltantes de la plantilla actual, con la
-// opción de descargarlas de Google Fonts.
+// Detecta las fuentes que la plantilla usa y NO tenemos en facesPack, intenta
+// bajarlas SOLAS desde Google (silencioso, así quedan en el sistema y el export
+// las usa) y solo muestra el aviso para las que no estén en Google.
 const avisoFuentes = document.querySelector<HTMLDivElement>('#aviso-fuentes')!
-function revisarFuentes(): void {
+let revisandoFuentes = false
+async function revisarFuentes(): Promise<void> {
+  if (revisandoFuentes) return
   const faltan = fuentesFaltantes(svgActual)
   if (!faltan.length) { avisoFuentes.hidden = true; return }
+  // Intentar resolverlas automáticamente desde Google Fonts.
+  revisandoFuentes = true
+  let noHay: string[] = faltan
+  try {
+    const res = await Promise.all(faltan.map((fam) => traerGoogleFont(fam).then((ok) => ({ fam, ok }))))
+    if (res.some((r) => r.ok)) await refrescarTrasFuente()
+    noHay = res.filter((r) => !r.ok).map((r) => r.fam)
+  } catch (e) { console.error('[revisarFuentes]', e) }
+  finally { revisandoFuentes = false }
+  if (!noHay.length) { avisoFuentes.hidden = true; return }
+  // Las que no están en Google: avisar para importarlas a mano (no hay descarga).
   avisoFuentes.innerHTML =
-    `<span>⚠ Falta${faltan.length > 1 ? 'n' : ''} la fuente${faltan.length > 1 ? 's' : ''}: <strong>${faltan.map(escAttr).join(', ')}</strong></span>` +
-    `<button id="av-descargar" class="mini">Descargar de Google Fonts</button>` +
+    `<span>⚠ Falta${noHay.length > 1 ? 'n' : ''} la fuente${noHay.length > 1 ? 's' : ''}: <strong>${noHay.map(escAttr).join(', ')}</strong> — no está${noHay.length > 1 ? 'n' : ''} en Google Fonts, importala${noHay.length > 1 ? 's' : ''} con 🔤</span>` +
     `<button id="av-cerrar" class="mini" title="Ignorar">✕</button>`
   avisoFuentes.hidden = false
   avisoFuentes.querySelector('#av-cerrar')!.addEventListener('click', () => { avisoFuentes.hidden = true })
-  avisoFuentes.querySelector('#av-descargar')!.addEventListener('click', async () => {
-    const btn = avisoFuentes.querySelector('#av-descargar') as HTMLButtonElement
-    btn.disabled = true; btn.textContent = 'Descargando…'
-    const noHay: string[] = []
-    try {
-      const res = await Promise.all(faltan.map((fam) => traerGoogleFont(fam).then((ok) => ({ fam, ok }))))
-      for (const { fam, ok } of res) if (!ok) noHay.push(fam)
-      await refrescarTrasFuente()
-    } catch (e) {
-      console.error('[descargar fuentes]', e)
-    } finally {
-      revisarFuentes() // re-evaluar: las que entraron desaparecen; re-renderiza el botón (nunca queda en "Descargando…")
-      estado.textContent = noHay.length
-        ? `No se pudieron traer: ${noHay.join(', ')} — reintentá o importalas con 🔤`
-        : 'Fuentes descargadas y aplicadas.'
-    }
-  })
 }
 
 // ---------------------------------------------------------------
