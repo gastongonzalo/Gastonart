@@ -69,6 +69,7 @@ interface EstiloCampo {
   align?: 'start' | 'middle' | 'end'
   family?: string
   color?: string
+  lineHeight?: number // factor sobre el interlineado base (1 = original)
 }
 
 let plantillaActual = rutasPlantilla[0]
@@ -177,7 +178,7 @@ async function importarFont(file: File): Promise<void> {
 
 // Estilo efectivo de un campo = base (métrica) + overrides del usuario.
 function estiloEfectivo(nombre: string): {
-  fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; color: string; manual: boolean
+  fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; color: string; manual: boolean; lineHeight: number
 } {
   const m = metricas[nombre]
   const e = estilos[nombre] ?? {}
@@ -189,6 +190,7 @@ function estiloEfectivo(nombre: string): {
     align: e.align ?? 'start',
     color: e.color ?? m.color,
     manual: e.fontSize != null,
+    lineHeight: e.lineHeight ?? 1,
   }
 }
 
@@ -242,6 +244,10 @@ app.innerHTML = `
     <span id="bt-size" class="bt-val">–</span>
     <button data-bt="size+" title="Agrandar">A+</button>
     <span class="bt-sep"></span>
+    <button data-bt="lh-" title="Menos interlineado">↕−</button>
+    <span id="bt-lh" class="bt-val" title="Interlineado">–</span>
+    <button data-bt="lh+" title="Más interlineado">↕+</button>
+    <span class="bt-sep"></span>
     <button data-bt="al:start" title="Alinear a la izquierda">⯇</button>
     <button data-bt="al:middle" title="Centrar">≡</button>
     <button data-bt="al:end" title="Alinear a la derecha">⯈</button>
@@ -283,6 +289,7 @@ const peDescargar = document.querySelector<HTMLAnchorElement>('#pe-descargar')!
 const inImgNueva = document.querySelector<HTMLInputElement>('#in-img-nueva')!
 const barraTexto = document.querySelector<HTMLDivElement>('#barra-texto')!
 const btSize = document.querySelector<HTMLSpanElement>('#bt-size')!
+const btLh = document.querySelector<HTMLSpanElement>('#bt-lh')!
 const btBold = document.querySelector<HTMLButtonElement>('#bt-bold')!
 const btItalic = document.querySelector<HTMLButtonElement>('#bt-italic')!
 const btFamily = document.querySelector<HTMLSelectElement>('#bt-family')!
@@ -600,7 +607,7 @@ function pintarCampo(nombre: string): void {
   const ef = estiloEfectivo(nombre)
   // Métrica efectiva para medir/envolver (con tamaño/peso/cursiva/familia actuales).
   const mEf: Metrica = { ...m, fontSizeUser: ef.fontSize, weight: ef.weight, family: ef.family, italic: ef.italic }
-  const lhBase = m.lh * (ef.fontSize / m.fontSizeUser) // interlineado escalado al tamaño actual
+  const lhBase = m.lh * (ef.fontSize / m.fontSizeUser) * ef.lineHeight // interlineado escalado + factor del usuario
   // Alineación → x del ancla (text-anchor) dentro de la caja.
   const ax = ef.align === 'middle' ? m.maxWidthUser / 2 : ef.align === 'end' ? m.maxWidthUser : 0
 
@@ -2080,7 +2087,7 @@ function aplicarEstiloTextarea(nombre: string): void {
   ta.style.fontWeight = ef.weight
   ta.style.fontStyle = ef.italic ? 'italic' : 'normal'
   ta.style.fontFamily = ef.family
-  ta.style.lineHeight = m.lh * (ef.fontSize / m.fontSizeUser) * k + 'px'
+  ta.style.lineHeight = m.lh * (ef.fontSize / m.fontSizeUser) * ef.lineHeight * k + 'px'
   ta.style.textAlign = ef.align === 'middle' ? 'center' : ef.align === 'end' ? 'right' : 'left'
   ta.style.color = ef.color
   ta.style.caretColor = ef.color
@@ -2091,6 +2098,7 @@ function aplicarEstiloTextarea(nombre: string): void {
 function sincronizarBarra(nombre: string): void {
   const ef = estiloEfectivo(nombre)
   btSize.textContent = String(Math.round(ef.fontSize))
+  btLh.textContent = ef.lineHeight.toFixed(1)
   btBold.classList.toggle('activo', ef.weight === '700')
   btItalic.classList.toggle('activo', ef.italic)
   btColor.value = aHex(ef.color)
@@ -2117,6 +2125,8 @@ barraTexto.addEventListener('click', (e) => {
   const est = (estilos[nombre] ??= {})
   if (bt === 'size-') est.fontSize = Math.max(8, Math.round(ef.fontSize) - 4)
   else if (bt === 'size+') est.fontSize = Math.round(ef.fontSize) + 4
+  else if (bt === 'lh-') est.lineHeight = Math.max(0.5, Math.round((ef.lineHeight - 0.1) * 10) / 10)
+  else if (bt === 'lh+') est.lineHeight = Math.min(3, Math.round((ef.lineHeight + 0.1) * 10) / 10)
   else if (bt.startsWith('al:')) est.align = bt.slice(3) as EstiloCampo['align']
   else if (bt === 'bold') est.bold = ef.weight !== '700'
   else if (bt === 'italic') est.italic = !ef.italic
@@ -2559,6 +2569,32 @@ function cargarPlantillasUsuario(): void {
   }
 }
 
+// --- Plantillas del paquete ocultadas por el usuario (restaurables) ---
+const LS_OCULTAS = 'gastonart-plantillas-ocultas'
+const ocultas = new Set<string>() // nombreCorto de plantillas del paquete que el usuario borró
+
+function persistirOcultas(): void {
+  try { localStorage.setItem(LS_OCULTAS, JSON.stringify([...ocultas])) } catch { /* ignorar */ }
+}
+
+function cargarOcultas(): void {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS_OCULTAS) || '[]')
+    if (Array.isArray(arr)) for (const n of arr) if (typeof n === 'string') ocultas.add(n)
+  } catch { /* ignorar */ }
+  // Quitar del listado las plantillas del paquete ocultadas (no las del usuario).
+  for (const ruta of [...rutasPlantilla]) {
+    if (!rutasUsuario.has(ruta) && ocultas.has(nombreCorto(ruta))) quitarDelListado(ruta)
+  }
+}
+
+// Saca una plantilla del selector y del array (no toca el dato en `plantillas`).
+function quitarDelListado(ruta: string): void {
+  const i = rutasPlantilla.indexOf(ruta)
+  if (i >= 0) rutasPlantilla.splice(i, 1)
+  selPlantilla.querySelector(`option[value="${CSS.escape(ruta)}"]`)?.remove()
+}
+
 // Guarda el lienzo actual como plantilla reutilizable. Sobreescribe si ya existe
 // una plantilla del usuario con ese nombre.
 function guardarComoPlantilla(nombre: string): string | null {
@@ -2576,15 +2612,18 @@ function guardarComoPlantilla(nombre: string): string | null {
   return ruta
 }
 
-// Borra una plantilla del usuario (las del paquete no se pueden borrar).
+// Borra una plantilla del listado. Las del usuario se eliminan; las del paquete
+// se ocultan (restaurables borrando el dato de localStorage).
 function borrarPlantilla(ruta: string): void {
-  if (!rutasUsuario.has(ruta)) return
-  delete plantillas[ruta]
-  const i = rutasPlantilla.indexOf(ruta)
-  if (i >= 0) rutasPlantilla.splice(i, 1)
-  rutasUsuario.delete(ruta)
-  selPlantilla.querySelector(`option[value="${CSS.escape(ruta)}"]`)?.remove()
-  persistirPlantillas()
+  if (rutasUsuario.has(ruta)) {
+    delete plantillas[ruta]
+    rutasUsuario.delete(ruta)
+    persistirPlantillas()
+  } else {
+    ocultas.add(nombreCorto(ruta)) // del paquete: ocultar
+    persistirOcultas()
+  }
+  quitarDelListado(ruta)
   if (plantillaActual === ruta) {
     if (rutasPlantilla[0]) usarPlantilla(rutasPlantilla[0])
     else nuevaPlacaEnBlanco(1080, 1080)
@@ -2625,13 +2664,11 @@ function mostrarInicio(): void {
          </button>`).join('')}
     </div>`).join('')
 
-  const opcionesPlantilla = rutasPlantilla.map((r) => {
-    const delBtn = rutasUsuario.has(r)
-      ? `<button class="ini-plantilla-del" data-ruta="${escAttr(r)}" title="Borrar plantilla">✕</button>` : ''
-    return `<span class="ini-plantilla-wrap">
-      <button class="ini-plantilla" data-ruta="${escAttr(r)}">${escAttr(nombreCorto(r))}</button>${delBtn}
-    </span>`
-  }).join('')
+  const opcionesPlantilla = rutasPlantilla.map((r) =>
+    `<span class="ini-plantilla-wrap">
+      <button class="ini-plantilla" data-ruta="${escAttr(r)}">${escAttr(nombreCorto(r))}</button>
+      <button class="ini-plantilla-del" data-ruta="${escAttr(r)}" title="Borrar plantilla">✕</button>
+    </span>`).join('')
 
   const ov = document.createElement('div')
   ov.id = 'pantalla-inicio'
@@ -2710,6 +2747,7 @@ void (async () => {
   await cargarPack()
   poblarFamilias()
   cargarPlantillasUsuario() // sumar al listado las plantillas que el usuario guardó
+  cargarOcultas()           // quitar del listado las plantillas del paquete que borró
   // Auto-restaurar el último trabajo (si entra en localStorage), si no, montar.
   let restaurado = false
   try {
