@@ -2269,7 +2269,10 @@ function abrirEditor(nombre: string): void {
   ta.spellcheck = false
   ta.style.left = r.left + 'px'
   ta.style.top = r.top - 1 + 'px'
-  ta.style.width = Math.max(m.maxWidthUser * k, 60) + 'px'
+  // +4px de holgura: maxWidthUser es el ancho EXACTO del texto (sin margen), y el
+  // textarea (layout del navegador) redondea distinto que la medición SVG → sin
+  // holgura, la última letra se cae a otra línea.
+  ta.style.width = Math.max(m.maxWidthUser * k + 4, 60) + 'px'
   ta.style.color = m.color
   ta.style.caretColor = m.color
   lienzo.appendChild(ta)
@@ -2283,7 +2286,7 @@ function abrirEditor(nombre: string): void {
   ta.addEventListener('input', () => {
     editorActivo!.tocado = true
     valores[nombre] = ta.value
-    autoCrecer(ta)
+    aplicarEstiloTextarea(nombre) // recalcular shrink en vivo (envuelve como el render)
   })
   ta.addEventListener('blur', (e) => {
     // Si el foco va a la barra de controles (ej. el selector de fuente),
@@ -2299,6 +2302,9 @@ function abrirEditor(nombre: string): void {
 }
 
 // Aplica el estilo efectivo del campo al textarea (vista en vivo durante la edición).
+// Reproduce el auto-shrink del render: si el texto no entra a tamaño completo,
+// achica la fuente igual que pintarCampo, para que el textarea envuelva como va a
+// quedar (si no, durante la edición se "cae" la última palabra/letra).
 function aplicarEstiloTextarea(nombre: string): void {
   const ta = document.querySelector<HTMLTextAreaElement>('.editor-text')
   if (!ta || !svgEl) return
@@ -2306,11 +2312,13 @@ function aplicarEstiloTextarea(nombre: string): void {
   if (!m) return
   const ef = estiloEfectivo(nombre)
   const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
-  ta.style.fontSize = ef.fontSize * k + 'px'
+  const mEf: Metrica = { ...m, fontSizeUser: ef.fontSize, weight: ef.weight, family: ef.family, italic: ef.italic }
+  const escala = ef.manual || !ta.value ? 1 : ajustar(ta.value, mEf).escala
+  ta.style.fontSize = ef.fontSize * escala * k + 'px'
   ta.style.fontWeight = ef.weight
   ta.style.fontStyle = ef.italic ? 'italic' : 'normal'
   ta.style.fontFamily = ef.family
-  ta.style.lineHeight = m.lh * (ef.fontSize / m.fontSizeUser) * ef.lineHeight * k + 'px'
+  ta.style.lineHeight = m.lh * (ef.fontSize / m.fontSizeUser) * ef.lineHeight * escala * k + 'px'
   ta.style.textAlign = ef.align === 'middle' ? 'center' : ef.align === 'end' ? 'right' : 'left'
   ta.style.color = ef.color
   ta.style.caretColor = ef.color
