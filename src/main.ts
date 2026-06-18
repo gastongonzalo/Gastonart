@@ -207,15 +207,24 @@ async function traerGoogleFont(familia: string): Promise<string | null> {
     if (!r.ok) return null
     css = await r.text()
   } catch { return null }
-  let agregada = false
+  // Google parte la fuente en subsets (latin, cyrillic, greek…). Hay que elegir
+  // el LATINO (el único con A-Z, á, ñ); tomar otro deja el texto sin glifos.
+  // Para cada peso (400/700) guardamos la URL del subset latino, o el último
+  // como fallback si ningún bloque declara unicode-range latino.
+  const porPeso = new Map<number, string>()
   for (const bloque of css.split('@font-face').slice(1)) {
     const um = bloque.match(/url\((https:[^)]+\.woff2)\)/)
     if (!um) continue
     const peso = +(bloque.match(/font-weight:\s*(\d+)/)?.[1] ?? '400')
     if (peso !== 400 && peso !== 700) continue
-    if (facesPack.some((f) => f.family === fam && f.weight === peso)) continue // dedup por subset
+    const latino = /U\+0000-00FF/i.test(bloque.match(/unicode-range:\s*([^;}]+)/i)?.[1] ?? '')
+    if (latino || !porPeso.has(peso)) porPeso.set(peso, um[1])
+  }
+  let agregada = false
+  for (const [peso, woff2] of porPeso) {
+    if (facesPack.some((f) => f.family === fam && f.weight === peso)) continue
     try {
-      const bytes = new Uint8Array(await (await fetchTimeout(um[1])).arrayBuffer())
+      const bytes = new Uint8Array(await (await fetchTimeout(woff2)).arrayBuffer())
       const ff = new FontFace(fam, bytes, { weight: String(peso) })
       await ff.load()
       ;(document as Document & { fonts: FontFaceSet }).fonts.add(ff)
