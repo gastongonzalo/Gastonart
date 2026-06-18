@@ -1732,6 +1732,10 @@ function dibujarSelGraf(): void {
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
   tools.appendChild(del)
   lienzo.appendChild(tools)
+  // Mantener el toolbar dentro del lienzo (overflow:hidden lo cortaría en los bordes).
+  const maxL = Math.max(4, lienzo.clientWidth - tools.offsetWidth - 4)
+  tools.style.left = Math.max(4, Math.min(uni.left, maxL)) + 'px'
+  if (uni.top - 34 < 0) tools.style.top = Math.min(uni.top + uni.height + 6, lienzo.clientHeight - tools.offsetHeight - 4) + 'px'
 
   if (!multi) lienzo.appendChild(crearTiradorEscalaGraf(uni)) // escala solo para 1 elemento/grupo
 }
