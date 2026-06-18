@@ -9,6 +9,60 @@
 
 * { box-sizing: border-box; }
 
+/* --- Aviso de fuentes faltantes --- */
+#aviso-fuentes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: #3b2a0e;
+  border-bottom: 1px solid #6b4e17;
+  color: #ffd591;
+  font-size: 13px;
+}
+#aviso-fuentes strong { color: #ffe9c4; }
+#aviso-fuentes button { margin-left: auto; }
+#aviso-fuentes button + button { margin-left: 6px; }
+
+/* --- Panel Google Fonts --- */
+#panel-gfonts {
+  position: fixed;
+  top: 96px;
+  right: 16px;
+  z-index: 60;
+  width: 320px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+.pg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.pg-buscar { display: flex; gap: 6px; }
+.pg-buscar input {
+  flex: 1;
+  padding: 8px 10px;
+  background: #0b1018;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+}
+.pg-estado { min-height: 16px; margin: 8px 0; font-size: 12px; color: var(--dim); }
+.pg-pop-tit { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; margin: 6px 0; }
+.pg-populares { display: flex; flex-wrap: wrap; gap: 6px; }
+.pg-chip {
+  padding: 6px 10px;
+  background: #0b1018;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+}
+.pg-chip:hover { border-color: var(--accent); }
+
 body {
   margin: 0;
   background: var(--bg);

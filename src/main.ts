@@ -176,6 +176,76 @@ async function importarFont(file: File): Promise<void> {
   estado.textContent = `Tipografía agregada: ${family}`
 }
 
+// Fuentes populares de Google para el buscador rápido.
+const GOOGLE_FONTS_POPULARES = [
+  'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Oswald', 'Raleway', 'Poppins', 'Nunito',
+  'Inter', 'Work Sans', 'Rubik', 'Barlow', 'Playfair Display', 'Merriweather', 'Bebas Neue',
+  'Anton', 'Archivo Black', 'Teko', 'Bangers', 'Pacifico', 'Lobster', 'Dancing Script',
+  'Caveat', 'Permanent Marker', 'Abril Fatface', 'Righteous', 'Bungee', 'Shrikhand',
+]
+
+// Trae una familia de Google Fonts (regular + bold), la registra para el editor
+// (FontFace) y para el export resvg (facesPack como woff2). Devuelve la familia
+// cargada, o null si no existe / falló.
+async function traerGoogleFont(familia: string): Promise<string | null> {
+  const fam = familia.trim()
+  if (!fam) return null
+  const ya = facesPack.find((f) => f.family.toLowerCase() === fam.toLowerCase())
+  if (ya) { poblarFamilias(); return ya.family }
+  const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}:wght@400;700&display=swap`
+  let css: string
+  try {
+    const r = await fetch(url)
+    if (!r.ok) return null
+    css = await r.text()
+  } catch { return null }
+  let agregada = false
+  for (const bloque of css.split('@font-face').slice(1)) {
+    const um = bloque.match(/url\((https:[^)]+\.woff2)\)/)
+    if (!um) continue
+    const peso = +(bloque.match(/font-weight:\s*(\d+)/)?.[1] ?? '400')
+    if (peso !== 400 && peso !== 700) continue
+    if (facesPack.some((f) => f.family === fam && f.weight === peso)) continue // dedup por subset
+    try {
+      const bytes = new Uint8Array(await (await fetch(um[1])).arrayBuffer())
+      const ff = new FontFace(fam, bytes, { weight: String(peso) })
+      await ff.load()
+      ;(document as Document & { fonts: FontFaceSet }).fonts.add(ff)
+      facesPack.push({ bytes, family: fam, weight: peso, style: 'normal', formato: 'woff2' })
+      agregada = true
+    } catch { /* seguir con otros pesos */ }
+  }
+  if (!agregada) return null
+  poblarFamilias()
+  return fam
+}
+
+// Tras cargar una fuente nueva: re-medir y repintar los campos (la fuente cambia
+// las métricas). Los textos no editados reflowean solos al cargar la fuente.
+async function refrescarTrasFuente(): Promise<void> {
+  if (!svgEl) return
+  await (document as Document & { fonts: FontFaceSet }).fonts.ready
+  calcularMetricas()
+  for (const nombre of Object.keys(valores)) if (valores[nombre] && metricas[nombre]) pintarCampo(nombre)
+  construirOverlays()
+}
+
+// Familias declaradas en el SVG que no están disponibles para el export (resvg).
+// Toma el último nombre de cada lista (el fallback real, ej. "Oswald-Bold, Oswald").
+function fuentesFaltantes(svg: string): string[] {
+  const decls = new Set<string>()
+  for (const m of svg.matchAll(/font-family\s*:\s*([^;}"]+)/gi)) decls.add(m[1])
+  for (const m of svg.matchAll(/font-family\s*=\s*["']([^"']+)["']/gi)) decls.add(m[1])
+  const faltan = new Set<string>()
+  for (const decl of decls) {
+    const nombres = decl.split(',').map((s) => s.replace(/['"]/g, '').trim()).filter(Boolean)
+    const fam = nombres[nombres.length - 1]
+    if (!fam || /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(fam)) continue
+    if (!facesPack.some((f) => f.family.toLowerCase() === fam.toLowerCase())) faltan.add(fam)
+  }
+  return [...faltan]
+}
+
 // Estilo efectivo de un campo = base (métrica) + overrides del usuario.
 function estiloEfectivo(nombre: string): {
   fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; color: string; manual: boolean; lineHeight: number
@@ -258,6 +328,23 @@ app.innerHTML = `
     <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
     <span class="bt-sep"></span>
     <select id="bt-family" title="Tipografía"></select>
+    <button id="bt-gfonts" class="mini" title="Buscar y agregar una fuente de Google Fonts">🔤 Google</button>
+  </div>
+
+  <div id="aviso-fuentes" hidden></div>
+
+  <div id="panel-gfonts" hidden>
+    <div class="pg-head">
+      <strong>Agregar fuente de Google Fonts</strong>
+      <button id="pg-cerrar" class="mini" title="Cerrar">✕</button>
+    </div>
+    <div class="pg-buscar">
+      <input id="pg-input" type="text" placeholder="Nombre de la fuente (ej. Oswald)" autocomplete="off">
+      <button id="pg-traer" class="ini-btn-acc">Agregar</button>
+    </div>
+    <div id="pg-estado" class="pg-estado"></div>
+    <div class="pg-pop-tit">Populares</div>
+    <div id="pg-populares" class="pg-populares"></div>
   </div>
 
   <div id="escenario">
@@ -353,6 +440,43 @@ inFont.addEventListener('change', async () => {
   inFont.value = ''
 })
 
+// --- Panel de Google Fonts ---
+const panelGfonts = document.querySelector<HTMLDivElement>('#panel-gfonts')!
+const pgInput = document.querySelector<HTMLInputElement>('#pg-input')!
+const pgEstado = document.querySelector<HTMLDivElement>('#pg-estado')!
+function abrirGfonts(): void {
+  panelGfonts.hidden = false
+  pgEstado.textContent = ''
+  const cont = document.querySelector<HTMLDivElement>('#pg-populares')!
+  cont.innerHTML = ''
+  for (const fam of GOOGLE_FONTS_POPULARES) {
+    const b = document.createElement('button')
+    b.className = 'pg-chip'; b.textContent = fam; b.style.fontFamily = `'${fam}'`
+    b.addEventListener('click', () => { void agregarGfont(fam) })
+    cont.appendChild(b)
+  }
+  // precargar las populares para que el chip se vea con su fuente
+  const link = document.createElement('link'); link.rel = 'stylesheet'
+  link.href = 'https://fonts.googleapis.com/css2?' + GOOGLE_FONTS_POPULARES.map((f) => 'family=' + encodeURIComponent(f)).join('&') + '&display=swap'
+  document.head.appendChild(link)
+  pgInput.value = ''; pgInput.focus()
+}
+async function agregarGfont(fam: string): Promise<void> {
+  pgEstado.textContent = `Trayendo «${fam}»…`
+  const ok = await traerGoogleFont(fam)
+  if (!ok) { pgEstado.textContent = `No se encontró «${fam}» en Google Fonts.`; return }
+  await refrescarTrasFuente()
+  if (editorActivo) { (estilos[editorActivo.nombre] ??= {}).family = ok; aplicarEstiloTextarea(editorActivo.nombre); marcarCampoEditado(); btFamily.value = ok }
+  revisarFuentes()
+  pgEstado.textContent = `✓ «${ok}» agregada.`
+  estado.textContent = `Fuente agregada: ${ok}`
+}
+document.querySelector('#bt-gfonts')!.addEventListener('mousedown', (e) => e.preventDefault()) // no robar foco del editor
+document.querySelector('#bt-gfonts')!.addEventListener('click', () => abrirGfonts())
+document.querySelector('#pg-cerrar')!.addEventListener('click', () => { panelGfonts.hidden = true })
+document.querySelector('#pg-traer')!.addEventListener('click', () => { if (pgInput.value.trim()) void agregarGfont(pgInput.value.trim()) })
+pgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && pgInput.value.trim()) void agregarGfont(pgInput.value.trim()) })
+
 let contadorAgregados = 0 // para nombres únicos de elementos agregados
 
 // ---------------------------------------------------------------
@@ -377,6 +501,31 @@ async function cargarPack(): Promise<void> {
       return faceDesdeNombre(ruta.split('/').pop()!, bytes)
     }),
   )
+}
+
+// Muestra/oculta el aviso de fuentes faltantes de la plantilla actual, con la
+// opción de descargarlas de Google Fonts.
+const avisoFuentes = document.querySelector<HTMLDivElement>('#aviso-fuentes')!
+function revisarFuentes(): void {
+  const faltan = fuentesFaltantes(svgActual)
+  if (!faltan.length) { avisoFuentes.hidden = true; return }
+  avisoFuentes.innerHTML =
+    `<span>⚠ Falta${faltan.length > 1 ? 'n' : ''} la fuente${faltan.length > 1 ? 's' : ''}: <strong>${faltan.map(escAttr).join(', ')}</strong></span>` +
+    `<button id="av-descargar" class="mini">Descargar de Google Fonts</button>` +
+    `<button id="av-cerrar" class="mini" title="Ignorar">✕</button>`
+  avisoFuentes.hidden = false
+  avisoFuentes.querySelector('#av-cerrar')!.addEventListener('click', () => { avisoFuentes.hidden = true })
+  avisoFuentes.querySelector('#av-descargar')!.addEventListener('click', async () => {
+    const btn = avisoFuentes.querySelector('#av-descargar') as HTMLButtonElement
+    btn.disabled = true; btn.textContent = 'Descargando…'
+    const noHay: string[] = []
+    for (const fam of faltan) { if (!(await traerGoogleFont(fam))) noHay.push(fam) }
+    await refrescarTrasFuente()
+    revisarFuentes() // re-evaluar: las que entraron desaparecen del aviso
+    estado.textContent = noHay.length
+      ? `No están en Google Fonts: ${noHay.join(', ')} — importalas con 🔤`
+      : 'Fuentes descargadas y aplicadas.'
+  })
 }
 
 // ---------------------------------------------------------------
@@ -426,6 +575,7 @@ async function montarPlantilla(): Promise<void> {
   suprimirHistorial = false
   reiniciarHistorial() // nueva placa = historial nuevo
   estado.textContent = `${camposActuales.length} campo(s) · ${hayImagen(svgActual) ? 'foto editable' : 'sin foto'} · pasá el mouse y hacé clic`
+  revisarFuentes() // avisar si la plantilla usa fuentes que no tenemos
 }
 
 // Mide, por campo, interlineado, tamaño, color y ANCHO de caja (del relleno).
@@ -2066,7 +2216,7 @@ function abrirEditor(nombre: string): void {
     // Si el foco va a la barra de controles (ej. el selector de fuente),
     // NO cerramos el editor: queremos seguir editando ese campo.
     const rt = e.relatedTarget as HTMLElement | null
-    if (rt && barraTexto.contains(rt)) return
+    if (rt && (barraTexto.contains(rt) || rt.closest('#panel-gfonts'))) return
     commitEditor()
   })
   ta.addEventListener('keydown', (e) => {
