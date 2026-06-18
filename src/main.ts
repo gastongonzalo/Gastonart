@@ -343,6 +343,9 @@ app.innerHTML = `
       <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
       <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
       <span class="tb-div"></span>
+      <button id="btn-copiar" class="mini" title="Copiar elemento seleccionado (Ctrl+C)" disabled>⧉ Copiar</button>
+      <button id="btn-pegar" class="mini" title="Pegar (Ctrl+V)" disabled>📋 Pegar</button>
+      <span class="tb-div"></span>
       <button id="btn-import-font" class="mini" title="Importar tipografía (.ttf / .otf)">+ Aa</button>
       <button id="btn-guardar" class="mini">💾 Guardar</button>
       <button id="btn-cargar" class="mini">📂 Cargar</button>
@@ -1463,6 +1466,7 @@ function grafKey(e: KeyboardEvent): void {
 
 function limpiarGraf(): void {
   lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee').forEach((n) => n.remove())
+  actualizarBotonesEdicion()
 }
 
 // Nodo realmente manipulable: si el elemento ya está envuelto para mover, su wrapper.
@@ -1588,6 +1592,52 @@ function borrarGraf(): void {
   grafSeleccion = []
   limpiarGraf()
   registrarHistorial(); autoguardar()
+}
+
+// ============ Copiar / pegar / duplicar (modo Gráficos) ============
+const SEL_GRAF = 'rect,circle,ellipse,path,polygon,polyline,line,image,use'
+let portapapeles: SVGElement[] = [] // clones de los elementos copiados
+
+function actualizarBotonesEdicion(): void {
+  const bc = document.querySelector<HTMLButtonElement>('#btn-copiar')
+  const bp = document.querySelector<HTMLButtonElement>('#btn-pegar')
+  if (bc) bc.disabled = !grafSeleccion.length
+  if (bp) bp.disabled = !portapapeles.length
+}
+
+function copiarSeleccion(): void {
+  if (!grafSeleccion.length) return
+  portapapeles = grafSeleccion.map((el) => nodoManip(el).cloneNode(true) as SVGElement)
+  estado.textContent = `${portapapeles.length} elemento(s) copiado(s)`
+  actualizarBotonesEdicion()
+}
+function pegarPortapapeles(): void { if (portapapeles.length) clonarYPegar(portapapeles) }
+function duplicarSeleccion(): void { if (grafSeleccion.length) clonarYPegar(grafSeleccion.map(nodoManip)) }
+
+// Clona las fuentes, las pega con un pequeño offset y las deja seleccionadas.
+function clonarYPegar(fuentes: SVGElement[]): void {
+  if (!svgEl || !fuentes.length) return
+  if (!modoGrafico) activarGrafico()
+  const nuevos: SVGElement[] = []
+  for (const fuente of fuentes) {
+    const nodo = fuente.cloneNode(true) as SVGElement
+    offsetTransform(nodo, 24, 24)
+    svgEl.appendChild(nodo)
+    const hoja = (nodo.matches?.(SEL_GRAF) ? nodo : nodo.querySelector<SVGElement>(SEL_GRAF)) ?? nodo
+    nuevos.push(graficoSeleccionable(hoja) ?? hoja)
+  }
+  grafSeleccion = nuevos
+  dibujarSelGraf()
+  registrarHistorial(); autoguardar()
+  estado.textContent = `${nuevos.length} elemento(s) pegado(s)`
+}
+
+// Suma (dx,dy) al translate del transform (o lo antepone si no había).
+function offsetTransform(el: SVGElement, dx: number, dy: number): void {
+  const tr = el.getAttribute('transform') ?? ''
+  const m = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)([^)]*)\)/)
+  if (m) el.setAttribute('transform', tr.replace(m[0], `translate(${+m[1] + dx} ${+m[2] + dy}${m[3]})`))
+  else el.setAttribute('transform', `translate(${dx} ${dy}) ${tr}`.trim())
 }
 
 // Agrupa la selección (≥2) en un <g data-grupo> para manejarla como una unidad.
@@ -2728,11 +2778,19 @@ document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () =
 document.querySelector('#btn-nuevo')!.addEventListener('click', () => mostrarInicio())
 document.querySelector('#btn-deshacer')!.addEventListener('click', () => void deshacer())
 document.querySelector('#btn-rehacer')!.addEventListener('click', () => void rehacer())
+document.querySelector('#btn-copiar')!.addEventListener('click', () => copiarSeleccion())
+document.querySelector('#btn-pegar')!.addEventListener('click', () => pegarPortapapeles())
 document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey)) return
+  // Mientras se edita texto (o el foco está en un input), dejar la copia NATIVA.
+  const ae = document.activeElement
+  const editando = !!editorActivo || (ae != null && /^(input|textarea|select)$/i.test(ae.tagName))
   const k = e.key.toLowerCase()
   if (k === 'z' && !e.shiftKey) { e.preventDefault(); void deshacer() }
   else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); void rehacer() }
+  else if (!editando && k === 'c' && grafSeleccion.length) { e.preventDefault(); copiarSeleccion() }
+  else if (!editando && k === 'v' && portapapeles.length) { e.preventDefault(); pegarPortapapeles() }
+  else if (!editando && k === 'd' && grafSeleccion.length) { e.preventDefault(); duplicarSeleccion() }
 })
 
 // ---------------------------------------------------------------
