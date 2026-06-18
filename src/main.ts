@@ -187,6 +187,14 @@ const GOOGLE_FONTS_POPULARES = [
 // Trae una familia de Google Fonts (regular + bold), la registra para el editor
 // (FontFace) y para el export resvg (facesPack como woff2). Devuelve la familia
 // cargada, o null si no existe / falló.
+// fetch con timeout (aborta si la red cuelga, para no dejar la UI trabada).
+async function fetchTimeout(url: string, ms = 12000): Promise<Response> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  try { return await fetch(url, { signal: ctrl.signal }) }
+  finally { clearTimeout(t) }
+}
+
 async function traerGoogleFont(familia: string): Promise<string | null> {
   const fam = familia.trim()
   if (!fam) return null
@@ -195,7 +203,7 @@ async function traerGoogleFont(familia: string): Promise<string | null> {
   const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}:wght@400;700&display=swap`
   let css: string
   try {
-    const r = await fetch(url)
+    const r = await fetchTimeout(url)
     if (!r.ok) return null
     css = await r.text()
   } catch { return null }
@@ -207,7 +215,7 @@ async function traerGoogleFont(familia: string): Promise<string | null> {
     if (peso !== 400 && peso !== 700) continue
     if (facesPack.some((f) => f.family === fam && f.weight === peso)) continue // dedup por subset
     try {
-      const bytes = new Uint8Array(await (await fetch(um[1])).arrayBuffer())
+      const bytes = new Uint8Array(await (await fetchTimeout(um[1])).arrayBuffer())
       const ff = new FontFace(fam, bytes, { weight: String(peso) })
       await ff.load()
       ;(document as Document & { fonts: FontFaceSet }).fonts.add(ff)
@@ -224,7 +232,11 @@ async function traerGoogleFont(familia: string): Promise<string | null> {
 // las métricas). Los textos no editados reflowean solos al cargar la fuente.
 async function refrescarTrasFuente(): Promise<void> {
   if (!svgEl) return
-  await (document as Document & { fonts: FontFaceSet }).fonts.ready
+  // No bloquear indefinidamente si document.fonts.ready no resuelve.
+  await Promise.race([
+    (document as Document & { fonts: FontFaceSet }).fonts.ready,
+    new Promise((res) => setTimeout(res, 4000)),
+  ])
   calcularMetricas()
   for (const nombre of Object.keys(valores)) if (valores[nombre] && metricas[nombre]) pintarCampo(nombre)
   construirOverlays()
@@ -519,12 +531,17 @@ function revisarFuentes(): void {
     const btn = avisoFuentes.querySelector('#av-descargar') as HTMLButtonElement
     btn.disabled = true; btn.textContent = 'Descargando…'
     const noHay: string[] = []
-    for (const fam of faltan) { if (!(await traerGoogleFont(fam))) noHay.push(fam) }
-    await refrescarTrasFuente()
-    revisarFuentes() // re-evaluar: las que entraron desaparecen del aviso
-    estado.textContent = noHay.length
-      ? `No están en Google Fonts: ${noHay.join(', ')} — importalas con 🔤`
-      : 'Fuentes descargadas y aplicadas.'
+    try {
+      for (const fam of faltan) { if (!(await traerGoogleFont(fam))) noHay.push(fam) }
+      await refrescarTrasFuente()
+    } catch (e) {
+      console.error('[descargar fuentes]', e)
+    } finally {
+      revisarFuentes() // re-evaluar: las que entraron desaparecen; re-renderiza el botón (nunca queda en "Descargando…")
+      estado.textContent = noHay.length
+        ? `No se pudieron traer: ${noHay.join(', ')} — reintentá o importalas con 🔤`
+        : 'Fuentes descargadas y aplicadas.'
+    }
   })
 }
 
