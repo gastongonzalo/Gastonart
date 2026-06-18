@@ -64,6 +64,45 @@
 }
 .pg-chip:hover { border-color: var(--accent); }
 
+/* --- Panel de íconos (Iconify) --- */
+#panel-iconos {
+  position: fixed;
+  top: 96px;
+  left: 96px;
+  z-index: 60;
+  width: 360px;
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+#panel-iconos[hidden] { display: none; }
+.pi-grid {
+  margin-top: 10px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.pi-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 6px;
+  background: #0b1018;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+}
+.pi-item:hover { border-color: var(--accent); }
+.pi-item svg, .pi-item img { width: 26px; height: 26px; display: block; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -134,7 +173,7 @@ body {
   padding: 12px 10px;
   background: var(--panel);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  overflow: visible; /* que los popovers de Figura puedan salir del sidebar */
   flex: none;
 }
 .herr {

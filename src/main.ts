@@ -395,6 +395,19 @@ app.innerHTML = `
     <div id="pg-populares" class="pg-populares"></div>
   </div>
 
+  <div id="panel-iconos" hidden>
+    <div class="pg-head">
+      <strong>Íconos, formas y vectores</strong>
+      <button id="pi-cerrar" class="mini" title="Cerrar">✕</button>
+    </div>
+    <div class="pg-buscar">
+      <input id="pi-input" type="text" placeholder="Buscar (inglés): heart, arrow, home, star…" autocomplete="off">
+      <button id="pi-buscar" class="ini-btn-acc">Buscar</button>
+    </div>
+    <div id="pi-estado" class="pg-estado"></div>
+    <div id="pi-grid" class="pi-grid"></div>
+  </div>
+
   <div class="cuerpo">
     <nav class="toolbar-izq" aria-label="Insertar elementos">
       <button id="btn-add-texto" class="herr" title="Agregar texto"><span class="herr-ic">T</span><span>Texto</span></button>
@@ -410,10 +423,7 @@ app.innerHTML = `
           <button data-fig="flecha" title="Flecha">➜</button>
         </div>
       </span>
-      <span class="add-wrap">
-        <button id="btn-add-icono" class="herr" title="Agregar ícono"><span class="herr-ic">★</span><span>Ícono</span></button>
-        <div id="menu-icono" class="menu-pop menu-iconos" hidden></div>
-      </span>
+      <button id="btn-add-icono" class="herr" title="Agregar ícono / forma / vector"><span class="herr-ic">★</span><span>Ícono</span></button>
       <button id="btn-pluma" class="herr" title="Pluma (puntos de ancla)"><span class="herr-ic">✒</span><span>Pluma</span></button>
       <button id="btn-grafico" class="herr" title="Seleccionar y editar vectores/imágenes de la plantilla"><span class="herr-ic">✦</span><span>Gráficos</span></button>
     </nav>
@@ -467,21 +477,60 @@ menuFigura.querySelectorAll<HTMLButtonElement>('button[data-fig]').forEach((b) =
   b.addEventListener('click', () => { insertarFigura(b.dataset.fig!); menuFigura.hidden = true })
 })
 
-const menuIcono = document.querySelector<HTMLDivElement>('#menu-icono')!
-for (const raw of Object.values(iconosPack)) {
-  const b = document.createElement('button')
-  b.innerHTML = raw
-  const svgIco = b.querySelector('svg')
-  if (svgIco) { svgIco.setAttribute('width', '22'); svgIco.setAttribute('height', '22') }
-  b.addEventListener('click', () => { insertarIcono(raw); menuIcono.hidden = true })
-  menuIcono.appendChild(b)
+// --- Panel de íconos / formas / vectores (Iconify + favoritos empaquetados) ---
+const panelIconos = document.querySelector<HTMLDivElement>('#panel-iconos')!
+const piInput = document.querySelector<HTMLInputElement>('#pi-input')!
+const piEstado = document.querySelector<HTMLDivElement>('#pi-estado')!
+const piGrid = document.querySelector<HTMLDivElement>('#pi-grid')!
+
+function mostrarIconosFavoritos(): void {
+  piGrid.innerHTML = ''
+  for (const raw of Object.values(iconosPack)) {
+    const b = document.createElement('button'); b.className = 'pi-item'; b.innerHTML = raw
+    const svg = b.querySelector('svg'); if (svg) { svg.setAttribute('stroke', '#e6edf6') }
+    b.addEventListener('click', () => insertarIcono(raw))
+    piGrid.appendChild(b)
+  }
+}
+async function buscarIconos(q: string): Promise<void> {
+  q = q.trim()
+  if (!q) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos(); return }
+  piEstado.textContent = 'Buscando…'; piGrid.innerHTML = ''
+  let iconos: string[] = []
+  try {
+    const data = await (await fetchTimeout(`https://api.iconify.design/search?query=${encodeURIComponent(q)}&limit=120`)).json()
+    iconos = (data as { icons?: string[] }).icons ?? []
+  } catch { piEstado.textContent = 'No se pudo buscar (¿sin conexión?)'; return }
+  if (!iconos.length) { piEstado.textContent = `Sin resultados para «${q}»`; return }
+  piEstado.textContent = `${iconos.length} resultado(s)`
+  for (const nombre of iconos) {
+    const b = document.createElement('button'); b.className = 'pi-item'; b.title = nombre
+    const img = document.createElement('img')
+    img.src = `https://api.iconify.design/${nombre}.svg?height=26&color=%23e6edf6`
+    img.loading = 'lazy'; img.alt = nombre
+    b.appendChild(img)
+    b.addEventListener('click', () => void insertarIconoIconify(nombre))
+    piGrid.appendChild(b)
+  }
+}
+async function insertarIconoIconify(nombre: string): Promise<void> {
+  piEstado.textContent = `Agregando ${nombre}…`
+  try {
+    const raw = await (await fetchTimeout(`https://api.iconify.design/${nombre}.svg`)).text()
+    insertarIcono(raw)
+    piEstado.textContent = `✓ ${nombre}`
+  } catch { piEstado.textContent = 'No se pudo agregar el ícono' }
 }
 document.querySelector('#btn-add-icono')!.addEventListener('click', (e) => {
   e.stopPropagation()
-  const abrir = menuIcono.hidden
-  document.querySelectorAll('.menu-pop').forEach((m) => ((m as HTMLElement).hidden = true))
-  menuIcono.hidden = !abrir
+  panelIconos.hidden = false
+  if (!piGrid.childElementCount) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos() }
+  piInput.focus()
 })
+document.querySelector('#pi-cerrar')!.addEventListener('click', () => { panelIconos.hidden = true })
+document.querySelector('#pi-buscar')!.addEventListener('click', () => void buscarIconos(piInput.value))
+piInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarIconos(piInput.value) })
+panelIconos.addEventListener('click', (e) => e.stopPropagation())
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
   if (modoGrafico) desactivarGrafico()
@@ -493,7 +542,7 @@ document.querySelector('#btn-grafico')!.addEventListener('click', (e) => {
   if (modoGrafico) desactivarGrafico()
   else activarGrafico()
 })
-document.addEventListener('click', () => { menuFigura.hidden = true; menuIcono.hidden = true })
+document.addEventListener('click', () => { menuFigura.hidden = true })
 inImgNueva.addEventListener('change', async () => {
   const file = inImgNueva.files?.[0]
   if (!file) return
@@ -1063,17 +1112,33 @@ function insertarIcono(raw: string): void {
   contadorAgregados++
   const g = document.createElementNS(SVGNS, 'g')
   for (const child of Array.from(svgIco.childNodes)) g.appendChild(document.importNode(child, true))
-  g.setAttribute('fill', 'none')
-  g.setAttribute('stroke', '#141930')
-  g.setAttribute('stroke-width', '2')
-  g.setAttribute('stroke-linecap', 'round')
-  g.setAttribute('stroke-linejoin', 'round')
+  // Sacar currentColor explícito de los hijos para que hereden el color del <g>.
+  for (const el of Array.from(g.querySelectorAll('*'))) {
+    if (el.getAttribute('fill') === 'currentColor') el.removeAttribute('fill')
+    if (el.getAttribute('stroke') === 'currentColor') el.removeAttribute('stroke')
+  }
+  const color = '#141930'
   g.setAttribute('data-agregado', 'icono')
-  g.setAttribute('data-colormode', 'stroke')
+  // ¿Es de contorno (outline) o relleno (solid)? Según el stroke real del SVG.
+  const esContorno = /stroke\s*=\s*["'](?!none)/i.test(raw)
+  if (esContorno) {
+    g.setAttribute('fill', 'none')
+    g.setAttribute('stroke', color)
+    g.setAttribute('stroke-width', svgIco.getAttribute('stroke-width') ?? '2')
+    g.setAttribute('stroke-linecap', 'round')
+    g.setAttribute('stroke-linejoin', 'round')
+    g.setAttribute('data-colormode', 'stroke')
+  } else {
+    g.setAttribute('fill', color)
+    g.setAttribute('data-colormode', 'fill')
+  }
+  // Escalar según el viewBox del ícono (no siempre 24×24) a ~120px.
+  const vb = (svgIco.getAttribute('viewBox') ?? '0 0 24 24').split(/[\s,]+/).map(Number)
+  const iw = vb[2] || 24, ih = vb[3] || 24
   const vw = svgEl.viewBox.baseVal.width || 1080
   const vh = svgEl.viewBox.baseVal.height || 1350
-  const s = 5 // 24 * 5 = 120 px
-  const x = Math.round(vw / 2 - 12 * s), y = Math.round(vh / 2 - 12 * s)
+  const s = 120 / Math.max(iw, ih)
+  const x = Math.round(vw / 2 - (iw * s) / 2), y = Math.round(vh / 2 - (ih * s) / 2)
   g.setAttribute('transform', `translate(${x} ${y}) scale(${s})`)
   svgEl.appendChild(g)
   construirOverlays()
