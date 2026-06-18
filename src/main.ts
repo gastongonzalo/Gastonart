@@ -414,14 +414,7 @@ app.innerHTML = `
       <button id="btn-add-img" class="herr" title="Agregar imagen"><span class="herr-ic">▣</span><span>Imagen</span></button>
       <span class="add-wrap">
         <button id="btn-add-figura" class="herr" title="Agregar figura"><span class="herr-ic">▢</span><span>Figura</span></button>
-        <div id="menu-figura" class="menu-pop" hidden>
-          <button data-fig="rect" title="Rectángulo">▭</button>
-          <button data-fig="redondeado" title="Rectángulo redondeado">▢</button>
-          <button data-fig="circulo" title="Círculo">●</button>
-          <button data-fig="triangulo" title="Triángulo">▲</button>
-          <button data-fig="linea" title="Línea">／</button>
-          <button data-fig="flecha" title="Flecha">➜</button>
-        </div>
+        <div id="menu-figura" class="menu-pop menu-figs" hidden></div>
       </span>
       <button id="btn-add-icono" class="herr" title="Agregar ícono / forma / vector"><span class="herr-ic">★</span><span>Ícono</span></button>
       <button id="btn-pluma" class="herr" title="Pluma (puntos de ancla)"><span class="herr-ic">✒</span><span>Pluma</span></button>
@@ -467,14 +460,33 @@ document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExp
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
 document.querySelector('#btn-add-img')!.addEventListener('click', () => inImgNueva.click())
 const menuFigura = document.querySelector<HTMLDivElement>('#menu-figura')!
+// Tipos de figura disponibles (orden del selector).
+const TIPOS_FIGURA = [
+  'rect', 'redondeado', 'circulo', 'triangulo', 'rombo', 'pentagono', 'hexagono',
+  'octagono', 'estrella', 'estrella6', 'corazon', 'rayo', 'flecha', 'linea',
+]
+// Poblar el popover con un preview de cada figura.
+for (const tipo of TIPOS_FIGURA) {
+  const b = document.createElement('button'); b.dataset.fig = tipo; b.title = tipo
+  const svg = document.createElementNS(SVGNS, 'svg')
+  svg.setAttribute('viewBox', '-1 -1 26 26'); svg.setAttribute('width', '22'); svg.setAttribute('height', '22')
+  svg.appendChild(crearFiguraEl(tipo, 24).el)
+  b.appendChild(svg)
+  b.addEventListener('click', () => { insertarFigura(tipo); menuFigura.hidden = true })
+  menuFigura.appendChild(b)
+}
+// Cierra los paneles flotantes (Figura, Íconos, Google Fonts) excepto uno.
+function cerrarPanelesFlotantes(excepto?: Element): void {
+  for (const sel of ['#menu-figura', '#panel-iconos', '#panel-gfonts']) {
+    const p = document.querySelector<HTMLElement>(sel)
+    if (p && p !== excepto) p.hidden = true
+  }
+}
 document.querySelector('#btn-add-figura')!.addEventListener('click', (e) => {
   e.stopPropagation()
   const abrir = menuFigura.hidden
-  document.querySelectorAll('.menu-pop').forEach((m) => ((m as HTMLElement).hidden = true))
+  cerrarPanelesFlotantes()
   menuFigura.hidden = !abrir
-})
-menuFigura.querySelectorAll<HTMLButtonElement>('button[data-fig]').forEach((b) => {
-  b.addEventListener('click', () => { insertarFigura(b.dataset.fig!); menuFigura.hidden = true })
 })
 
 // --- Panel de íconos / formas / vectores (Iconify + favoritos empaquetados) ---
@@ -523,6 +535,7 @@ async function insertarIconoIconify(nombre: string): Promise<void> {
 }
 document.querySelector('#btn-add-icono')!.addEventListener('click', (e) => {
   e.stopPropagation()
+  cerrarPanelesFlotantes(panelIconos)
   panelIconos.hidden = false
   if (!piGrid.childElementCount) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos() }
   piInput.focus()
@@ -566,6 +579,7 @@ const panelGfonts = document.querySelector<HTMLDivElement>('#panel-gfonts')!
 const pgInput = document.querySelector<HTMLInputElement>('#pg-input')!
 const pgEstado = document.querySelector<HTMLDivElement>('#pg-estado')!
 function abrirGfonts(): void {
+  cerrarPanelesFlotantes(panelGfonts)
   panelGfonts.hidden = false
   pgEstado.textContent = ''
   const cont = document.querySelector<HTMLDivElement>('#pg-populares')!
@@ -1061,38 +1075,68 @@ function insertarImagen(f: Foto): void {
 }
 
 // Inserta una figura (movible, redimensionable por escala, color, eliminable).
+// Puntos de un polígono regular de n lados inscrito en el box S (centrado).
+function ptsPoligono(n: number, S: number, rotDeg = -90): string {
+  const c = S / 2, r = S / 2, pts: string[] = []
+  for (let i = 0; i < n; i++) {
+    const a = (rotDeg + (i * 360) / n) * Math.PI / 180
+    pts.push(`${(c + r * Math.cos(a)).toFixed(1)},${(c + r * Math.sin(a)).toFixed(1)}`)
+  }
+  return pts.join(' ')
+}
+// Puntos de una estrella de `picos` puntas.
+function ptsEstrella(picos: number, S: number, rInt = 0.42, rotDeg = -90): string {
+  const c = S / 2, rE = S / 2, rI = (S / 2) * rInt, pts: string[] = []
+  for (let i = 0; i < picos * 2; i++) {
+    const r = i % 2 ? rI : rE
+    const a = (rotDeg + (i * 180) / picos) * Math.PI / 180
+    pts.push(`${(c + r * Math.cos(a)).toFixed(1)},${(c + r * Math.sin(a)).toFixed(1)}`)
+  }
+  return pts.join(' ')
+}
+
+// Crea el elemento SVG de una figura en un box de lado S (sin transform).
+function crearFiguraEl(tipo: string, S: number): { el: SVGElement; modo: 'fill' | 'stroke' } {
+  const poligono = (pts: string) => { const p = document.createElementNS(SVGNS, 'polygon'); p.setAttribute('points', pts); return p }
+  const camino = (d: string) => { const p = document.createElementNS(SVGNS, 'path'); p.setAttribute('d', d); return p }
+  let el: SVGElement
+  let modo: 'fill' | 'stroke' = 'fill'
+  switch (tipo) {
+    case 'rect': case 'redondeado':
+      el = document.createElementNS(SVGNS, 'rect')
+      el.setAttribute('width', String(S)); el.setAttribute('height', String(Math.round(S * 0.66)))
+      if (tipo === 'redondeado') el.setAttribute('rx', String(S * 0.11)); break
+    case 'circulo':
+      el = document.createElementNS(SVGNS, 'circle')
+      el.setAttribute('cx', String(S / 2)); el.setAttribute('cy', String(S / 2)); el.setAttribute('r', String(S / 2)); break
+    case 'triangulo': el = poligono(`${S / 2},0 ${S},${S} 0,${S}`); break
+    case 'rombo': el = poligono(ptsPoligono(4, S)); break
+    case 'pentagono': el = poligono(ptsPoligono(5, S)); break
+    case 'hexagono': el = poligono(ptsPoligono(6, S, 0)); break
+    case 'octagono': el = poligono(ptsPoligono(8, S, -90 + 22.5)); break
+    case 'estrella': el = poligono(ptsEstrella(5, S)); break
+    case 'estrella6': el = poligono(ptsEstrella(6, S, 0.58)); break
+    case 'corazon': el = camino(`M${0.5 * S} ${0.86 * S} C ${0.16 * S} ${0.62 * S} ${0.04 * S} ${0.36 * S} ${0.23 * S} ${0.23 * S} C ${0.36 * S} ${0.13 * S} ${0.46 * S} ${0.2 * S} ${0.5 * S} ${0.3 * S} C ${0.54 * S} ${0.2 * S} ${0.64 * S} ${0.13 * S} ${0.77 * S} ${0.23 * S} C ${0.96 * S} ${0.36 * S} ${0.84 * S} ${0.62 * S} ${0.5 * S} ${0.86 * S} Z`); break
+    case 'rayo': el = camino(`M${0.56 * S} 0 L${0.18 * S} ${0.56 * S} L${0.44 * S} ${0.56 * S} L${0.4 * S} ${S} L${0.82 * S} ${0.38 * S} L${0.52 * S} ${0.38 * S} Z`); break
+    case 'linea':
+      el = document.createElementNS(SVGNS, 'line')
+      el.setAttribute('x1', '0'); el.setAttribute('y1', String(S / 2)); el.setAttribute('x2', String(S)); el.setAttribute('y2', String(S / 2))
+      el.setAttribute('stroke-width', String(Math.max(2, S * 0.05))); el.setAttribute('stroke-linecap', 'round'); modo = 'stroke'; break
+    default: // flecha
+      el = camino(`M0 ${S * 0.4} L${S * 0.66} ${S * 0.4} L${S * 0.66} ${S * 0.22} L${S} ${S * 0.5} L${S * 0.66} ${S * 0.78} L${S * 0.66} ${S * 0.6} L0 ${S * 0.6} Z`)
+  }
+  if (modo === 'fill') el.setAttribute('fill', '#38bdf8')
+  else { el.setAttribute('stroke', '#38bdf8'); el.setAttribute('fill', 'none') }
+  return { el, modo }
+}
+
 function insertarFigura(tipo: string): void {
   if (!svgEl) return
   contadorAgregados++
   const vw = svgEl.viewBox.baseVal.width || 1080
   const vh = svgEl.viewBox.baseVal.height || 1350
   const S = 160
-  const color = '#38bdf8'
-  let el: SVGElement
-  let modo = 'fill'
-  if (tipo === 'rect' || tipo === 'redondeado') {
-    el = document.createElementNS(SVGNS, 'rect')
-    el.setAttribute('width', String(S)); el.setAttribute('height', String(Math.round(S * 0.66)))
-    if (tipo === 'redondeado') el.setAttribute('rx', '18')
-    el.setAttribute('fill', color)
-  } else if (tipo === 'circulo') {
-    el = document.createElementNS(SVGNS, 'circle')
-    el.setAttribute('cx', String(S / 2)); el.setAttribute('cy', String(S / 2)); el.setAttribute('r', String(S / 2))
-    el.setAttribute('fill', color)
-  } else if (tipo === 'triangulo') {
-    el = document.createElementNS(SVGNS, 'polygon')
-    el.setAttribute('points', `${S / 2},0 ${S},${S} 0,${S}`)
-    el.setAttribute('fill', color)
-  } else if (tipo === 'linea') {
-    el = document.createElementNS(SVGNS, 'line')
-    el.setAttribute('x1', '0'); el.setAttribute('y1', '0'); el.setAttribute('x2', String(S)); el.setAttribute('y2', '0')
-    el.setAttribute('stroke', color); el.setAttribute('stroke-width', '8'); el.setAttribute('stroke-linecap', 'round')
-    modo = 'stroke'
-  } else { // flecha
-    el = document.createElementNS(SVGNS, 'path')
-    el.setAttribute('d', `M0 ${S * 0.4} L${S * 0.66} ${S * 0.4} L${S * 0.66} ${S * 0.22} L${S} ${S * 0.5} L${S * 0.66} ${S * 0.78} L${S * 0.66} ${S * 0.6} L0 ${S * 0.6} Z`)
-    el.setAttribute('fill', color)
-  }
+  const { el, modo } = crearFiguraEl(tipo, S)
   const x = Math.round((vw - S) / 2), y = Math.round((vh - S) / 2)
   el.setAttribute('transform', `translate(${x} ${y}) scale(1)`)
   if (!el.getAttribute('stroke-width')) el.setAttribute('stroke-width', '4')

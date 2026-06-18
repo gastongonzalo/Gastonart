@@ -409,6 +409,10 @@ body {
   cursor: pointer;
 }
 .menu-pop button:hover { border-color: var(--accent); }
+/* Popover de figuras: grilla (no se aplica cuando está oculto). */
+.menu-figs:not([hidden]) { display: grid; grid-template-columns: repeat(5, 32px); }
+.menu-figs button { display: flex; align-items: center; justify-content: center; padding: 3px; }
+.menu-figs button svg { color: var(--accent); }
 .menu-iconos {
   display: grid;
   grid-template-columns: repeat(6, 32px);
