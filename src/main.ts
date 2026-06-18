@@ -233,21 +233,45 @@ async function traerGoogleFont(familia: string): Promise<string | null> {
     const latino = /U\+0000-00FF/i.test(bloque.match(/unicode-range:\s*([^;}]+)/i)?.[1] ?? '')
     if (latino || !porPeso.has(peso)) porPeso.set(peso, um[1])
   }
-  let agregada = false
-  for (const [peso, woff2] of porPeso) {
-    if (facesPack.some((f) => f.family === fam && f.weight === peso)) continue
+  // Descargar todas las variantes EN PARALELO (no en secuencia): así tarda lo
+  // del peso más lento, no la suma de todos.
+  const caras = await Promise.all([...porPeso].map(async ([peso, woff2]) => {
+    if (facesPack.some((f) => f.family === fam && f.weight === peso)) return null
     try {
       const bytes = new Uint8Array(await (await fetchTimeout(woff2)).arrayBuffer())
       const ff = new FontFace(fam, bytes, { weight: String(peso) })
       await ff.load()
-      ;(document as Document & { fonts: FontFaceSet }).fonts.add(ff)
-      facesPack.push({ bytes, family: fam, weight: peso, style: 'normal', formato: 'woff2' })
-      agregada = true
-    } catch { /* seguir con otros pesos */ }
+      return { peso, bytes, ff }
+    } catch { return null }
+  }))
+  let agregada = false
+  for (const c of caras) {
+    if (!c) continue
+    ;(document as Document & { fonts: FontFaceSet }).fonts.add(c.ff)
+    facesPack.push({ bytes: c.bytes, family: fam, weight: c.peso, style: 'normal', formato: 'woff2' })
+    agregada = true
   }
-  if (!agregada) return null
+  if (!agregada && !facesPack.some((f) => f.family.toLowerCase() === fam.toLowerCase())) return null
+  recordarFuenteGoogle(fam) // persistir para próximas sesiones
   poblarFamilias()
   return fam
+}
+
+// --- Persistencia de fuentes de Google agregadas (se re-bajan al iniciar) ---
+const LS_FUENTES = 'gastonart-fuentes-google'
+const fuentesGoogle = new Set<string>()
+function recordarFuenteGoogle(fam: string): void {
+  if (fuentesGoogle.has(fam)) return
+  fuentesGoogle.add(fam)
+  try { localStorage.setItem(LS_FUENTES, JSON.stringify([...fuentesGoogle])) } catch { /* ignorar */ }
+}
+// Re-baja (en paralelo) las fuentes de Google que el usuario agregó en sesiones
+// anteriores, para que queden disponibles sin volver a buscarlas.
+async function cargarFuentesGuardadas(): Promise<void> {
+  let lista: string[] = []
+  try { const a = JSON.parse(localStorage.getItem(LS_FUENTES) || '[]'); if (Array.isArray(a)) lista = a.filter((x) => typeof x === 'string') } catch { /* ignorar */ }
+  if (!lista.length) return
+  await Promise.all(lista.map((fam) => traerGoogleFont(fam)))
 }
 
 // Tras cargar una fuente nueva: re-medir y repintar los campos (la fuente cambia
@@ -563,7 +587,8 @@ function revisarFuentes(): void {
     btn.disabled = true; btn.textContent = 'Descargando…'
     const noHay: string[] = []
     try {
-      for (const fam of faltan) { if (!(await traerGoogleFont(fam))) noHay.push(fam) }
+      const res = await Promise.all(faltan.map((fam) => traerGoogleFont(fam).then((ok) => ({ fam, ok }))))
+      for (const { fam, ok } of res) if (!ok) noHay.push(fam)
       await refrescarTrasFuente()
     } catch (e) {
       console.error('[descargar fuentes]', e)
@@ -2890,6 +2915,10 @@ function mostrarInicio(): void {
       <button class="ini-plantilla-del" data-ruta="${escAttr(r)}" title="Borrar plantilla">✕</button>
     </span>`).join('')
 
+  // ¿Hay un trabajo guardado para ofrecer "Seguir editando"?
+  const autosave = (() => { try { const g = localStorage.getItem('gastonart-proyecto'); return g && g.length <= 4_000_000 ? g : null } catch { return null } })()
+  const seguirHtml = autosave ? `<button id="ini-seguir" class="ini-btn-acc ini-seguir">▶ Seguir editando lo último</button>` : ''
+
   const ov = document.createElement('div')
   ov.id = 'pantalla-inicio'
   ov.innerHTML = `
@@ -2911,6 +2940,7 @@ function mostrarInicio(): void {
           </div>
         </section>
         <section class="ini-col">
+          ${seguirHtml}
           <h3>Usar plantilla</h3>
           <div class="ini-plantillas">${opcionesPlantilla}</div>
           <h3 style="margin-top:18px">Cargar plantilla SVG</h3>
@@ -2936,6 +2966,12 @@ function mostrarInicio(): void {
       if (confirm(`¿Borrar la plantilla «${nombreCorto(b.dataset.ruta!)}»?`)) { borrarPlantilla(b.dataset.ruta!); mostrarInicio() }
     }))
   ov.querySelector('#ini-cargar-svg')!.addEventListener('click', () => inSvgPlantilla.click())
+  ov.querySelector('#ini-seguir')?.addEventListener('click', () => {
+    if (!autosave) return
+    cerrarInicio()
+    try { void restaurarProyecto(JSON.parse(autosave) as Proyecto) }
+    catch (e) { estado.textContent = '❌ No se pudo restaurar el último trabajo'; console.error('[seguir]', e) }
+  })
 }
 
 const inSvgPlantilla = document.querySelector<HTMLInputElement>('#in-svg-plantilla')!
@@ -2968,18 +3004,9 @@ void (async () => {
   poblarFamilias()
   cargarPlantillasUsuario() // sumar al listado las plantillas que el usuario guardó
   cargarOcultas()           // quitar del listado las plantillas del paquete que borró
-  // Auto-restaurar el último trabajo (si entra en localStorage), si no, montar.
-  let restaurado = false
-  try {
-    const guardado = localStorage.getItem('gastonart-proyecto')
-    if (guardado && guardado.length <= 4_000_000) {
-      await restaurarProyecto(JSON.parse(guardado) as Proyecto); restaurado = true
-    } else if (guardado) {
-      localStorage.removeItem('gastonart-proyecto') // descartar autosave viejo pesado
-    }
-  } catch (e) { console.error('[restaurar] falló:', e) }
-  if (!restaurado) {
-    await montarPlantilla() // lienzo por defecto debajo
-    mostrarInicio() // ...y la pantalla de inicio encima
-  }
+  void cargarFuentesGuardadas() // re-baja las fuentes de Google agregadas (async)
+  // La app SIEMPRE arranca en la pantalla de inicio (formatos + plantillas). El
+  // último trabajo, si existe, se ofrece desde ahí ("Seguir editando").
+  await montarPlantilla() // lienzo por defecto debajo
+  mostrarInicio()
 })()
