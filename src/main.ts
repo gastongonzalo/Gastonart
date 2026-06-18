@@ -2115,6 +2115,15 @@ barraTexto.addEventListener('mousedown', (e) => {
   if (!(e.target as HTMLElement).closest('select')) e.preventDefault()
 })
 
+// Un cambio de estilo es una modificación: siembra el texto actual del textarea
+// en `valores` y marca el campo como tocado, para que commitEditor lo repinte
+// aunque no se haya editado el contenido (si no, el cambio se pierde al salir).
+function marcarCampoEditado(): void {
+  if (!editorActivo) return
+  valores[editorActivo.nombre] = editorActivo.ta.value
+  editorActivo.tocado = true
+}
+
 // Controles de la barra (operan sobre el campo en edición).
 barraTexto.addEventListener('click', (e) => {
   const b = (e.target as HTMLElement).closest('[data-bt]')
@@ -2123,8 +2132,8 @@ barraTexto.addEventListener('click', (e) => {
   const bt = b.getAttribute('data-bt')!
   const ef = estiloEfectivo(nombre)
   const est = (estilos[nombre] ??= {})
-  if (bt === 'size-') est.fontSize = Math.max(8, Math.round(ef.fontSize) - 4)
-  else if (bt === 'size+') est.fontSize = Math.round(ef.fontSize) + 4
+  if (bt === 'size-') est.fontSize = Math.max(4, Math.round(ef.fontSize) - 1)
+  else if (bt === 'size+') est.fontSize = Math.round(ef.fontSize) + 1
   else if (bt === 'lh-') est.lineHeight = Math.max(0.5, Math.round((ef.lineHeight - 0.1) * 10) / 10)
   else if (bt === 'lh+') est.lineHeight = Math.min(3, Math.round((ef.lineHeight + 0.1) * 10) / 10)
   else if (bt.startsWith('al:')) est.align = bt.slice(3) as EstiloCampo['align']
@@ -2132,22 +2141,20 @@ barraTexto.addEventListener('click', (e) => {
   else if (bt === 'italic') est.italic = !ef.italic
   aplicarEstiloTextarea(nombre)
   sincronizarBarra(nombre)
-  if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
+  marcarCampoEditado()
 })
 btFamily.addEventListener('change', () => {
   if (!editorActivo) return
-  const nombre = editorActivo.nombre
-  ;(estilos[nombre] ??= {}).family = btFamily.value
-  aplicarEstiloTextarea(nombre)
-  if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
+  ;(estilos[editorActivo.nombre] ??= {}).family = btFamily.value
+  aplicarEstiloTextarea(editorActivo.nombre)
+  marcarCampoEditado()
   editorActivo.ta.focus() // volver a editar tras elegir fuente
 })
 btColor.addEventListener('input', () => {
   if (!editorActivo) return
-  const nombre = editorActivo.nombre
-  ;(estilos[nombre] ??= {}).color = btColor.value
-  aplicarEstiloTextarea(nombre)
-  if ((valores[nombre] ?? '').trim()) editorActivo.tocado = true
+  ;(estilos[editorActivo.nombre] ??= {}).color = btColor.value
+  aplicarEstiloTextarea(editorActivo.nombre)
+  marcarCampoEditado()
 })
 
 // Convierte "rgb(r,g,b)" o "#rrggbb" a "#rrggbb" para el input de color.
