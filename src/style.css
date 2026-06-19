@@ -492,6 +492,9 @@ body {
   border: 2px solid #06121c;
   cursor: nwse-resize;
 }
+/* Handles de eje único: ancho (E-O) y alto (N-S), redondeados para distinguirlos. */
+.resize-handle-x { cursor: ew-resize; border-radius: 7px; }
+.resize-handle-y { cursor: ns-resize; border-radius: 7px; }
 .btn-candado {
   position: absolute;
   z-index: 5;
@@ -711,18 +714,32 @@ body {
 .swatch-figura {
   position: absolute;
   z-index: 5;
-  width: 24px;
-  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px 2px 2px;
+  border-radius: 13px;
+  background: rgba(6, 18, 28, 0.82);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 .swatch-figura input[type='color'] {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 1px;
   border: 1px solid #06121c;
-  border-radius: 50%;
   background: #131a26;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  flex: 0 0 auto;
+}
+/* Relleno = disco redondo; Contorno = cuadrado (forma distinta, además del rótulo). */
+.swatch-fill input[type='color'] { border-radius: 50%; }
+.swatch-stroke input[type='color'] { border-radius: 5px; border-width: 2px; }
+.swatch-cap {
+  font: 600 10px/1 system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #cfe6f5;
+  white-space: nowrap;
+  user-select: none;
 }
 
 /* La foto queda DEBAJO de los textos y con realce más sutil. */

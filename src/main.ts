@@ -2175,11 +2175,22 @@ function crearTiradorResize(r: Rect, img: SVGElement): HTMLDivElement {
   return h
 }
 
-// Tirador de escala (esquina) para figuras/íconos: cambia el scale del transform.
-function crearTiradorEscala(r: Rect, el: SVGElement): HTMLDivElement {
+// Lee el scale del transform como par {sx, sy}. scale(s) → sx=sy=s.
+function leerScale(tr: string): { sx: number; sy: number } {
+  const m = tr.match(/scale\(\s*([-\d.]+)(?:[\s,]+([-\d.]+))?\s*\)/)
+  if (!m) return { sx: 1, sy: 1 }
+  const sx = +m[1]
+  return { sx, sy: m[2] != null ? +m[2] : sx }
+}
+
+// Tirador de redimensión para figuras/íconos: cambia el scale del transform.
+// eje 'xy' = esquina (ambos lados a la vez), 'x' = sólo ancho, 'y' = sólo alto.
+function crearTiradorEscala(r: Rect, el: SVGElement, eje: 'x' | 'y' | 'xy' = 'xy'): HTMLDivElement {
   const h = document.createElement('div')
-  h.className = 'resize-handle'
-  Object.assign(h.style, { left: r.left + r.width - 7 + 'px', top: r.top + r.height - 7 + 'px' })
+  h.className = 'resize-handle resize-handle-' + eje
+  const left = eje === 'y' ? r.left + r.width / 2 - 7 : r.left + r.width - 7
+  const top = eje === 'x' ? r.top + r.height / 2 - 7 : r.top + r.height - 7
+  Object.assign(h.style, { left: left + 'px', top: top + 'px' })
   h.addEventListener('pointerdown', (e) => {
     if (!svgEl) return
     e.preventDefault(); e.stopPropagation()
@@ -2187,16 +2198,16 @@ function crearTiradorEscala(r: Rect, el: SVGElement): HTMLDivElement {
     const tr = el.getAttribute('transform') ?? ''
     const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
     const tx = tm ? +tm[1] : 0, ty = tm ? +tm[2] : 0
-    const sm = tr.match(/scale\(\s*([-\d.]+)/)
-    let s = sm ? +sm[1] : 1
-    let baseW = 100
-    try { baseW = (el as SVGGraphicsElement).getBBox().width || 100 } catch { /* default */ }
-    let sx = e.clientX
+    const s0 = leerScale(tr)
+    let sx = s0.sx, sy = s0.sy
+    let baseW = 100, baseH = 100
+    try { const bb = (el as SVGGraphicsElement).getBBox(); baseW = bb.width || 100; baseH = bb.height || 100 } catch { /* default */ }
+    let px = e.clientX, py = e.clientY
     const onMove = (ev: PointerEvent) => {
-      const dxs = ev.clientX - sx; sx = ev.clientX
-      s = Math.max(0.08, s + dxs / (baseW * k))
-      el.setAttribute('transform', `translate(${tx} ${ty}) scale(${s})`)
-      h.style.left = parseFloat(h.style.left) + dxs + 'px'
+      const dxs = ev.clientX - px, dys = ev.clientY - py; px = ev.clientX; py = ev.clientY
+      if (eje !== 'y') { sx = Math.max(0.08, sx + dxs / (baseW * k)); h.style.left = parseFloat(h.style.left) + dxs + 'px' }
+      if (eje !== 'x') { sy = Math.max(0.08, sy + dys / (baseH * k)); h.style.top = parseFloat(h.style.top) + dys + 'px' }
+      el.setAttribute('transform', `translate(${tx} ${ty}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
     }
     const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
     try { h.setPointerCapture(e.pointerId) } catch { /* igual escala */ }
@@ -2212,15 +2223,25 @@ function crearTiradorEscala(r: Rect, el: SVGElement): HTMLDivElement {
 function crearSwatch(r: Rect, el: SVGElement, prop: 'fill' | 'stroke', idx: number): HTMLLabelElement {
   const wrap = document.createElement('label')
   wrap.className = 'swatch-figura swatch-' + prop
-  wrap.title = prop === 'fill' ? 'Relleno' : 'Contorno'
-  Object.assign(wrap.style, { left: r.left - 2 + idx * 26 + 'px', top: r.top - 28 + 'px' })
+  wrap.title = prop === 'fill' ? 'Color de relleno' : 'Color de contorno'
+  Object.assign(wrap.style, { left: r.left - 2 + idx * 84 + 'px', top: r.top - 30 + 'px' })
   const actual = el.getAttribute(prop) || ''
+  const sinColor = !actual || actual === 'none'
   const inp = document.createElement('input')
   inp.type = 'color'
-  inp.value = actual && actual !== 'none' ? aHex(actual) : '#ffffff'
-  inp.addEventListener('input', () => { el.setAttribute(prop, inp.value); registrarHistorial() })
+  inp.value = sinColor ? (prop === 'fill' ? '#38bdf8' : '#06121c') : aHex(actual)
+  inp.addEventListener('input', () => {
+    el.setAttribute(prop, inp.value)
+    // El contorno necesita un ancho para verse; si no lo tiene, darle uno.
+    if (prop === 'stroke' && !el.getAttribute('stroke-width')) el.setAttribute('stroke-width', '4')
+    registrarHistorial()
+  })
   inp.addEventListener('pointerdown', (e) => e.stopPropagation())
+  const cap = document.createElement('span')
+  cap.className = 'swatch-cap'
+  cap.textContent = prop === 'fill' ? 'Relleno' : 'Contorno'
   wrap.appendChild(inp)
+  wrap.appendChild(cap)
   return wrap
 }
 
@@ -2403,7 +2424,9 @@ function construirOverlays(): void {
     habilitarArrastreEl(hit, el)
     lienzo.appendChild(hit)
     lienzo.appendChild(crearBotonEliminar(r, () => { el.remove(); construirOverlays() }))
-    lienzo.appendChild(crearTiradorEscala(r, el))
+    lienzo.appendChild(crearTiradorEscala(r, el, 'x'))  // ancho
+    lienzo.appendChild(crearTiradorEscala(r, el, 'y'))  // alto
+    lienzo.appendChild(crearTiradorEscala(r, el, 'xy')) // ambos (esquina)
     lienzo.appendChild(crearSwatch(r, el, 'fill', 0))
     lienzo.appendChild(crearSwatch(r, el, 'stroke', 1))
   }
