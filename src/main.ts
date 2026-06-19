@@ -2866,6 +2866,71 @@ btnExport.addEventListener('click', async () => {
   }
 })
 
+// --- ZIP (modo store, sin compresión: los PNG ya están comprimidos) ---
+function crc32(buf: Uint8Array): number {
+  let c = ~0
+  for (let i = 0; i < buf.length; i++) {
+    c ^= buf[i]
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1))
+  }
+  return ~c >>> 0
+}
+function crearZip(archivos: { nombre: string; datos: Uint8Array }[]): Blob {
+  const enc = new TextEncoder()
+  const partes: BlobPart[] = []
+  const central: BlobPart[] = []
+  let offset = 0
+  for (const { nombre, datos } of archivos) {
+    const nb = enc.encode(nombre), crc = crc32(datos)
+    const lh = new DataView(new ArrayBuffer(30))
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true)
+    lh.setUint32(14, crc, true); lh.setUint32(18, datos.length, true); lh.setUint32(22, datos.length, true)
+    lh.setUint16(26, nb.length, true)
+    partes.push(lh.buffer.slice(0), nb, datos as BlobPart)
+    const ch = new DataView(new ArrayBuffer(46))
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true)
+    ch.setUint32(16, crc, true); ch.setUint32(20, datos.length, true); ch.setUint32(24, datos.length, true)
+    ch.setUint16(28, nb.length, true); ch.setUint32(42, offset, true)
+    central.push(ch.buffer.slice(0), nb)
+    offset += 30 + nb.length + datos.length
+  }
+  const centralSize = central.reduce((a, b) => a + (b as ArrayBuffer | Uint8Array).byteLength, 0)
+  const eocd = new DataView(new ArrayBuffer(22))
+  eocd.setUint32(0, 0x06054b50, true)
+  eocd.setUint16(8, archivos.length, true); eocd.setUint16(10, archivos.length, true)
+  eocd.setUint32(12, centralSize, true); eocd.setUint32(16, offset, true)
+  return new Blob([...partes, ...central, eocd.buffer], { type: 'application/zip' })
+}
+
+// Exporta TODAS las mesas a PNG y las baja en un ZIP.
+async function exportarTodas(): Promise<void> {
+  cerrarEditor()
+  guardarMesaActiva()
+  if (!mesas.length) return
+  estado.textContent = `Exportando ${mesas.length} mesas…`
+  const fuentes = facesPack.map((f) => f.bytes)
+  const archivos: { nombre: string; datos: Uint8Array }[] = []
+  const usados = new Set<string>()
+  for (let i = 0; i < mesas.length; i++) {
+    const m = mesas[i]
+    const vbW = parseFloat(m.svg.match(/viewBox="0 0 ([\d.]+)/)?.[1] ?? '1080') || 1080
+    const ancho = Math.round(Math.min(2480, Math.max(1080, vbW)))
+    try {
+      const blob = await renderResvg(m.svg, fuentes, ancho)
+      let nombre = (m.nombre || `Mesa ${i + 1}`).replace(/[^\w\dáéíóúñÁÉÍÓÚÑ .-]+/g, '_').trim() || `Mesa ${i + 1}`
+      if (usados.has(nombre)) nombre = `${nombre} (${i + 1})`
+      usados.add(nombre)
+      archivos.push({ nombre: `${nombre}.png`, datos: new Uint8Array(await blob.arrayBuffer()) })
+    } catch (e) { console.error('[exportarTodas]', e) }
+  }
+  if (!archivos.length) { estado.textContent = '❌ No se pudo exportar'; return }
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(crearZip(archivos))
+  a.download = `${nombreCorto(plantillaActual)}-mesas.zip`
+  a.click()
+  estado.textContent = `${archivos.length} mesa(s) exportada(s) en ZIP.`
+}
+
 // ---------------------------------------------------------------
 //  Guardar / cargar proyecto
 // ---------------------------------------------------------------
@@ -3027,18 +3092,35 @@ function renombrarMesa(i: number, nomSpan: HTMLElement): void {
   inp.addEventListener('blur', () => { mesas[i].nombre = inp.value.trim() || `Mesa ${i + 1}`; renderMesas(); autoguardar() })
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); else if (e.key === 'Escape') renderMesas() })
 }
+// Mueve una mesa de una posición a otra (reordenar por arrastre).
+let arrastrandoMesa = -1
+function moverMesa(from: number, to: number): void {
+  if (from === to || from < 0 || from >= mesas.length || to < 0 || to >= mesas.length) return
+  const activaObj = mesas[mesaActiva]
+  const [m] = mesas.splice(from, 1); mesas.splice(to, 0, m)
+  const [hist] = histPorMesa.splice(from, 1); histPorMesa.splice(to, 0, hist)
+  mesaActiva = mesas.indexOf(activaObj)
+  renderMesas(); autoguardar()
+}
 function renderMesas(): void {
   const tira = document.querySelector<HTMLDivElement>('#tira-mesas')
   if (!tira) return
+  if (mesas.length) guardarMesaActiva() // miniatura de la mesa activa al día
   tira.innerHTML = ''
   mesas.forEach((m, i) => {
     const tab = document.createElement('button')
     tab.className = 'mesa-tab' + (i === mesaActiva ? ' activa' : '')
+    tab.title = 'Clic: ir · doble clic: renombrar · arrastrar: reordenar'
+    tab.draggable = true
+    const thumb = document.createElement('img'); thumb.className = 'mesa-thumb'
+    thumb.src = 'data:image/svg+xml,' + encodeURIComponent(m.svg); thumb.alt = ''
     const nom = document.createElement('span'); nom.className = 'mesa-nom'; nom.textContent = m.nombre || `Mesa ${i + 1}`
-    tab.appendChild(nom)
-    tab.title = 'Clic para ir · doble clic para renombrar'
+    tab.append(thumb, nom)
     tab.addEventListener('click', () => void irAMesa(i))
     tab.addEventListener('dblclick', () => renombrarMesa(i, nom))
+    tab.addEventListener('dragstart', () => { arrastrandoMesa = i })
+    tab.addEventListener('dragover', (e) => e.preventDefault())
+    tab.addEventListener('drop', (e) => { e.preventDefault(); moverMesa(arrastrandoMesa, i); arrastrandoMesa = -1 })
     if (mesas.length > 1) {
       const x = document.createElement('span'); x.className = 'mesa-del'; x.textContent = '✕'; x.title = 'Borrar mesa'
       x.addEventListener('click', (e) => { e.stopPropagation(); void borrarMesa(i) })
@@ -3051,6 +3133,11 @@ function renderMesas(): void {
   const dup = document.createElement('button'); dup.className = 'mesa-btn'; dup.textContent = '⧉'; dup.title = 'Duplicar mesa actual'
   dup.addEventListener('click', () => void agregarMesa(true))
   tira.append(add, dup)
+  if (mesas.length > 1) {
+    const zip = document.createElement('button'); zip.className = 'mesa-btn'; zip.textContent = '⬇'; zip.title = 'Exportar todas las mesas (ZIP)'
+    zip.addEventListener('click', () => void exportarTodas())
+    tira.appendChild(zip)
+  }
 }
 
 // Restaura un guardado que puede ser multi-mesa { multi, mesas, mesaActiva } o

@@ -380,8 +380,18 @@ body {
   cursor: pointer;
   white-space: nowrap;
 }
+.mesa-tab { height: 34px; }
 .mesa-tab:hover { background: #0e1623; color: var(--text); }
 .mesa-tab.activa { background: var(--accent); color: #06121c; border-color: var(--accent); }
+.mesa-thumb {
+  height: 24px;
+  width: auto;
+  max-width: 40px;
+  border-radius: 3px;
+  background: #fff;
+  object-fit: contain;
+  pointer-events: none;
+}
 .mesa-del { font-size: 10px; opacity: 0.7; }
 .mesa-del:hover { opacity: 1; color: #ff6b6b; }
 .mesa-tab.activa .mesa-del:hover { color: #7a1020; }
