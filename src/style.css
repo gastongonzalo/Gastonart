@@ -305,6 +305,7 @@ body {
   justify-content: center;
   align-items: flex-start;
   padding: 28px 16px 60px;
+  background: #565c64; /* mesa de trabajo gris (no negro) */
 }
 #lienzo {
   position: relative;
@@ -313,10 +314,13 @@ body {
   background: #fff;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   border-radius: 4px;
-  overflow: hidden;
+  overflow: visible; /* mostrar lo que se sale de la mesa (sangre/bleed) */
   line-height: 0;
   flex: none;
 }
+/* El SVG no recorta su viewBox: los elementos que se pasan del borde se ven
+   (el export sí recorta a la mesa → trabajar a sangre). */
+#lienzo svg { overflow: visible; }
 
 /* --- Control de zoom (flotante) --- */
 #zoom-ctrl {
