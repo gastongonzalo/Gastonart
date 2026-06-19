@@ -2077,6 +2077,17 @@ function recortarConMascara(): void {
   const mascara = formas[formas.length - 1]
   const contenido = nodos.filter((n) => n !== mascara)
   if (!contenido.length) return
+  // La forma tiene que SUPERPONERSE con algo del contenido; si no, el recorte
+  // quedaría vacío (todo desaparece). Avisar en vez de borrar el dibujo.
+  const mb = mascara.getBoundingClientRect()
+  const seSuperpone = contenido.some((n) => {
+    const cb = n.getBoundingClientRect()
+    return !(mb.right <= cb.left || mb.left >= cb.right || mb.bottom <= cb.top || mb.top >= cb.bottom)
+  })
+  if (!seSuperpone) {
+    estado.textContent = 'La forma no se superpone con la imagen. Ponela ENCIMA de lo que querés recortar y volvé a intentar.'
+    return
+  }
   let defs = svgEl.querySelector('defs')
   if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
   contadorAgregados++
