@@ -1784,6 +1784,7 @@ function desactivarGrafico(): void {
   document.removeEventListener('keydown', grafKey)
   grafSeleccion = []
   limpiarGraf()
+  construirOverlays() // reconstruir overlays normales (handles/hits) tras el modo gráfico
 }
 
 function grafKey(e: KeyboardEvent): void {
