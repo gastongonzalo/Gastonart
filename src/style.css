@@ -459,12 +459,30 @@ body {
   background: rgba(56, 189, 248, 0.16);
   outline-color: var(--accent);
 }
-/* Elementos AGREGADOS por el usuario: borde permanente y cursor de mover. */
+/* Elementos AGREGADOS por el usuario: recuadro solo al pasar el mouse (igual que
+   el texto), para no dejar líneas punteadas flotando sobre el contenido. */
 .hit-agregado {
-  outline: 1.5px dashed rgba(56, 189, 248, 0.55);
+  outline: 1.5px dashed transparent;
   cursor: move;
 }
 .hit-agregado:hover { outline-color: var(--accent); }
+
+/* Mientras se arrastra un elemento, ocultar las marcas de los DEMÁS (líneas y
+   handles) para que no floten encima de lo que estás moviendo. Las guías de
+   alineado (.guia) y el elemento activo (.activo) sí se mantienen. */
+#lienzo.arrastrando .hit:not(.activo),
+#lienzo.arrastrando .btn-eliminar,
+#lienzo.arrastrando .resize-handle,
+#lienzo.arrastrando .resize-caja,
+#lienzo.arrastrando .resize-ancho,
+#lienzo.arrastrando .swatch-figura,
+#lienzo.arrastrando .btn-candado,
+#lienzo.arrastrando .mascara-wrap,
+#lienzo.arrastrando .mask-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+.hit.activo { outline-color: var(--accent); }
 
 .btn-eliminar {
   position: absolute;

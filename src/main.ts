@@ -2195,7 +2195,12 @@ function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
     excluirImg = el
     const onMove = (ev: PointerEvent) => {
       const dxs = ev.clientX - sx, dys = ev.clientY - sy
-      if (Math.abs(dxs) + Math.abs(dys) > 3) movido = true
+      if (Math.abs(dxs) + Math.abs(dys) > 3 && !movido) {
+        movido = true
+        // Al empezar a mover: ocultar los overlays de los DEMÁS para que no
+        // queden líneas punteadas flotando sobre lo que estás arrastrando.
+        lienzo.classList.add('arrastrando'); hit.classList.add('activo')
+      }
       accX += dxs / k; accY += dys / k
       sx = ev.clientX; sy = ev.clientY
       const base = lienzo.getBoundingClientRect()
@@ -2210,6 +2215,7 @@ function habilitarArrastreEl(hit: HTMLElement, el: SVGElement): void {
       hit.removeEventListener('pointermove', onMove)
       excluirImg = null
       limpiarGuias()
+      lienzo.classList.remove('arrastrando'); hit.classList.remove('activo')
       if (movido) construirOverlays()
     }
     try { hit.setPointerCapture(e.pointerId) } catch { /* sin captura: igual arrastra */ }
