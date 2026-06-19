@@ -2465,17 +2465,19 @@ function construirOverlays(): void {
     const hit = crearHit(rCaja, c.nombre, () => abrirEditor(c.nombre))
     hit.title = libre ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
     lienzo.appendChild(hit)
-    lienzo.appendChild(crearBotonCandado(rCaja, c.nombre))
+    const ctrls: HTMLElement[] = [crearBotonCandado(rCaja, c.nombre)]
     if (libre) {
       hit.classList.add('hit-agregado')
       habilitarArrastreTexto(hit, c.nombre)
-      lienzo.appendChild(crearTiradorCaja(rCaja, c.nombre, 'x'))
-      lienzo.appendChild(crearTiradorCaja(rCaja, c.nombre, 'y'))
-      lienzo.appendChild(crearTiradorCaja(rCaja, c.nombre, 'xy'))
+      ctrls.push(
+        crearTiradorCaja(rCaja, c.nombre, 'x'),
+        crearTiradorCaja(rCaja, c.nombre, 'y'),
+        crearTiradorCaja(rCaja, c.nombre, 'xy'),
+      )
     }
-    if (agregado) {
-      lienzo.appendChild(crearBotonEliminar(rCaja, () => eliminarCampo(c.nombre)))
-    }
+    if (agregado) ctrls.push(crearBotonEliminar(rCaja, () => eliminarCampo(c.nombre)))
+    for (const c2 of ctrls) lienzo.appendChild(c2)
+    revelarAlHover(hit, ctrls)
   }
 
   // Imágenes agregadas (movibles, redimensionables, eliminables).
@@ -2487,10 +2489,14 @@ function construirOverlays(): void {
     hit.title = 'Arrastrá para mover'
     habilitarArrastreEl(hit, im)
     lienzo.appendChild(hit)
-    lienzo.appendChild(crearBotonEliminar(r, () => { im.remove(); construirOverlays() }))
-    lienzo.appendChild(crearTiradorResize(r, im))
-    lienzo.appendChild(crearBotonMascara(r, im))
-    for (const mh of handlesMascara(im, base)) lienzo.appendChild(mh)
+    const ctrls = [
+      crearBotonEliminar(r, () => { im.remove(); construirOverlays() }),
+      crearTiradorResize(r, im),
+      crearBotonMascara(r, im),
+      ...handlesMascara(im, base),
+    ]
+    for (const c of ctrls) lienzo.appendChild(c)
+    revelarAlHover(hit, ctrls)
   }
 
   // Figuras e íconos agregados (mover, escalar, color, eliminar).
@@ -2502,15 +2508,39 @@ function construirOverlays(): void {
     hit.title = 'Arrastrá para mover'
     habilitarArrastreEl(hit, el)
     lienzo.appendChild(hit)
-    lienzo.appendChild(crearBotonEliminar(r, () => { el.remove(); construirOverlays() }))
-    lienzo.appendChild(crearTiradorEscala(r, el, 'x'))  // ancho
-    lienzo.appendChild(crearTiradorEscala(r, el, 'y'))  // alto
-    lienzo.appendChild(crearTiradorEscala(r, el, 'xy')) // ambos (esquina)
-    lienzo.appendChild(crearSwatch(r, el, 'fill', 0))
-    lienzo.appendChild(crearSwatch(r, el, 'stroke', 1))
+    const ctrls = [
+      crearBotonEliminar(r, () => { el.remove(); construirOverlays() }),
+      crearTiradorEscala(r, el, 'x'),  // ancho
+      crearTiradorEscala(r, el, 'y'),  // alto
+      crearTiradorEscala(r, el, 'xy'), // ambos (esquina)
+      crearSwatch(r, el, 'fill', 0),
+      crearSwatch(r, el, 'stroke', 1),
+    ]
+    for (const c of ctrls) lienzo.appendChild(c)
+    revelarAlHover(hit, ctrls)
   }
   registrarHistorial()
   autoguardar()
+}
+
+// Muestra los controles (swatches, tiradores, ✕, candado) de un elemento SOLO
+// mientras el mouse está sobre él o sus controles, para no saturar la mesa.
+function revelarAlHover(hit: HTMLElement, ctrls: HTMLElement[]): void {
+  if (!ctrls.length) return
+  for (const c of ctrls) c.classList.add('ov-ctrl')
+  const grupo: HTMLElement[] = [hit, ...ctrls]
+  let temporizador = 0
+  const mostrar = (): void => { clearTimeout(temporizador); for (const c of ctrls) c.classList.add('ov-visible') }
+  const ocultar = (): void => {
+    clearTimeout(temporizador)
+    temporizador = window.setTimeout(() => {
+      if (!grupo.some((n) => n.matches(':hover'))) for (const c of ctrls) c.classList.remove('ov-visible')
+    }, 160)
+  }
+  for (const n of grupo) {
+    n.addEventListener('pointerenter', mostrar)
+    n.addEventListener('pointerleave', ocultar)
+  }
 }
 
 // Botón ✕ para eliminar un elemento agregado (esquina sup. derecha de su caja).

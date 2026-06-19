@@ -484,6 +484,19 @@ body {
 }
 .hit.activo { outline-color: var(--accent); }
 
+/* Controles por elemento (swatches, tiradores, ✕, candado): ocultos por defecto,
+   se revelan al pasar el mouse sobre el elemento (ver revelarAlHover). Así la
+   mesa no se contamina con marcas de todos los elementos a la vez. */
+.ov-ctrl {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s;
+}
+.ov-ctrl.ov-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .btn-eliminar {
   position: absolute;
   z-index: 5;
