@@ -733,6 +733,13 @@ body {
   cursor: pointer;
 }
 .graf-btn:hover { border-color: var(--accent); }
+/* Botones de capa: compactos, solo ícono. */
+.graf-capa {
+  width: 26px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
 .graf-marquee {
   position: absolute;
   z-index: 8;

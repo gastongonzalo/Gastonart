@@ -2123,6 +2123,35 @@ function liberarRecorte(): void {
   registrarHistorial(); autoguardar()
 }
 
+// Capas que deben quedar siempre al fondo (defs, estilos, y el rect de fondo).
+function esCapaReservada(el: Element | null): boolean {
+  if (!el) return false
+  const t = el.tagName.toLowerCase()
+  return t === 'defs' || t === 'style' || t === 'clippath' || t === 'metadata' ||
+    (t === 'rect' && esFondo(el as SVGRectElement))
+}
+
+// Reordena el apilado (z-order) de la selección: subir/bajar un paso, al tope o al fondo.
+function reordenarSel(modo: 'arriba' | 'abajo' | 'tope' | 'fondo'): void {
+  if (!svgEl || !grafSeleccion.length) return
+  const nodos = grafSeleccion.map(nodoManip)
+  nodos.sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1)) // doc order (fondo→tope)
+  const p = nodos[0].parentElement
+  if (!p) return
+  if (modo === 'tope') {
+    for (const n of nodos) p.appendChild(n) // en orden de doc → preservan su orden relativo arriba
+  } else if (modo === 'fondo') {
+    let ref = p.firstElementChild
+    while (esCapaReservada(ref)) ref = ref!.nextElementSibling
+    for (const n of nodos) if (n !== ref) p.insertBefore(n, ref)
+  } else if (modo === 'arriba') {
+    for (const n of [...nodos].reverse()) { const s = n.nextElementSibling; if (s && !esCapaReservada(s)) p.insertBefore(s, n) }
+  } else if (modo === 'abajo') {
+    for (const n of nodos) { const s = n.previousElementSibling; if (s && !esCapaReservada(s)) p.insertBefore(n, s) }
+  }
+  dibujarSelGraf(); registrarHistorial(); autoguardar()
+}
+
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
 function dibujarSelGraf(): void {
   limpiarGraf()
@@ -2179,6 +2208,19 @@ function dibujarSelGraf(): void {
     const ung = document.createElement('button'); ung.className = 'graf-btn'; ung.textContent = 'Desagrupar'; ung.title = 'Desagrupar (Ctrl+Shift+G)'
     ung.addEventListener('click', (e) => { e.stopPropagation(); desagruparSel() })
     tools.appendChild(ung)
+  }
+
+  // Capas: subir / bajar un paso, al tope y al fondo.
+  const capas: [string, 'arriba' | 'abajo' | 'tope' | 'fondo', string][] = [
+    ['↟', 'tope', 'Traer al frente'],
+    ['↑', 'arriba', 'Subir una capa'],
+    ['↓', 'abajo', 'Bajar una capa'],
+    ['↡', 'fondo', 'Enviar al fondo'],
+  ]
+  for (const [icono, modo, titulo] of capas) {
+    const b = document.createElement('button'); b.className = 'graf-btn graf-capa'; b.textContent = icono; b.title = titulo
+    b.addEventListener('click', (e) => { e.stopPropagation(); reordenarSel(modo) })
+    tools.appendChild(b)
   }
 
   const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '✕'; del.title = 'Eliminar'
