@@ -2012,15 +2012,31 @@ function grupoRecorteDe(sel: SVGElement): SVGElement | null {
   return (dentro as SVGElement | null)
 }
 
-// Crea una máscara de recorte: la forma de MÁS ARRIBA (en z) recorta al resto.
+// ¿El elemento aporta geometría de recorte? Sólo formas vectoriales y texto;
+// una imagen <image> NO recorta (dejaría el clip vacío y todo desaparecería).
+const FORMAS_RECORTE = ['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline', 'line', 'text']
+function esFormaRecorte(el: SVGElement): boolean {
+  if (FORMAS_RECORTE.includes(el.tagName.toLowerCase())) return true
+  return !!el.querySelector(FORMAS_RECORTE.join(',')) // grupo/wrapper con alguna forma
+}
+
+// Crea una máscara de recorte: una FORMA recorta al resto (imágenes, etc.).
 // Como en Illustrator: poner la forma encima, seleccionar todo y "Recortar".
+// La máscara es la forma de más arriba; una imagen nunca puede ser la máscara.
 function recortarConMascara(): void {
   if (!svgEl || grafSeleccion.length < 2) return
   const nodos = grafSeleccion.map(nodoManip)
-  // Orden de documento (z): el último es el de más arriba = la máscara.
+  // Orden de documento (z): el último es el de más arriba.
   nodos.sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1))
-  const mascara = nodos[nodos.length - 1]
-  const contenido = nodos.slice(0, -1)
+  // La máscara debe ser una forma vectorial (la de más arriba); el resto es el
+  // contenido recortado. Así no importa si la imagen quedó encima o debajo.
+  const formas = nodos.filter(esFormaRecorte)
+  if (!formas.length) {
+    estado.textContent = 'Para recortar necesitás una forma (vector) como máscara, no una imagen.'
+    return
+  }
+  const mascara = formas[formas.length - 1]
+  const contenido = nodos.filter((n) => n !== mascara)
   if (!contenido.length) return
   let defs = svgEl.querySelector('defs')
   if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
