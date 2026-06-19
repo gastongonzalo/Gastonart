@@ -1541,6 +1541,8 @@ interface Ancla { x: number; y: number; hx: number; hy: number }
 let plumaActiva = false
 let plumaAnclas: Ancla[] = []
 let plumaPath: SVGPathElement | null = null
+let plumaPreview: SVGPathElement | null = null
+let plumaCursor: { x: number; y: number } | null = null
 let plumaCapa: HTMLDivElement | null = null
 const COLOR_PLUMA = '#141930'
 
@@ -1596,15 +1598,47 @@ function dibujarPluma(): void {
   })
 }
 
+// Segmento provisional (punteado) desde el último punto hasta el cursor, para ir
+// viendo el trazo mientras se mueve el mouse (antes de fijar el próximo punto).
+function dibujarPreviewPluma(): void {
+  if (!svgEl || !plumaAnclas.length || !plumaCursor) return
+  if (!plumaPreview) {
+    plumaPreview = document.createElementNS(SVGNS, 'path')
+    plumaPreview.setAttribute('fill', 'none')
+    plumaPreview.setAttribute('stroke', COLOR_PLUMA)
+    plumaPreview.setAttribute('stroke-width', '4')
+    plumaPreview.setAttribute('stroke-linecap', 'round')
+    plumaPreview.setAttribute('stroke-dasharray', '1 9')
+    plumaPreview.setAttribute('opacity', '0.5')
+    plumaPreview.setAttribute('pointer-events', 'none')
+    svgEl.appendChild(plumaPreview)
+  }
+  const last = plumaAnclas[plumaAnclas.length - 1]
+  let d = `M ${last.x} ${last.y}`
+  if (last.hx || last.hy) d += ` C ${last.x + last.hx} ${last.y + last.hy} ${plumaCursor.x} ${plumaCursor.y} ${plumaCursor.x} ${plumaCursor.y}`
+  else d += ` L ${plumaCursor.x} ${plumaCursor.y}`
+  plumaPreview.setAttribute('d', d)
+}
+
+// Mueve el cursor (sin botón apretado): actualiza el preview del próximo tramo.
+function plumaHover(e: PointerEvent): void {
+  if (!plumaActiva || e.buttons !== 0) return // con botón, lo maneja el arrastre de manija
+  if (!plumaAnclas.length) { plumaCursor = null; return }
+  plumaCursor = screenToUser(e.clientX, e.clientY)
+  dibujarPreviewPluma()
+}
+
 function activarPluma(): void {
   if (!svgEl) return
   cerrarEditor()
   plumaActiva = true
   plumaAnclas = []
+  plumaCursor = null
   document.querySelector('#btn-pluma')!.classList.add('activo-pluma')
   plumaCapa = document.createElement('div')
   plumaCapa.className = 'pluma-capa'
   plumaCapa.addEventListener('pointerdown', plumaPointerDown)
+  plumaCapa.addEventListener('pointermove', plumaHover)
   plumaCapa.addEventListener('dblclick', () => finalizarPluma(false))
   lienzo.appendChild(plumaCapa)
   document.addEventListener('keydown', plumaKey)
@@ -1615,6 +1649,8 @@ function desactivarPluma(): void {
   document.querySelector('#btn-pluma')?.classList.remove('activo-pluma')
   plumaCapa?.remove(); plumaCapa = null
   plumaPath?.remove(); plumaPath = null
+  plumaPreview?.remove(); plumaPreview = null
+  plumaCursor = null
   lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
   document.removeEventListener('keydown', plumaKey)
   plumaAnclas = []
@@ -1637,6 +1673,8 @@ function plumaPointerDown(e: PointerEvent): void {
   const ancla: Ancla = { x: pt.x, y: pt.y, hx: 0, hy: 0 }
   plumaAnclas.push(ancla)
   dibujarPluma()
+  plumaCursor = { x: pt.x, y: pt.y } // reiniciar el preview al nuevo punto
+  dibujarPreviewPluma()
   const onMove = (ev: PointerEvent) => {
     const p = screenToUser(ev.clientX, ev.clientY)
     ancla.hx = p.x - ancla.x; ancla.hy = p.y - ancla.y
