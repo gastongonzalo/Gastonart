@@ -285,7 +285,38 @@ body {
   border-radius: 4px;
   overflow: hidden;
   line-height: 0;
+  flex: none;
 }
+
+/* --- Control de zoom (flotante) --- */
+#zoom-ctrl {
+  position: fixed;
+  bottom: 16px;
+  right: 18px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(19, 26, 38, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+#zoom-ctrl button {
+  height: 30px;
+  min-width: 30px;
+  padding: 0 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+}
+#zoom-ctrl button:hover { background: #0e1623; }
+#zoom-val { font-size: 12px !important; min-width: 48px !important; color: var(--dim) !important; }
 
 /* --- Zonas clickeables --- */
 .hit {

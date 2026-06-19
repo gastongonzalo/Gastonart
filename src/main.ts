@@ -439,6 +439,12 @@ app.innerHTML = `
       <div id="lienzo"></div>
     </div>
   </div>
+  <div id="zoom-ctrl">
+    <button id="zoom-menos" title="Alejar (Ctrl −)">−</button>
+    <button id="zoom-val" title="Restablecer a 100%">100%</button>
+    <button id="zoom-mas" title="Acercar (Ctrl +)">+</button>
+    <button id="zoom-fit" title="Ajustar a la vista">⤢</button>
+  </div>
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
   <input type="file" id="in-font" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden>
@@ -808,6 +814,7 @@ async function montarPlantilla(): Promise<void> {
   reiniciarHistorial() // nueva placa = historial nuevo
   estado.textContent = `${camposActuales.length} campo(s) · ${hayImagen(svgActual) ? 'foto editable' : 'sin foto'} · pasá el mouse y hacé clic`
   revisarFuentes() // avisar si la plantilla usa fuentes que no tenemos
+  aplicarZoom() // fijar el ancho del lienzo según el zoom actual
 }
 
 // Mide, por campo, interlineado, tamaño, color y ANCHO de caja (del relleno).
@@ -3266,10 +3273,40 @@ inSvgPlantilla.addEventListener('change', async () => {
   inSvgPlantilla.value = ''
 })
 
+// ============ Zoom del lienzo (mesa de trabajo) ============
+// El zoom cambia el ANCHO DE DISPLAY del lienzo (no un transform), así el factor
+// k y los overlays se recalculan correctos. 100% = ajustado a la vista.
+let zoomLienzo = 1
+const escenario = document.querySelector<HTMLDivElement>('#escenario')!
+const zoomVal = document.querySelector<HTMLButtonElement>('#zoom-val')!
+function anchoBaseLienzo(): number {
+  return Math.min(680, Math.max(140, escenario.clientWidth - 36))
+}
+function aplicarZoom(): void {
+  lienzo.style.maxWidth = 'none'
+  lienzo.style.width = Math.round(anchoBaseLienzo() * zoomLienzo) + 'px'
+  zoomVal.textContent = Math.round(zoomLienzo * 100) + '%'
+  construirOverlays()
+  if (modoGrafico && grafSeleccion.length) dibujarSelGraf()
+}
+function setZoom(z: number): void {
+  zoomLienzo = Math.max(0.25, Math.min(4, Math.round(z * 100) / 100))
+  aplicarZoom()
+}
+document.querySelector('#zoom-menos')!.addEventListener('click', () => setZoom(zoomLienzo - 0.1))
+document.querySelector('#zoom-mas')!.addEventListener('click', () => setZoom(zoomLienzo + 0.1))
+document.querySelector('#zoom-val')!.addEventListener('click', () => setZoom(1))
+document.querySelector('#zoom-fit')!.addEventListener('click', () => setZoom(1))
+escenario.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return // Ctrl + rueda = zoom
+  e.preventDefault()
+  setZoom(zoomLienzo + (e.deltaY < 0 ? 0.1 : -0.1))
+}, { passive: false })
+
 let tResize: number | undefined
 window.addEventListener('resize', () => {
   clearTimeout(tResize)
-  tResize = window.setTimeout(() => construirOverlays(), 150)
+  tResize = window.setTimeout(() => aplicarZoom(), 150)
 })
 
 function escAttr(s: string): string {
