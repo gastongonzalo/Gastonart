@@ -460,6 +460,7 @@ app.innerHTML = `
     <button id="zoom-mas" title="Acercar (Ctrl +)">+</button>
     <button id="zoom-fit" title="Ajustar a la vista">⤢</button>
   </div>
+  <div id="tira-mesas"></div>
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
   <input type="file" id="in-font" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden>
@@ -861,6 +862,7 @@ async function montarPlantilla(): Promise<void> {
   estado.textContent = `${camposActuales.length} campo(s) · ${hayImagen(svgActual) ? 'foto editable' : 'sin foto'} · pasá el mouse y hacé clic`
   revisarFuentes() // avisar si la plantilla usa fuentes que no tenemos
   aplicarZoom() // fijar el ancho del lienzo según el zoom actual
+  iniciarMesas() // un montaje fresco = proyecto de una sola mesa
 }
 
 // Mide, por campo, interlineado, tamaño, color y ANCHO de caja (del relleno).
@@ -2870,6 +2872,7 @@ btnExport.addEventListener('click', async () => {
 interface Proyecto {
   v: number
   plantilla: string
+  nombre?: string // nombre de la mesa (artboard)
   valores: Record<string, string>
   estilos: Record<string, EstiloCampo>
   bloqueado: Record<string, boolean>
@@ -2914,6 +2917,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   }
   contadorAgregados = p.contador ?? 0
 
+  svgActual = p.svg
   lienzo.innerHTML = p.svg
   svgEl = lienzo.querySelector('svg')
   if (svgEl) { svgEl.style.width = '100%'; svgEl.style.height = 'auto'; svgEl.style.display = 'block' }
@@ -2945,7 +2949,111 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
 async function restaurarProyecto(p: Proyecto): Promise<void> {
   await aplicarSnapshot(p)
   reiniciarHistorial()
+  iniciarMesas()
   estado.textContent = 'Proyecto cargado.'
+}
+
+// ---------------------------------------------------------------
+//  Mesas / artboards (varias placas en un mismo proyecto)
+// ---------------------------------------------------------------
+let mesas: Proyecto[] = []
+let mesaActiva = 0
+
+// Vuelca el estado vivo actual en la mesa activa (preservando su nombre).
+function guardarMesaActiva(): void {
+  if (!mesas.length) return
+  mesas[mesaActiva] = { ...snapshotProyecto(), nombre: mesas[mesaActiva]?.nombre }
+}
+// (Re)inicia el proyecto con una sola mesa = el lienzo actual (montaje fresco).
+function iniciarMesas(): void {
+  mesas = [{ ...snapshotProyecto(), nombre: 'Mesa 1' }]
+  mesaActiva = 0
+  renderMesas()
+}
+async function irAMesa(i: number): Promise<void> {
+  if (i === mesaActiva || i < 0 || i >= mesas.length) return
+  guardarMesaActiva()
+  mesaActiva = i
+  await aplicarSnapshot(mesas[mesaActiva])
+  reiniciarHistorial()
+  aplicarZoom()
+  renderMesas()
+}
+async function agregarMesa(duplicar: boolean): Promise<void> {
+  guardarMesaActiva()
+  const w = svgEl ? Math.round(svgEl.viewBox.baseVal.width) : 1080
+  const h = svgEl ? Math.round(svgEl.viewBox.baseVal.height) : 1080
+  const nueva: Proyecto = duplicar
+    ? JSON.parse(JSON.stringify(mesas[mesaActiva]))
+    : { v: 2, plantilla: `enblanco-${w}x${h}`, valores: {}, estilos: {}, bloqueado: {}, cajaAlto: {}, metricas: {}, fotos: {}, encuadres: {}, contador: 0, svg: svgEnBlanco(w, h) }
+  nueva.nombre = `Mesa ${mesas.length + 1}`
+  mesas.splice(mesaActiva + 1, 0, nueva)
+  mesaActiva += 1
+  await aplicarSnapshot(mesas[mesaActiva])
+  reiniciarHistorial()
+  aplicarZoom()
+  renderMesas()
+  autoguardar()
+}
+async function borrarMesa(i: number): Promise<void> {
+  if (mesas.length <= 1) return
+  mesas.splice(i, 1)
+  if (mesaActiva > i || mesaActiva >= mesas.length) mesaActiva = Math.max(0, mesaActiva - 1)
+  await aplicarSnapshot(mesas[mesaActiva])
+  reiniciarHistorial()
+  aplicarZoom()
+  renderMesas()
+  autoguardar()
+}
+function renombrarMesa(i: number, nomSpan: HTMLElement): void {
+  const inp = document.createElement('input')
+  inp.className = 'mesa-rename'; inp.value = mesas[i].nombre || `Mesa ${i + 1}`
+  nomSpan.replaceWith(inp); inp.focus(); inp.select()
+  inp.addEventListener('click', (e) => e.stopPropagation())
+  inp.addEventListener('blur', () => { mesas[i].nombre = inp.value.trim() || `Mesa ${i + 1}`; renderMesas(); autoguardar() })
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); else if (e.key === 'Escape') renderMesas() })
+}
+function renderMesas(): void {
+  const tira = document.querySelector<HTMLDivElement>('#tira-mesas')
+  if (!tira) return
+  tira.innerHTML = ''
+  mesas.forEach((m, i) => {
+    const tab = document.createElement('button')
+    tab.className = 'mesa-tab' + (i === mesaActiva ? ' activa' : '')
+    const nom = document.createElement('span'); nom.className = 'mesa-nom'; nom.textContent = m.nombre || `Mesa ${i + 1}`
+    tab.appendChild(nom)
+    tab.title = 'Clic para ir · doble clic para renombrar'
+    tab.addEventListener('click', () => void irAMesa(i))
+    tab.addEventListener('dblclick', () => renombrarMesa(i, nom))
+    if (mesas.length > 1) {
+      const x = document.createElement('span'); x.className = 'mesa-del'; x.textContent = '✕'; x.title = 'Borrar mesa'
+      x.addEventListener('click', (e) => { e.stopPropagation(); void borrarMesa(i) })
+      tab.appendChild(x)
+    }
+    tira.appendChild(tab)
+  })
+  const add = document.createElement('button'); add.className = 'mesa-btn'; add.textContent = '＋'; add.title = 'Nueva mesa en blanco'
+  add.addEventListener('click', () => void agregarMesa(false))
+  const dup = document.createElement('button'); dup.className = 'mesa-btn'; dup.textContent = '⧉'; dup.title = 'Duplicar mesa actual'
+  dup.addEventListener('click', () => void agregarMesa(true))
+  tira.append(add, dup)
+}
+
+// Restaura un guardado que puede ser multi-mesa { multi, mesas, mesaActiva } o
+// un proyecto viejo de una sola placa.
+async function restaurarGuardado(data: unknown): Promise<void> {
+  const d = data as { multi?: boolean; mesas?: Proyecto[]; mesaActiva?: number }
+  if (d && d.multi && Array.isArray(d.mesas) && d.mesas.length) {
+    mesas = d.mesas
+    mesaActiva = Math.min(d.mesaActiva ?? 0, mesas.length - 1)
+    await aplicarSnapshot(mesas[mesaActiva])
+    reiniciarHistorial()
+    aplicarZoom()
+    renderMesas()
+    estado.textContent = 'Proyecto cargado.'
+  } else {
+    await restaurarProyecto(data as Proyecto)
+  }
 }
 
 // ---------------------------------------------------------------
@@ -3000,10 +3108,12 @@ function autoguardar(): void {
   clearTimeout(tGuardar)
   tGuardar = window.setTimeout(() => {
     try {
-      const json = JSON.stringify(snapshotProyecto())
-      // No autoguardar si pesa mucho (plantilla con foto embebida grande):
+      guardarMesaActiva()
+      const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
+      const json = JSON.stringify(data)
+      // No autoguardar si pesa mucho (placas con fotos embebidas grandes):
       // evita saturar localStorage y pisar un proyecto chico bueno.
-      if (json.length > 4_000_000) return
+      if (json.length > 8_000_000) return
       localStorage.setItem('gastonart-proyecto', json)
     } catch { /* quota: ignorar */ }
   }, 600)
@@ -3011,12 +3121,14 @@ function autoguardar(): void {
 
 document.querySelector('#btn-guardar')!.addEventListener('click', () => {
   cerrarEditor()
-  const blob = new Blob([JSON.stringify(snapshotProyecto())], { type: 'application/json' })
+  guardarMesaActiva()
+  const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = `${nombreCorto(plantillaActual)}.gastonart.json`
   a.click()
-  estado.textContent = 'Proyecto guardado.'
+  estado.textContent = `Proyecto guardado (${mesas.length} mesa${mesas.length > 1 ? 's' : ''}).`
 })
 const inProyecto = document.querySelector<HTMLInputElement>('#in-proyecto')!
 document.querySelector('#btn-cargar')!.addEventListener('click', () => inProyecto.click())
@@ -3024,8 +3136,7 @@ inProyecto.addEventListener('change', async () => {
   const file = inProyecto.files?.[0]
   if (!file) return
   try {
-    const p = JSON.parse(await file.text()) as Proyecto
-    await restaurarProyecto(p)
+    await restaurarGuardado(JSON.parse(await file.text()))
   } catch (err) {
     estado.textContent = '❌ No se pudo cargar: ' + (err instanceof Error ? err.message : String(err))
   }
@@ -3324,7 +3435,7 @@ function mostrarInicio(): void {
   ov.querySelector('#ini-seguir')?.addEventListener('click', () => {
     if (!autosave) return
     cerrarInicio()
-    try { void restaurarProyecto(JSON.parse(autosave) as Proyecto) }
+    try { void restaurarGuardado(JSON.parse(autosave)) }
     catch (e) { estado.textContent = '❌ No se pudo restaurar el último trabajo'; console.error('[seguir]', e) }
   })
 }
