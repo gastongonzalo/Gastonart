@@ -337,6 +337,7 @@ app.innerHTML = `
           ${rutasPlantilla.map((r) => `<option value="${escAttr(r)}">${escAttr(nombreCorto(r))}</option>`).join('')}
         </select>
       </label>
+      <button id="btn-tamano" class="mini" title="Cambiar el tamaño de la mesa de trabajo">📐 Tamaño</button>
     </div>
     <span class="estado" id="estado"></span>
     <div class="tb-acciones">
@@ -423,6 +424,20 @@ app.innerHTML = `
     <div id="pm-grid" class="pi-grid"></div>
   </div>
 
+  <div id="panel-tamano" hidden>
+    <div class="pg-head">
+      <strong>Tamaño de la mesa</strong>
+      <button id="pt-cerrar" class="mini" title="Cerrar">✕</button>
+    </div>
+    <div id="pt-presets" class="pt-presets"></div>
+    <div class="pt-custom">
+      <input id="pt-w" type="number" min="16" max="8000" aria-label="Ancho"> ×
+      <input id="pt-h" type="number" min="16" max="8000" aria-label="Alto"> px
+      <button id="pt-aplicar" class="ini-btn-acc">Aplicar</button>
+    </div>
+    <div class="pt-nota">Cambia el tamaño de la placa actual. El contenido queda en su lugar.</div>
+  </div>
+
   <div class="cuerpo">
     <nav class="toolbar-izq" aria-label="Insertar elementos">
       <button id="btn-add-texto" class="herr" title="Agregar texto"><span class="herr-ic">T</span><span>Texto</span></button>
@@ -498,7 +513,7 @@ for (const tipo of TIPOS_FIGURA) {
 }
 // Cierra los paneles flotantes (Figura, Íconos, Imagen, Google Fonts) excepto uno.
 function cerrarPanelesFlotantes(excepto?: Element): void {
-  for (const sel of ['#menu-figura', '#panel-iconos', '#panel-imagen', '#panel-gfonts']) {
+  for (const sel of ['#menu-figura', '#panel-iconos', '#panel-imagen', '#panel-gfonts', '#panel-tamano']) {
     const p = document.querySelector<HTMLElement>(sel)
     if (p && p !== excepto) p.hidden = true
   }
@@ -645,6 +660,37 @@ document.querySelector('#pm-cerrar')!.addEventListener('click', () => { panelIma
 document.querySelector('#pm-buscar')!.addEventListener('click', () => void buscarImagenes(pmInput.value))
 pmInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarImagenes(pmInput.value) })
 panelImagen.addEventListener('click', (e) => e.stopPropagation())
+
+// --- Panel de tamaño de mesa ---
+const panelTamano = document.querySelector<HTMLDivElement>('#panel-tamano')!
+const ptW = document.querySelector<HTMLInputElement>('#pt-w')!
+const ptH = document.querySelector<HTMLInputElement>('#pt-h')!
+function poblarPresetsTamano(): void {
+  const cont = document.querySelector<HTMLDivElement>('#pt-presets')!
+  if (cont.childElementCount) return
+  for (const p of PRESETS_TAMANO) {
+    const b = document.createElement('button'); b.className = 'pt-preset'
+    b.innerHTML = `<span class="pt-preset-nom">${escAttr(p.nombre)}</span><span class="pt-preset-dim">${p.w}×${p.h}</span>`
+    b.addEventListener('click', () => { ptW.value = String(p.w); ptH.value = String(p.h); redimensionarMesa(p.w, p.h) })
+    cont.appendChild(b)
+  }
+}
+function clampDim(v: number): number { return Math.max(16, Math.min(8000, Math.round(v) || 16)) }
+document.querySelector('#btn-tamano')!.addEventListener('click', (e) => {
+  e.stopPropagation()
+  const abrir = panelTamano.hidden
+  cerrarPanelesFlotantes(panelTamano)
+  if (abrir && svgEl) {
+    poblarPresetsTamano()
+    ptW.value = String(Math.round(svgEl.viewBox.baseVal.width)); ptH.value = String(Math.round(svgEl.viewBox.baseVal.height))
+  }
+  panelTamano.hidden = !abrir
+})
+document.querySelector('#pt-cerrar')!.addEventListener('click', () => { panelTamano.hidden = true })
+document.querySelector('#pt-aplicar')!.addEventListener('click', () => {
+  redimensionarMesa(clampDim(+ptW.value), clampDim(+ptH.value))
+})
+panelTamano.addEventListener('click', (e) => e.stopPropagation())
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
   if (modoGrafico) desactivarGrafico()
@@ -3052,6 +3098,27 @@ function nuevaPlacaEnBlanco(w: number, h: number, fondo = '#ffffff'): void {
   plantillaActual = `enblanco-${w}x${h}`
   valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
   void montarPlantilla().then(() => { estado.textContent = `Lienzo ${w}×${h} px` })
+}
+
+// Cambia el tamaño de la mesa actual (viewBox) preservando el contenido. Si hay
+// un rect de fondo que cubría toda la placa, también se redimensiona.
+function redimensionarMesa(w: number, h: number): void {
+  if (!svgEl) return
+  cerrarEditor()
+  const vb = svgEl.viewBox.baseVal
+  const oldW = vb.width || 1080, oldH = vb.height || 1350
+  for (const rect of Array.from(svgEl.querySelectorAll<SVGRectElement>('rect'))) {
+    const rx = parseFloat(rect.getAttribute('x') ?? '0'), ry = parseFloat(rect.getAttribute('y') ?? '0')
+    const rw = parseFloat(rect.getAttribute('width') ?? '0'), rh = parseFloat(rect.getAttribute('height') ?? '0')
+    if (rx <= 1 && ry <= 1 && rw >= oldW * 0.98 && rh >= oldH * 0.98) {
+      rect.setAttribute('width', String(w)); rect.setAttribute('height', String(h))
+    }
+  }
+  svgEl.setAttribute('viewBox', `0 0 ${w} ${h}`)
+  svgEl.removeAttribute('width'); svgEl.removeAttribute('height')
+  aplicarZoom() // recalcula el ancho de display + overlays con el nuevo viewBox
+  registrarHistorial(); autoguardar()
+  estado.textContent = `Mesa: ${w}×${h} px`
 }
 
 // Monta una plantilla del paquete por su clave (ruta).
