@@ -563,7 +563,40 @@ const DIC_ICONOS: Record<string, string> = {
   globo: 'globe', mundo: 'world', avion: 'plane', auto: 'car', coche: 'car', bici: 'bike',
   bicicleta: 'bike', trofeo: 'trophy', voto: 'check', urna: 'box', verificado: 'badge-check',
   whatsapp: 'brand-whatsapp', instagram: 'brand-instagram', facebook: 'brand-facebook',
-  flechaderecha: 'arrow-right', flechaizquierda: 'arrow-left', comillas: 'quote',
+  twitter: 'brand-twitter', youtube: 'brand-youtube', tiktok: 'brand-tiktok',
+  linkedin: 'brand-linkedin', telegram: 'brand-telegram', flechaderecha: 'arrow-right',
+  flechaizquierda: 'arrow-left', flechaarriba: 'arrow-up', flechaabajo: 'arrow-down',
+  comillas: 'quote', cita: 'quote', play: 'player-play', pausa: 'player-pause',
+  reproducir: 'player-play', detener: 'player-stop', siguiente: 'player-track-next',
+  anterior: 'player-track-prev', volumen: 'volume', silencio: 'volume-off', micro: 'microphone',
+  microfono: 'microphone', auriculares: 'headphones', altavoz: 'speakerphone', video: 'video',
+  pantalla: 'device-desktop', computadora: 'device-desktop', compu: 'device-desktop',
+  celular: 'device-mobile', notebook: 'device-laptop', impresora: 'printer', enlace: 'link',
+  link: 'link', adjuntar: 'paperclip', clip: 'paperclip', copiar: 'copy', pegar: 'clipboard',
+  cortar: 'cut', imprimir: 'printer', refrescar: 'refresh', recargar: 'refresh', actualizar: 'refresh',
+  filtro: 'filter', ordenar: 'sort-ascending', lista: 'list', cuadricula: 'grid-dots',
+  tabla: 'table', grafico: 'chart-bar', estadistica: 'chart-line', torta: 'chart-pie',
+  moneda: 'coin', banco: 'building-bank', pago: 'credit-card', precio: 'tag', oferta: 'discount',
+  descuento: 'discount', bolsa: 'shopping-bag', tienda: 'building-store', negocio: 'building-store',
+  maletin: 'briefcase', trabajo: 'briefcase', empresa: 'building', edificio: 'building',
+  fabrica: 'building-factory', hospital: 'building-hospital', escuela: 'school', cafe: 'coffee',
+  comida: 'tools-kitchen-2', restaurante: 'tools-kitchen-2', pizza: 'pizza', cerveza: 'beer',
+  vino: 'glass-full', cumpleanos: 'cake', fiesta: 'confetti', guitarra: 'guitar-pick',
+  deporte: 'ball-football', futbol: 'ball-football', pelota: 'ball-basketball', correr: 'run',
+  nadar: 'swimming', gimnasio: 'barbell', salud: 'heartbeat', medico: 'stethoscope',
+  pastilla: 'pill', virus: 'virus', mascarilla: 'mask', termometro: 'temperature',
+  perro: 'dog', gato: 'cat', planta: 'plant', arbol: 'tree', flor: 'flower', hoja: 'leaf',
+  agua: 'droplet', gota: 'droplet', viento: 'wind', nieve: 'snowflake', votar: 'checkbox',
+  politica: 'building-bank', megafono: 'speakerphone', anuncio: 'speakerphone', noticias: 'news',
+  periodico: 'news', radio: 'radio', tv: 'device-tv', brujula: 'compass', ancla: 'anchor',
+  barco: 'sailboat', tren: 'train', colectivo: 'bus', bus: 'bus', taxi: 'car', moto: 'motorbike',
+  camion: 'truck', envio: 'truck-delivery', paquete: 'package', caja: 'box', maleta: 'luggage',
+  cohete: 'rocket', planeta: 'planet', idea: 'bulb', foco: 'bulb', bombilla: 'bulb',
+  cerebro: 'brain', objetivo: 'target', meta: 'target', alerta: 'alert-triangle',
+  peligro: 'alert-triangle', info: 'info-circle', pregunta: 'help-circle', ayuda: 'help-circle',
+  error: 'alert-circle', exito: 'circle-check', correcto: 'circle-check', mano: 'hand-stop',
+  dedo: 'pointer', emoji: 'mood-smile', sonrisa: 'mood-smile', triste: 'mood-sad',
+  enojo: 'mood-angry', cara: 'mood-smile', pulgararriba: 'thumb-up', pulgarabajo: 'thumb-down',
 }
 function traducirBusqueda(q: string): string {
   const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -1655,6 +1688,8 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
   while (el && el !== svgEl) {
     const tag = el.tagName.toLowerCase()
     if (el.closest('defs, clipPath, mask, pattern')) return null
+    // Los cuadros de TEXTO agregados también son seleccionables (mover/copiar/etc.).
+    if (tag === 'text' && el.getAttribute('data-agregado') === 'texto') { hallado = el as SVGElement; break }
     if (TAGS_GRAFICO.has(tag)) {
       // Saltar el fondo: rect en (0,0) que cubre ~todo el viewBox.
       if (tag === 'rect' && esFondo(el as SVGRectElement)) return null
@@ -1835,7 +1870,7 @@ function elementosEnRect(rect: { left: number; top: number; right: number; botto
   if (!svgEl) return []
   const vistos = new Set<SVGElement>()
   const out: SVGElement[] = []
-  for (const leaf of Array.from(svgEl.querySelectorAll<SVGElement>('rect,circle,ellipse,path,polygon,polyline,line,image,use'))) {
+  for (const leaf of Array.from(svgEl.querySelectorAll<SVGElement>('rect,circle,ellipse,path,polygon,polyline,line,image,use,text[data-agregado="texto"]'))) {
     const u = graficoSeleccionable(leaf)
     if (!u || vistos.has(u)) continue
     vistos.add(u)
@@ -1855,7 +1890,7 @@ function borrarGraf(): void {
 }
 
 // ============ Copiar / pegar / duplicar (modo Gráficos) ============
-const SEL_GRAF = 'rect,circle,ellipse,path,polygon,polyline,line,image,use'
+const SEL_GRAF = 'rect,circle,ellipse,path,polygon,polyline,line,image,use,text[data-agregado="texto"]'
 let portapapeles: SVGElement[] = [] // clones de los elementos copiados
 
 function actualizarBotonesEdicion(): void {
@@ -1883,13 +1918,43 @@ function clonarYPegar(fuentes: SVGElement[]): void {
     const nodo = fuente.cloneNode(true) as SVGElement
     offsetTransform(nodo, 24, 24)
     svgEl.appendChild(nodo)
+    independizarCampos(nodo) // si tiene texto editable, darle nombre nuevo + estado propio
     const hoja = (nodo.matches?.(SEL_GRAF) ? nodo : nodo.querySelector<SVGElement>(SEL_GRAF)) ?? nodo
     nuevos.push(graficoSeleccionable(hoja) ?? hoja)
   }
+  construirOverlays() // registrar hits de los cuadros de texto recién pegados
   grafSeleccion = nuevos
   dibujarSelGraf()
   registrarHistorial(); autoguardar()
   estado.textContent = `${nuevos.length} elemento(s) pegado(s)`
+}
+
+// Tras pegar un clon: si contiene cuadros de texto editables (data-campo), les da
+// un nombre nuevo y copia su estado, para que la copia sea independiente (editar
+// una no toca a la otra).
+function independizarCampos(nodo: SVGElement): void {
+  const conCampo: Element[] = []
+  if (nodo.getAttribute('data-campo')) conCampo.push(nodo)
+  conCampo.push(...Array.from(nodo.querySelectorAll('[data-campo]')))
+  if (!conCampo.length) return
+  const renombres = new Map<string, string>()
+  for (const el of conCampo) {
+    const viejo = el.getAttribute('data-campo')!
+    let nuevo = renombres.get(viejo)
+    if (!nuevo) {
+      contadorAgregados++
+      nuevo = `copia_${contadorAgregados}`
+      renombres.set(viejo, nuevo)
+      if (valores[viejo] !== undefined) valores[nuevo] = valores[viejo]
+      if (estilos[viejo]) estilos[nuevo] = { ...estilos[viejo] }
+      if (metricas[viejo]) metricas[nuevo] = { ...metricas[viejo] }
+      if (metaActual[viejo]) metaActual[nuevo] = { ...metaActual[viejo] }
+      if (cajaAlto[viejo] !== undefined) cajaAlto[nuevo] = cajaAlto[viejo]
+      bloqueado[nuevo] = false // la copia nace movible
+      camposActuales.push({ nombre: nuevo, etiqueta: nuevo })
+    }
+    el.setAttribute('data-campo', nuevo)
+  }
 }
 
 // Suma (dx,dy) al translate del transform (o lo antepone si no había).
