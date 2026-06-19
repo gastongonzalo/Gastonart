@@ -322,6 +322,40 @@ body {
    (el export sí recorta a la mesa → trabajar a sangre). */
 #lienzo svg { overflow: visible; }
 
+/* --- Vista carrusel: todas las mesas pegadas --- */
+#vista-carrusel {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 0;
+  padding: 20px;
+}
+#vista-carrusel[hidden] { display: none; }
+.carr-item { position: relative; flex: none; cursor: pointer; }
+.carr-item img {
+  height: 62vh;
+  width: auto;
+  display: block;
+  background: #fff;
+  outline: 1px solid rgba(0, 0, 0, 0.35);
+}
+.carr-item.activa img { outline: 3px solid var(--accent); position: relative; z-index: 1; }
+.carr-item:hover img { outline-color: var(--accent); }
+.carr-label {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  pointer-events: none;
+}
+
 /* --- Control de zoom (flotante) --- */
 #zoom-ctrl {
   position: fixed;

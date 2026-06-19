@@ -452,6 +452,7 @@ app.innerHTML = `
     </nav>
     <div id="escenario">
       <div id="lienzo"></div>
+      <div id="vista-carrusel" hidden></div>
     </div>
   </div>
   <div id="zoom-ctrl">
@@ -3134,10 +3135,49 @@ function renderMesas(): void {
   dup.addEventListener('click', () => void agregarMesa(true))
   tira.append(add, dup)
   if (mesas.length > 1) {
+    const carr = document.createElement('button'); carr.className = 'mesa-btn' + (vistaCarrusel ? ' activa' : ''); carr.textContent = '▦'; carr.title = 'Ver todas las mesas (carrusel)'
+    carr.addEventListener('click', () => toggleCarrusel())
     const zip = document.createElement('button'); zip.className = 'mesa-btn'; zip.textContent = '⬇'; zip.title = 'Exportar todas las mesas (ZIP)'
     zip.addEventListener('click', () => void exportarTodas())
-    tira.appendChild(zip)
+    tira.append(carr, zip)
   }
+  if (vistaCarrusel) renderCarrusel()
+}
+
+// ---- Vista carrusel: todas las mesas pegadas, click para editar, drag para reordenar ----
+let vistaCarrusel = false
+function aplicarVistaCarrusel(): void {
+  const lz = document.querySelector<HTMLElement>('#lienzo')!
+  const vc = document.querySelector<HTMLElement>('#vista-carrusel')!
+  const zc = document.querySelector<HTMLElement>('#zoom-ctrl')
+  lz.hidden = vistaCarrusel
+  vc.hidden = !vistaCarrusel
+  if (zc) zc.style.display = vistaCarrusel ? 'none' : ''
+  if (vistaCarrusel) renderCarrusel()
+}
+function toggleCarrusel(): void {
+  if (!vistaCarrusel) guardarMesaActiva()
+  vistaCarrusel = !vistaCarrusel
+  aplicarVistaCarrusel()
+  renderMesas()
+}
+function renderCarrusel(): void {
+  const vc = document.querySelector<HTMLDivElement>('#vista-carrusel')
+  if (!vc) return
+  if (mesas.length) guardarMesaActiva()
+  vc.innerHTML = ''
+  mesas.forEach((m, i) => {
+    const item = document.createElement('div'); item.className = 'carr-item' + (i === mesaActiva ? ' activa' : '')
+    item.draggable = true; item.title = 'Clic: editar · arrastrar: reordenar'
+    const img = document.createElement('img'); img.src = 'data:image/svg+xml,' + encodeURIComponent(m.svg); img.alt = ''
+    const label = document.createElement('span'); label.className = 'carr-label'; label.textContent = m.nombre || `Mesa ${i + 1}`
+    item.append(img, label)
+    item.addEventListener('click', () => { vistaCarrusel = false; aplicarVistaCarrusel(); renderMesas(); void irAMesa(i) })
+    item.addEventListener('dragstart', () => { arrastrandoMesa = i })
+    item.addEventListener('dragover', (e) => e.preventDefault())
+    item.addEventListener('drop', (e) => { e.preventDefault(); moverMesa(arrastrandoMesa, i); arrastrandoMesa = -1 })
+    vc.appendChild(item)
+  })
 }
 
 // Restaura un guardado que puede ser multi-mesa { multi, mesas, mesaActiva } o
