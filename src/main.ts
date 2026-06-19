@@ -1756,6 +1756,9 @@ function grafKey(e: KeyboardEvent): void {
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
     e.preventDefault()
     if (e.shiftKey) desagruparSel(); else agruparSel()
+  } else if ((e.ctrlKey || e.metaKey) && e.key === '7') {
+    e.preventDefault()
+    if (e.altKey) liberarRecorte(); else recortarConMascara()
   }
 }
 
@@ -2002,6 +2005,69 @@ function desagruparSel(): void {
   registrarHistorial(); autoguardar()
 }
 
+// El <g data-recorte> dentro de una selección (sea el propio nodo o su wrapper).
+function grupoRecorteDe(sel: SVGElement): SVGElement | null {
+  if (sel.getAttribute('data-recorte')) return sel
+  const dentro = sel.querySelector('[data-recorte]')
+  return (dentro as SVGElement | null)
+}
+
+// Crea una máscara de recorte: la forma de MÁS ARRIBA (en z) recorta al resto.
+// Como en Illustrator: poner la forma encima, seleccionar todo y "Recortar".
+function recortarConMascara(): void {
+  if (!svgEl || grafSeleccion.length < 2) return
+  const nodos = grafSeleccion.map(nodoManip)
+  // Orden de documento (z): el último es el de más arriba = la máscara.
+  nodos.sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1))
+  const mascara = nodos[nodos.length - 1]
+  const contenido = nodos.slice(0, -1)
+  if (!contenido.length) return
+  let defs = svgEl.querySelector('defs')
+  if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
+  contadorAgregados++
+  const id = 'recorte-' + contadorAgregados
+  const clip = document.createElementNS(SVGNS, 'clipPath')
+  clip.setAttribute('id', id)
+  clip.setAttribute('clipPathUnits', 'userSpaceOnUse')
+  clip.appendChild(mascara) // la forma (con su transform) define la región
+  defs.appendChild(clip)
+  // El contenido se envuelve en un <g clip-path>, donde estaba el más alto en z.
+  const ref = contenido[contenido.length - 1]
+  const g = document.createElementNS(SVGNS, 'g')
+  g.setAttribute('data-grupo', '1')
+  g.setAttribute('data-recorte', id)
+  g.setAttribute('clip-path', `url(#${id})`)
+  ref.parentNode!.insertBefore(g, ref.nextSibling)
+  for (const n of contenido) g.appendChild(n)
+  grafSeleccion = [g]
+  dibujarSelGraf()
+  registrarHistorial(); autoguardar()
+}
+
+// Libera un recorte: devuelve el contenido y la forma máscara al lienzo.
+function liberarRecorte(): void {
+  if (!svgEl || grafSeleccion.length !== 1) return
+  const sel = grafSeleccion[0]
+  const g = grupoRecorteDe(sel)
+  if (!g) return
+  const id = g.getAttribute('data-recorte')!
+  const clip = svgEl.querySelector('clipPath[id="' + id + '"]')
+  const mascara = clip?.firstElementChild as SVGElement | null
+  const wrap = (sel.getAttribute('data-graf-wrap') === '1') ? sel : null
+  const objetivo = wrap ?? g
+  // Hornear los transforms (wrapper + grupo) para no perder posición.
+  const pre = [wrap?.getAttribute('transform') ?? '', g.getAttribute('transform') ?? ''].filter(Boolean).join(' ')
+  const aplicarPre = (el: SVGElement) => { if (pre) { const prev = el.getAttribute('transform') ?? ''; el.setAttribute('transform', (pre + ' ' + prev).trim()) } }
+  const hijos = Array.from(g.children) as SVGElement[]
+  for (const kid of hijos) { aplicarPre(kid); objetivo.parentNode!.insertBefore(kid, objetivo) }
+  if (mascara) { aplicarPre(mascara); objetivo.parentNode!.insertBefore(mascara, objetivo) } // la forma vuelve encima
+  clip?.remove()
+  objetivo.remove()
+  grafSeleccion = mascara ? [...hijos, mascara] : hijos
+  dibujarSelGraf()
+  registrarHistorial(); autoguardar()
+}
+
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
 function dibujarSelGraf(): void {
   limpiarGraf()
@@ -2047,6 +2113,13 @@ function dibujarSelGraf(): void {
     const grp = document.createElement('button'); grp.className = 'graf-btn'; grp.textContent = 'Agrupar'; grp.title = 'Agrupar (Ctrl+G)'
     grp.addEventListener('click', (e) => { e.stopPropagation(); agruparSel() })
     tools.appendChild(grp)
+    const rec = document.createElement('button'); rec.className = 'graf-btn'; rec.textContent = '✂ Recortar'; rec.title = 'Crear máscara de recorte: la forma de arriba recorta al resto (Ctrl+7)'
+    rec.addEventListener('click', (e) => { e.stopPropagation(); recortarConMascara() })
+    tools.appendChild(rec)
+  } else if (grupoRecorteDe(grafSeleccion[0])) {
+    const lib = document.createElement('button'); lib.className = 'graf-btn'; lib.textContent = '✂ Quitar recorte'; lib.title = 'Liberar la máscara de recorte (Ctrl+Alt+7)'
+    lib.addEventListener('click', (e) => { e.stopPropagation(); liberarRecorte() })
+    tools.appendChild(lib)
   } else if (grafSeleccion[0].tagName.toLowerCase() === 'g') {
     const ung = document.createElement('button'); ung.className = 'graf-btn'; ung.textContent = 'Desagrupar'; ung.title = 'Desagrupar (Ctrl+Shift+G)'
     ung.addEventListener('click', (e) => { e.stopPropagation(); desagruparSel() })
