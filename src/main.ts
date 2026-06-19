@@ -2958,6 +2958,16 @@ async function restaurarProyecto(p: Proyecto): Promise<void> {
 // ---------------------------------------------------------------
 let mesas: Proyecto[] = []
 let mesaActiva = 0
+// Historial (undo/redo) por mesa, EN MEMORIA (no se serializa: sería enorme).
+// Se mantiene alineado con `mesas` (mismos splice). undefined = aún sin historial
+// (se inicializa al visitar la mesa).
+let histPorMesa: ({ stack: string[]; idx: number } | undefined)[] = []
+function guardarHistorialActivo(): void { histPorMesa[mesaActiva] = { stack: historial, idx: histIdx } }
+function restaurarHistorialActivo(): void {
+  const h = histPorMesa[mesaActiva]
+  if (h) { historial = h.stack; histIdx = h.idx; actualizarBotonesHistorial() }
+  else reiniciarHistorial() // captura el estado actual como punto inicial de esa mesa
+}
 
 // Vuelca el estado vivo actual en la mesa activa (preservando su nombre).
 function guardarMesaActiva(): void {
@@ -2968,19 +2978,20 @@ function guardarMesaActiva(): void {
 function iniciarMesas(): void {
   mesas = [{ ...snapshotProyecto(), nombre: 'Mesa 1' }]
   mesaActiva = 0
+  histPorMesa = [{ stack: historial, idx: histIdx }]
   renderMesas()
 }
 async function irAMesa(i: number): Promise<void> {
   if (i === mesaActiva || i < 0 || i >= mesas.length) return
-  guardarMesaActiva()
+  guardarMesaActiva(); guardarHistorialActivo()
   mesaActiva = i
   await aplicarSnapshot(mesas[mesaActiva])
-  reiniciarHistorial()
+  restaurarHistorialActivo()
   aplicarZoom()
   renderMesas()
 }
 async function agregarMesa(duplicar: boolean): Promise<void> {
-  guardarMesaActiva()
+  guardarMesaActiva(); guardarHistorialActivo()
   const w = svgEl ? Math.round(svgEl.viewBox.baseVal.width) : 1080
   const h = svgEl ? Math.round(svgEl.viewBox.baseVal.height) : 1080
   const nueva: Proyecto = duplicar
@@ -2988,19 +2999,22 @@ async function agregarMesa(duplicar: boolean): Promise<void> {
     : { v: 2, plantilla: `enblanco-${w}x${h}`, valores: {}, estilos: {}, bloqueado: {}, cajaAlto: {}, metricas: {}, fotos: {}, encuadres: {}, contador: 0, svg: svgEnBlanco(w, h) }
   nueva.nombre = `Mesa ${mesas.length + 1}`
   mesas.splice(mesaActiva + 1, 0, nueva)
+  histPorMesa.splice(mesaActiva + 1, 0, undefined)
   mesaActiva += 1
   await aplicarSnapshot(mesas[mesaActiva])
-  reiniciarHistorial()
+  restaurarHistorialActivo() // mesa nueva (undefined) → historial nuevo desde su estado
   aplicarZoom()
   renderMesas()
   autoguardar()
 }
 async function borrarMesa(i: number): Promise<void> {
   if (mesas.length <= 1) return
+  guardarHistorialActivo()
   mesas.splice(i, 1)
+  histPorMesa.splice(i, 1)
   if (mesaActiva > i || mesaActiva >= mesas.length) mesaActiva = Math.max(0, mesaActiva - 1)
   await aplicarSnapshot(mesas[mesaActiva])
-  reiniciarHistorial()
+  restaurarHistorialActivo()
   aplicarZoom()
   renderMesas()
   autoguardar()
@@ -3046,8 +3060,10 @@ async function restaurarGuardado(data: unknown): Promise<void> {
   if (d && d.multi && Array.isArray(d.mesas) && d.mesas.length) {
     mesas = d.mesas
     mesaActiva = Math.min(d.mesaActiva ?? 0, mesas.length - 1)
+    histPorMesa = mesas.map(() => undefined) // historial nuevo por mesa (no se guarda en el archivo)
     await aplicarSnapshot(mesas[mesaActiva])
     reiniciarHistorial()
+    histPorMesa[mesaActiva] = { stack: historial, idx: histIdx }
     aplicarZoom()
     renderMesas()
     estado.textContent = 'Proyecto cargado.'
