@@ -1747,11 +1747,19 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
   let grupo: SVGElement | null = null
   let recortado: SVGElement | null = null
   let a: Element | null = hallado
+  // Área de la placa para no tratar como "pieza" a un grupo recortado que cubre
+  // casi todo (esos son contenedores de la plantilla, no logos): si lo eligiéramos,
+  // un recorte borraría la placa entera.
+  const pr = svgEl!.getBoundingClientRect()
+  const areaPlaca = Math.max(1, pr.width * pr.height)
   while (a && a !== svgEl) {
     if (a.getAttribute && a.getAttribute('data-grupo') === '1') grupo = a as SVGElement
     else if (!(a.getAttribute && a.getAttribute('data-graf-wrap') === '1')) {
       const cp = getComputedStyle(a).clipPath
-      if (cp && cp !== 'none') recortado = a as SVGElement
+      if (cp && cp !== 'none') {
+        const ab = (a as SVGGraphicsElement).getBoundingClientRect()
+        if ((ab.width * ab.height) / areaPlaca < 0.6) recortado = a as SVGElement // solo piezas chicas
+      }
     }
     a = a.parentElement
   }
