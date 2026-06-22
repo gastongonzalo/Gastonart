@@ -805,6 +805,14 @@ body {
   background: #0b1018; color: var(--text); font-size: 12px; cursor: pointer;
 }
 .bt-grid button:hover { border-color: var(--accent); }
+/* Menú "Más": lista vertical de acciones secundarias */
+.mas-cont { display: flex; flex-direction: column; gap: 4px; }
+.mas-btn {
+  text-align: left; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: #0b1018; color: var(--text); font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.mas-btn:hover { border-color: var(--accent); }
 .graf-marquee {
   position: absolute;
   z-index: 8;

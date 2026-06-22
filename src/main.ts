@@ -1819,7 +1819,7 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel, .bt-panel').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel, .bt-panel, .mas-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
 }
 
@@ -2537,6 +2537,38 @@ function abrirPanelBuscatrazos(): void {
   lienzo.append(panel)
 }
 
+// Popover "Más": capas (frente/atrás/subir/bajar) y, si hay varios, alinear y
+// buscatrazos. Mantiene la barra principal despejada.
+function abrirPanelMas(): void {
+  lienzo.querySelectorAll('.mas-panel').forEach((n) => n.remove())
+  const multi = grafSeleccion.length > 1
+  const panel = document.createElement('div')
+  panel.className = 'alinear-panel mas-panel'
+  panel.addEventListener('pointerdown', (e) => e.stopPropagation())
+  panel.innerHTML = '<div class="alinear-head">Más <button class="alinear-cerrar">✕</button></div>'
+  const cont = document.createElement('div'); cont.className = 'mas-cont'
+  const capas: [string, 'arriba' | 'abajo' | 'tope' | 'fondo'][] = [
+    ['↟ Traer al frente', 'tope'], ['↑ Subir una capa', 'arriba'],
+    ['↓ Bajar una capa', 'abajo'], ['↡ Enviar al fondo', 'fondo'],
+  ]
+  for (const [txt, modo] of capas) {
+    const b = document.createElement('button'); b.className = 'mas-btn'; b.textContent = txt
+    b.addEventListener('click', (e) => { e.stopPropagation(); reordenarSel(modo) })
+    cont.append(b)
+  }
+  if (multi) {
+    const a = document.createElement('button'); a.className = 'mas-btn'; a.textContent = '⊟ Alinear / distribuir'
+    a.addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); abrirPanelAlinear() })
+    cont.append(a)
+    const bt = document.createElement('button'); bt.className = 'mas-btn'; bt.textContent = '◳ Buscatrazos'
+    bt.addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); abrirPanelBuscatrazos() })
+    cont.append(bt)
+  }
+  panel.append(cont)
+  panel.querySelector('.alinear-cerrar')!.addEventListener('click', () => panel.remove())
+  lienzo.append(panel)
+}
+
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
 function dibujarSelGraf(): void {
   limpiarGraf()
@@ -2601,12 +2633,6 @@ function dibujarSelGraf(): void {
     const rec = document.createElement('button'); rec.className = 'graf-btn'; rec.textContent = '✂ Recortar'; rec.title = 'Crear máscara de recorte: la forma de arriba recorta al resto (Ctrl+7)'
     rec.addEventListener('click', (e) => { e.stopPropagation(); recortarConMascara() })
     tools.appendChild(rec)
-    const ali = document.createElement('button'); ali.className = 'graf-btn'; ali.textContent = '⊟ Alinear'; ali.title = 'Alinear / distribuir (respecto del primero seleccionado)'
-    ali.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelAlinear() })
-    tools.appendChild(ali)
-    const bt = document.createElement('button'); bt.className = 'graf-btn'; bt.textContent = '◳ Buscatrazos'; bt.title = 'Combinar formas: unir / restar / intersecar / excluir'
-    bt.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelBuscatrazos() })
-    tools.appendChild(bt)
   } else if (grupoRecorteDe(grafSeleccion[0])) {
     const lib = document.createElement('button'); lib.className = 'graf-btn'; lib.textContent = '✂ Quitar recorte'; lib.title = 'Liberar la máscara de recorte (Ctrl+Alt+7)'
     lib.addEventListener('click', (e) => { e.stopPropagation(); liberarRecorte() })
@@ -2623,18 +2649,10 @@ function dibujarSelGraf(): void {
     tools.appendChild(ung)
   }
 
-  // Capas: subir / bajar un paso, al tope y al fondo.
-  const capas: [string, 'arriba' | 'abajo' | 'tope' | 'fondo', string][] = [
-    ['↟', 'tope', 'Traer al frente'],
-    ['↑', 'arriba', 'Subir una capa'],
-    ['↓', 'abajo', 'Bajar una capa'],
-    ['↡', 'fondo', 'Enviar al fondo'],
-  ]
-  for (const [icono, modo, titulo] of capas) {
-    const b = document.createElement('button'); b.className = 'graf-btn graf-capa'; b.textContent = icono; b.title = titulo
-    b.addEventListener('click', (e) => { e.stopPropagation(); reordenarSel(modo) })
-    tools.appendChild(b)
-  }
+  // Secundarios (capas, alinear, buscatrazos) en un menú "Más" para no saturar.
+  const mas = document.createElement('button'); mas.className = 'graf-btn'; mas.textContent = '⋯ Más'; mas.title = 'Capas, alinear, buscatrazos'
+  mas.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelMas() })
+  tools.appendChild(mas)
 
   const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '✕'; del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
