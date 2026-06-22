@@ -1738,6 +1738,9 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
     el = el.parentElement
   }
   if (!hallado) return null
+  // Una FOTO de hueco (data-foto) es su propia unidad: NO subir a los grupos
+  // recortados de la plantilla (el hueco, la placa), que envolverían medio diseño.
+  if (hallado.getAttribute('data-foto') != null) return hallado
   // Subir a la unidad de selección: un grupo nuestro (data-grupo) tiene prioridad;
   // si no, el grupo recortado (clip-path) más externo. Así los grupos y los logos
   // recortados se manejan como una sola pieza.
@@ -2089,6 +2092,13 @@ function recortarConMascara(): void {
     estado.textContent = 'La forma no se superpone con la imagen. Ponela ENCIMA de lo que querés recortar y volvé a intentar.'
     return
   }
+  // Horneamos los transforms a coordenadas ABSOLUTAS (raíz) ANTES de mover nada.
+  // Así el recorte no depende de los grupos con clip de la plantilla (el hueco de
+  // la foto, la placa), que de otro modo seguirían recortando y harían desaparecer
+  // casi todo. Se calculan todas las matrices primero (mover cambia el CTM).
+  const trMascara = matrizAbsoluta(mascara)
+  const trContenido = contenido.map((n) => matrizAbsoluta(n))
+
   let defs = svgEl.querySelector('defs')
   if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
   contadorAgregados++
@@ -2096,35 +2106,43 @@ function recortarConMascara(): void {
   const clip = document.createElementNS(SVGNS, 'clipPath')
   clip.setAttribute('id', id)
   clip.setAttribute('clipPathUnits', 'userSpaceOnUse')
-  clip.appendChild(mascara) // la forma (con su transform) define la región
+  mascara.setAttribute('transform', trMascara)
+  clip.appendChild(mascara) // la forma (con su transform absoluto) define la región
   defs.appendChild(clip)
-  // El contenido se envuelve en un <g clip-path>, donde estaba el más alto en z.
-  const ref = contenido[contenido.length - 1]
+  // El contenido va a un <g clip-path> colgado de la RAÍZ (fuera de cualquier
+  // grupo recortado de la plantilla), arriba de todo.
   const g = document.createElementNS(SVGNS, 'g')
   g.setAttribute('data-grupo', '1')
   g.setAttribute('data-recorte', id)
   g.setAttribute('clip-path', `url(#${id})`)
-  ref.parentNode!.insertBefore(g, ref.nextSibling)
-  for (const n of contenido) {
-    // Si el contenido ya tenía un clip propio (p. ej. el hueco de una foto de
-    // plantilla), lo quitamos: el recorte nuevo pasa a ser la ÚNICA máscara. Un
-    // doble clip desalinea y oculta casi todo.
-    quitarClipsPropios(n)
+  svgEl.appendChild(g)
+  contenido.forEach((n, i) => {
+    quitarClipsPropios(n)          // anular clips propios (atributo, style o clase CSS)
+    n.setAttribute('transform', trContenido[i])
     g.appendChild(n)
-  }
+  })
   grafSeleccion = [g]
   dibujarSelGraf()
   registrarHistorial(); autoguardar()
 }
 
-// Quita cualquier clip-path propio del elemento y sus descendientes (atributo o
-// inline style), para que solo aplique el recorte nuevo.
+// Matriz absoluta del elemento respecto de la raíz del SVG (su CTM), como string
+// transform. Sirve para "hornear" la posición al sacarlo de grupos anidados.
+function matrizAbsoluta(el: SVGElement): string {
+  const m = (el as SVGGraphicsElement).getCTM?.()
+  if (!m) return el.getAttribute('transform') ?? ''
+  return `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`
+}
+
+// Anula cualquier clip-path propio del elemento y sus descendientes (atributo,
+// estilo inline o regla por CLASE CSS), para que solo aplique el recorte nuevo.
 function quitarClipsPropios(raiz: SVGElement): void {
   const els: Element[] = [raiz, ...Array.from(raiz.querySelectorAll('*'))]
   for (const el of els) {
     if (el.getAttribute('clip-path')) el.removeAttribute('clip-path')
     const he = el as HTMLElement & SVGElement
-    if (he.style && he.style.clipPath) he.style.clipPath = ''
+    // forzar inline 'none' pisa cualquier clip-path heredado de una clase CSS
+    if (he.style && getComputedStyle(el).clipPath !== 'none') he.style.clipPath = 'none'
   }
 }
 
