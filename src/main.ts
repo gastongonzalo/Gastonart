@@ -2112,15 +2112,23 @@ function recortarConMascara(): void {
   const eligioContenido = seleccionNoMask.some((n) =>
     n.getAttribute('data-agregado') != null || n.getAttribute('data-foto') != null ||
     n.querySelector('[data-agregado],[data-foto]'))
+  // Área de superposición (px²) de la máscara con un elemento.
+  const areaSuperpuesta = (el: Element): number => {
+    const cb = el.getBoundingClientRect()
+    const w = Math.min(mb.right, cb.right) - Math.max(mb.left, cb.left)
+    const h = Math.min(mb.bottom, cb.bottom) - Math.max(mb.top, cb.top)
+    return w > 0 && h > 0 ? w * h : 0
+  }
   let contenido: SVGElement[]
   if (eligioContenido) {
     contenido = seleccionNoMask.map(nodoManip)
   } else {
-    const fotos = Array.from(svgEl.querySelectorAll<SVGElement>('[data-foto]')).filter((im) => {
-      const href = im.getAttribute('href') || im.getAttribute('xlink:href')
-      return href && tocaMascara(im)
-    })
-    contenido = fotos.length ? fotos : seleccionNoMask.map(nodoManip)
+    // Sin contenido elegido: recortar ÚNICAMENTE la foto que más tapa la máscara
+    // (no todas las que rozan su bbox, para no arrastrar fotos vecinas).
+    const fotos = Array.from(svgEl.querySelectorAll<SVGElement>('[data-foto]')).filter((im) =>
+      (im.getAttribute('href') || im.getAttribute('xlink:href')) && areaSuperpuesta(im) > 0)
+    fotos.sort((a, b) => areaSuperpuesta(b) - areaSuperpuesta(a))
+    contenido = fotos.length ? [fotos[0]] : seleccionNoMask.map(nodoManip)
   }
   if (!contenido.length) return
   // La forma tiene que SUPERPONERSE con algo del contenido; si no, el recorte
@@ -2239,14 +2247,12 @@ function entrarReencuadre(g: SVGElement): void {
   if (!foto) return
   reframeG = g
   reframePan = { x: 0, y: 0 }; reframeZoom = 1
-  // wrapper de reencuadre alrededor de la foto (dentro del grupo recortado)
-  const fp = foto.parentElement as Element | null
-  if (fp && fp !== (g as unknown as Element) && fp.classList.contains('reframe-wrap')) {
-    reframeWrap = fp as unknown as SVGGElement
-  } else {
+  // wrapper de reencuadre alrededor de la foto (el encuadre previo ya está horneado
+  // en la foto al salir, así que siempre arrancamos uno nuevo).
+  {
     reframeWrap = document.createElementNS(SVGNS, 'g')
     reframeWrap.setAttribute('class', 'reframe-wrap')
-    fp!.insertBefore(reframeWrap, foto)
+    foto.parentElement!.insertBefore(reframeWrap, foto)
     reframeWrap.appendChild(foto)
   }
   reframeWrap.style.opacity = '0.5' // foto completa atenuada para ver el contexto
@@ -2283,8 +2289,18 @@ function aplicarReencuadre(): void {
 function salirReencuadre(): void {
   if (!reframeG || !svgEl) return
   if (reframeClipAttr) reframeG.setAttribute('clip-path', reframeClipAttr)
-  if (reframeWrap) reframeWrap.style.opacity = ''
   reframeOutline?.remove(); reframeOutline = null
+  // Hornear el encuadre en la foto y SACAR el wrapper, para no acumular wrappers
+  // ni perder el encuadre al reentrar (reentrar arrancaría con pan/zoom en 0/1).
+  if (reframeWrap) {
+    reframeWrap.style.opacity = ''
+    const wt = reframeWrap.getAttribute('transform') ?? ''
+    for (const kid of Array.from(reframeWrap.children) as SVGElement[]) {
+      if (wt) { const prev = kid.getAttribute('transform') ?? ''; kid.setAttribute('transform', (wt + ' ' + prev).trim()) }
+      reframeWrap.parentNode!.insertBefore(kid, reframeWrap)
+    }
+    reframeWrap.remove()
+  }
   lienzo.classList.remove('reencuadrando')
   svgEl.removeEventListener('wheel', wheelReencuadre)
   lienzo.querySelectorAll('.reframe-bar').forEach((n) => n.remove())
@@ -2295,9 +2311,10 @@ function salirReencuadre(): void {
   registrarHistorial(); autoguardar()
 }
 
+const REFRAME_ZOOM_MIN = 0.2, REFRAME_ZOOM_MAX = 4
 function wheelReencuadre(e: WheelEvent): void {
   e.preventDefault()
-  reframeZoom = Math.max(0.1, reframeZoom * (e.deltaY < 0 ? 1.08 : 0.92))
+  reframeZoom = Math.min(REFRAME_ZOOM_MAX, Math.max(REFRAME_ZOOM_MIN, reframeZoom * (e.deltaY < 0 ? 1.08 : 0.92)))
   aplicarReencuadre()
   const s = lienzo.querySelector<HTMLInputElement>('.reframe-bar input')
   if (s) s.value = String(reframeZoom)
@@ -2325,7 +2342,7 @@ function dibujarBarraReencuadre(): void {
   const bar = document.createElement('div'); bar.className = 'reframe-bar'
   bar.addEventListener('pointerdown', (e) => e.stopPropagation())
   const txt = document.createElement('span'); txt.textContent = 'Reencuadrar · arrastrá, rueda = zoom'
-  const z = document.createElement('input'); z.type = 'range'; z.min = '0.2'; z.max = '4'; z.step = '0.01'; z.value = String(reframeZoom)
+  const z = document.createElement('input'); z.type = 'range'; z.min = String(REFRAME_ZOOM_MIN); z.max = String(REFRAME_ZOOM_MAX); z.step = '0.01'; z.value = String(reframeZoom)
   z.addEventListener('input', () => { reframeZoom = parseFloat(z.value); aplicarReencuadre() })
   const ok = document.createElement('button'); ok.textContent = 'Listo'; ok.className = 'reframe-ok'
   ok.addEventListener('click', (e) => { e.stopPropagation(); salirReencuadre() })
@@ -2353,7 +2370,6 @@ function liberarRecorte(): void {
   if (!g) return
   const id = g.getAttribute('data-recorte')!
   const clip = svgEl.querySelector('clipPath[id="' + id + '"]')
-  const mascara = clip?.firstElementChild as SVGElement | null
   const wrap = (sel.getAttribute('data-graf-wrap') === '1') ? sel : null
   const objetivo = wrap ?? g
   // Hornear los transforms (wrapper + grupo) para no perder posición.
@@ -2361,10 +2377,9 @@ function liberarRecorte(): void {
   const aplicarPre = (el: SVGElement) => { if (pre) { const prev = el.getAttribute('transform') ?? ''; el.setAttribute('transform', (pre + ' ' + prev).trim()) } }
   const hijos = Array.from(g.children) as SVGElement[]
   for (const kid of hijos) { aplicarPre(kid); objetivo.parentNode!.insertBefore(kid, objetivo) }
-  if (mascara) { aplicarPre(mascara); objetivo.parentNode!.insertBefore(mascara, objetivo) } // la forma vuelve encima
-  clip?.remove()
+  clip?.remove() // borrar el clipPath (su <path> es geometría de recorte, no una forma visible)
   objetivo.remove()
-  grafSeleccion = mascara ? [...hijos, mascara] : hijos
+  grafSeleccion = hijos
   dibujarSelGraf()
   registrarHistorial(); autoguardar()
 }
