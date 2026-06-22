@@ -2645,15 +2645,22 @@ function dibujarSelGraf(): void {
   tools.style.left = Math.max(4, Math.min(uni.left, maxL)) + 'px'
   if (uni.top - 34 < 0) tools.style.top = Math.min(uni.top + uni.height + 6, lienzo.clientHeight - tools.offsetHeight - 4) + 'px'
 
-  if (!multi) lienzo.appendChild(crearTiradorEscalaGraf(uni)) // escala solo para 1 elemento/grupo
+  if (!multi) {
+    lienzo.appendChild(crearTiradorEscalaGraf(uni, 'x'))  // ancho
+    lienzo.appendChild(crearTiradorEscalaGraf(uni, 'y'))  // alto
+    lienzo.appendChild(crearTiradorEscalaGraf(uni, 'xy')) // proporcional (esquina)
+  }
 }
 
-// Tirador de escala para un gráfico/grupo: escala su wrapper (g data-graf-wrap)
-// manteniendo fija la esquina superior-izquierda.
-function crearTiradorEscalaGraf(r: Rect): HTMLDivElement {
+// Tirador de escala para un gráfico/grupo/recorte: escala su wrapper manteniendo
+// fija la esquina superior-izquierda. eje 'xy' = esquina (proporcional), 'x'/'y' =
+// costado (libre, un solo eje). Shift fuerza proporción en cualquiera.
+function crearTiradorEscalaGraf(r: Rect, eje: 'x' | 'y' | 'xy' = 'xy'): HTMLDivElement {
   const h = document.createElement('div')
-  h.className = 'resize-handle'
-  Object.assign(h.style, { left: r.left + r.width - 7 + 'px', top: r.top + r.height - 7 + 'px' })
+  h.className = 'resize-handle resize-handle-' + eje
+  const left = eje === 'y' ? r.left + r.width / 2 - 7 : r.left + r.width - 7
+  const top = eje === 'x' ? r.top + r.height / 2 - 7 : r.top + r.height - 7
+  Object.assign(h.style, { left: left + 'px', top: top + 'px' })
   h.addEventListener('pointerdown', (e) => {
     const sel = grafSeleccion[0]
     if (!svgEl || !sel) return
@@ -2663,18 +2670,31 @@ function crearTiradorEscalaGraf(r: Rect): HTMLDivElement {
     const tr = g.getAttribute('transform') ?? ''
     const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
     const cx0 = tm ? +tm[1] : 0, cy0 = tm ? +tm[2] : 0
-    const sm = tr.match(/scale\(\s*([-\d.]+)/)
-    const s0 = sm ? +sm[1] : 1
+    const sc = leerScale(tr)
+    const sx0 = sc.sx, sy0 = sc.sy
     let bb = { x: 0, y: 0, width: 100, height: 100 }
     try { bb = g.getBBox() } catch { /* default */ }
-    const px = bb.x, py = bb.y                 // pivote = esquina sup-izq (coords del hijo)
-    const ax = cx0 + s0 * px, ay = cy0 + s0 * py // posición fija del pivote (coords del padre)
-    let s = s0, sx = e.clientX
+    const bw = bb.width || 100, bh = bb.height || 100
+    const px = bb.x, py = bb.y                     // pivote = esquina sup-izq (coords del hijo)
+    const ax = cx0 + sx0 * px, ay = cy0 + sy0 * py // posición fija del pivote (coords del padre)
+    const hx0 = parseFloat(h.style.left), hy0 = parseFloat(h.style.top)
+    const startX = e.clientX, startY = e.clientY
     const onMove = (ev: PointerEvent) => {
-      const dxs = ev.clientX - sx; sx = ev.clientX
-      s = Math.max(0.05, s + dxs / ((bb.width || 100) * k))
-      g.setAttribute('transform', `translate(${ax - s * px} ${ay - s * py}) scale(${s})`)
-      h.style.left = parseFloat(h.style.left) + dxs + 'px'
+      const accX = ev.clientX - startX, accY = ev.clientY - startY
+      const prop = eje === 'xy' || ev.shiftKey
+      let sx = sx0, sy = sy0
+      if (prop) {
+        const denom = eje === 'y' ? Math.max(bh * sy0 * k, 1) : Math.max(bw * sx0 * k, 1)
+        const delta = eje === 'y' ? accY : accX
+        const f = Math.max(0.04, 1 + delta / denom)
+        sx = Math.max(0.04, sx0 * f); sy = Math.max(0.04, sy0 * f)
+      } else {
+        if (eje !== 'y') sx = Math.max(0.04, sx0 + accX / (bw * k))
+        if (eje !== 'x') sy = Math.max(0.04, sy0 + accY / (bh * k))
+      }
+      g.setAttribute('transform', `translate(${ax - sx * px} ${ay - sy * py}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
+      h.style.left = hx0 + (sx - sx0) * bw * k + 'px'
+      h.style.top = hy0 + (sy - sy0) * bh * k + 'px'
     }
     const onUp = () => {
       h.removeEventListener('pointermove', onMove)
