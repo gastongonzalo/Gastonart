@@ -1802,7 +1802,7 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
 }
 
@@ -2280,6 +2280,84 @@ function abrirPanelDegradado(els: SVGElement[]): void {
   aplicar()
 }
 
+// --- Alinear / distribuir --------------------------------------------------
+// Desplaza un elemento (vía su wrapper) por dx,dy en unidades de usuario.
+function desplazarNodo(sel: SVGElement, dxU: number, dyU: number): void {
+  const g = wrapperGraf(sel)
+  const tm = (g.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+  const tx = tm ? +tm[1] : 0, ty = tm ? +tm[2] : 0
+  g.setAttribute('transform', `translate(${tx + dxU} ${ty + dyU})`)
+}
+
+type ModoAlinear = 'izq' | 'centroH' | 'der' | 'arriba' | 'medioV' | 'abajo'
+// Alinea la selección respecto del PRIMER elemento elegido (key object).
+function alinear(modo: ModoAlinear): void {
+  if (!svgEl || grafSeleccion.length < 2) return
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const rects = grafSeleccion.map((el) => el.getBoundingClientRect())
+  const key = rects[0]
+  for (let i = 1; i < grafSeleccion.length; i++) {
+    const r = rects[i]; let dx = 0, dy = 0
+    switch (modo) {
+      case 'izq': dx = key.left - r.left; break
+      case 'der': dx = key.right - r.right; break
+      case 'centroH': dx = (key.left + key.right) / 2 - (r.left + r.right) / 2; break
+      case 'arriba': dy = key.top - r.top; break
+      case 'abajo': dy = key.bottom - r.bottom; break
+      case 'medioV': dy = (key.top + key.bottom) / 2 - (r.top + r.bottom) / 2; break
+    }
+    if (dx || dy) desplazarNodo(grafSeleccion[i], dx / k, dy / k)
+  }
+  dibujarSelGraf(); registrarHistorial(); autoguardar()
+}
+
+// Distribuye los centros de la selección de forma pareja entre los extremos.
+function distribuir(eje: 'h' | 'v'): void {
+  if (!svgEl || grafSeleccion.length < 3) return
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const items = grafSeleccion.map((el) => {
+    const r = el.getBoundingClientRect()
+    return { el, c: eje === 'h' ? (r.left + r.right) / 2 : (r.top + r.bottom) / 2 }
+  }).sort((a, b) => a.c - b.c)
+  const min = items[0].c, max = items[items.length - 1].c
+  const paso = (max - min) / (items.length - 1)
+  items.forEach((it, i) => {
+    if (i === 0 || i === items.length - 1) return
+    const objetivo = min + paso * i
+    const d = (objetivo - it.c) / k
+    desplazarNodo(it.el, eje === 'h' ? d : 0, eje === 'h' ? 0 : d)
+  })
+  dibujarSelGraf(); registrarHistorial(); autoguardar()
+}
+
+// Popover con los botones de alinear/distribuir.
+function abrirPanelAlinear(): void {
+  lienzo.querySelectorAll('.alinear-panel').forEach((n) => n.remove())
+  const panel = document.createElement('div')
+  panel.className = 'alinear-panel'
+  panel.addEventListener('pointerdown', (e) => e.stopPropagation())
+  const btns: [string, () => void, string][] = [
+    ['⊣', () => alinear('izq'), 'Alinear a la izquierda'],
+    ['⊪', () => alinear('centroH'), 'Centrar horizontal'],
+    ['⊢', () => alinear('der'), 'Alinear a la derecha'],
+    ['⊤', () => alinear('arriba'), 'Alinear arriba'],
+    ['⊫', () => alinear('medioV'), 'Centrar vertical'],
+    ['⊥', () => alinear('abajo'), 'Alinear abajo'],
+    ['↔', () => distribuir('h'), 'Distribuir horizontal'],
+    ['↕', () => distribuir('v'), 'Distribuir vertical'],
+  ]
+  panel.innerHTML = '<div class="alinear-head">Alinear (respecto del 1.º) <button class="alinear-cerrar">✕</button></div>'
+  const grid = document.createElement('div'); grid.className = 'alinear-grid'
+  for (const [icono, fn, titulo] of btns) {
+    const b = document.createElement('button'); b.textContent = icono; b.title = titulo
+    b.addEventListener('click', (e) => { e.stopPropagation(); fn() })
+    grid.append(b)
+  }
+  panel.append(grid)
+  panel.querySelector('.alinear-cerrar')!.addEventListener('click', () => panel.remove())
+  lienzo.append(panel)
+}
+
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
 function dibujarSelGraf(): void {
   limpiarGraf()
@@ -2344,6 +2422,9 @@ function dibujarSelGraf(): void {
     const rec = document.createElement('button'); rec.className = 'graf-btn'; rec.textContent = '✂ Recortar'; rec.title = 'Crear máscara de recorte: la forma de arriba recorta al resto (Ctrl+7)'
     rec.addEventListener('click', (e) => { e.stopPropagation(); recortarConMascara() })
     tools.appendChild(rec)
+    const ali = document.createElement('button'); ali.className = 'graf-btn'; ali.textContent = '⊟ Alinear'; ali.title = 'Alinear / distribuir (respecto del primero seleccionado)'
+    ali.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelAlinear() })
+    tools.appendChild(ali)
   } else if (grupoRecorteDe(grafSeleccion[0])) {
     const lib = document.createElement('button'); lib.className = 'graf-btn'; lib.textContent = '✂ Quitar recorte'; lib.title = 'Liberar la máscara de recorte (Ctrl+Alt+7)'
     lib.addEventListener('click', (e) => { e.stopPropagation(); liberarRecorte() })
