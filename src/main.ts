@@ -1740,7 +1740,12 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
   if (!hallado) return null
   // Una FOTO de hueco (data-foto) es su propia unidad: NO subir a los grupos
   // recortados de la plantilla (el hueco, la placa), que envolverían medio diseño.
-  if (hallado.getAttribute('data-foto') != null) return hallado
+  // PERO si la foto ya está dentro de un recorte nuestro, seleccionamos ESE grupo
+  // (para mover/escalar el recorte completo).
+  if (hallado.getAttribute('data-foto') != null) {
+    const rec = hallado.closest('[data-recorte]') as SVGElement | null
+    return rec ?? hallado
+  }
   // Subir a la unidad de selección: un grupo nuestro (data-grupo) tiene prioridad;
   // si no, el grupo recortado (clip-path) más externo. Así los grupos y los logos
   // recortados se manejan como una sola pieza.
