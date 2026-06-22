@@ -2076,37 +2076,52 @@ function esFormaRecorte(el: SVGElement): boolean {
 // La máscara es la forma de más arriba; una imagen nunca puede ser la máscara.
 function recortarConMascara(): void {
   if (!svgEl || grafSeleccion.length < 2) return
-  const nodos = grafSeleccion.map(nodoManip)
-  // Orden de documento (z): el último es el de más arriba.
-  nodos.sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1))
-  // La máscara debe ser una forma vectorial (la de más arriba); el resto es el
-  // contenido recortado. Así no importa si la imagen quedó encima o debajo.
-  const formas = nodos.filter(esFormaRecorte)
+  // Trabajamos sobre los elementos REALES seleccionados (no sus wrappers de
+  // arrastre, que ocultan data-agregado). Orden de documento (z): último = arriba.
+  const sel = [...grafSeleccion]
+  sel.sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1))
+  const formas = sel.filter(esFormaRecorte)
   if (!formas.length) {
     estado.textContent = 'Para recortar necesitás una forma (vector) como máscara, no una imagen.'
     return
   }
-  const mascara = formas[formas.length - 1]
-  const contenido = nodos.filter((n) => n !== mascara)
+  // La máscara: la forma que VOS agregaste (figura/pluma/ícono); si no hay, la de
+  // más arriba. Así un vector de la plantilla tocado por error no es la máscara.
+  const formasUsuario = formas.filter((f) => f.getAttribute('data-agregado') != null)
+  const candidatas = formasUsuario.length ? formasUsuario : formas
+  const mascaraSel = candidatas[candidatas.length - 1]
+  const mascara = nodoManip(mascaraSel)
+  const mb = mascara.getBoundingClientRect()
+  const tocaMascara = (el: Element): boolean => {
+    const cb = el.getBoundingClientRect()
+    return cb.width > 1 && !(mb.right <= cb.left || mb.left >= cb.right || mb.bottom <= cb.top || mb.top >= cb.bottom)
+  }
+  // ¿Qué se recorta? Si seleccionaste contenido propio (otra forma/imagen agregada
+  // o una foto), se respeta. Si NO (típico: la foto es el fondo a sangre y no se
+  // puede clickear porque está tapada), se recorta la FOTO que la máscara tape —
+  // que es lo que casi siempre se quiere. Evita recortar un vector de la plantilla
+  // por error y que "desaparezca todo".
+  const seleccionNoMask = sel.filter((e) => e !== mascaraSel)
+  const eligioContenido = seleccionNoMask.some((n) =>
+    n.getAttribute('data-agregado') != null || n.getAttribute('data-foto') != null ||
+    n.querySelector('[data-agregado],[data-foto]'))
+  let contenido: SVGElement[]
+  if (eligioContenido) {
+    contenido = seleccionNoMask.map(nodoManip)
+  } else {
+    const fotos = Array.from(svgEl.querySelectorAll<SVGElement>('[data-foto]')).filter((im) => {
+      const href = im.getAttribute('href') || im.getAttribute('xlink:href')
+      return href && tocaMascara(im)
+    })
+    contenido = fotos.length ? fotos : seleccionNoMask.map(nodoManip)
+  }
   if (!contenido.length) return
   // La forma tiene que SUPERPONERSE con algo del contenido; si no, el recorte
   // quedaría vacío (todo desaparece). Avisar en vez de borrar el dibujo.
-  const mb = mascara.getBoundingClientRect()
-  const seSuperpone = contenido.some((n) => {
-    const cb = n.getBoundingClientRect()
-    return !(mb.right <= cb.left || mb.left >= cb.right || mb.bottom <= cb.top || mb.top >= cb.bottom)
-  })
-  if (!seSuperpone) {
-    estado.textContent = 'La forma no se superpone con la imagen. Ponela ENCIMA de lo que querés recortar y volvé a intentar.'
+  if (!contenido.some(tocaMascara)) {
+    estado.textContent = 'La forma no se superpone con la foto/imagen. Ponela ENCIMA de lo que querés recortar.'
     return
   }
-  // Horneamos los transforms a coordenadas ABSOLUTAS (raíz) ANTES de mover nada.
-  // Así el recorte no depende de los grupos con clip de la plantilla (el hueco de
-  // la foto, la placa), que de otro modo seguirían recortando y harían desaparecer
-  // casi todo. Se calculan todas las matrices primero (mover cambia el CTM).
-  const trMascara = matrizAbsoluta(mascara)
-  const trContenido = contenido.map((n) => matrizAbsoluta(n))
-
   let defs = svgEl.querySelector('defs')
   if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
   contadorAgregados++
@@ -2114,32 +2129,32 @@ function recortarConMascara(): void {
   const clip = document.createElementNS(SVGNS, 'clipPath')
   clip.setAttribute('id', id)
   clip.setAttribute('clipPathUnits', 'userSpaceOnUse')
-  mascara.setAttribute('transform', trMascara)
-  clip.appendChild(mascara) // la forma (con su transform absoluto) define la región
   defs.appendChild(clip)
-  // El contenido va a un <g clip-path> colgado de la RAÍZ (fuera de cualquier
-  // grupo recortado de la plantilla), arriba de todo.
+  // Envolvemos el contenido EN SU LUGAR (donde estaba el más alto en z), sin
+  // sacarlo de los grupos de la plantilla. El recorte nuevo es el único clip del
+  // grupo. La máscara se expresa en el espacio de coordenadas de ESE grupo
+  // (matriz relativa g⁻¹·máscara), así queda perfectamente alineada aunque la
+  // plantilla tenga el contenido dentro de grupos escalados.
+  const ref = contenido[contenido.length - 1]
   const g = document.createElementNS(SVGNS, 'g')
   g.setAttribute('data-grupo', '1')
   g.setAttribute('data-recorte', id)
   g.setAttribute('clip-path', `url(#${id})`)
-  svgEl.appendChild(g)
-  contenido.forEach((n, i) => {
-    quitarClipsPropios(n)          // anular clips propios (atributo, style o clase CSS)
-    n.setAttribute('transform', trContenido[i])
+  ref.parentNode!.insertBefore(g, ref.nextSibling)
+  // Matriz de la máscara relativa al espacio del grupo recortado (antes de mover).
+  const gCtm = g.getCTM(), mCtm = (mascara as SVGGraphicsElement).getCTM()
+  if (gCtm && mCtm) {
+    const rel = gCtm.inverse().multiply(mCtm)
+    mascara.setAttribute('transform', `matrix(${rel.a} ${rel.b} ${rel.c} ${rel.d} ${rel.e} ${rel.f})`)
+  }
+  clip.appendChild(mascara)
+  for (const n of contenido) {
+    quitarClipsPropios(n) // anular clips propios (hueco) — el recorte es el único
     g.appendChild(n)
-  })
+  }
   grafSeleccion = [g]
   dibujarSelGraf()
   registrarHistorial(); autoguardar()
-}
-
-// Matriz absoluta del elemento respecto de la raíz del SVG (su CTM), como string
-// transform. Sirve para "hornear" la posición al sacarlo de grupos anidados.
-function matrizAbsoluta(el: SVGElement): string {
-  const m = (el as SVGGraphicsElement).getCTM?.()
-  if (!m) return el.getAttribute('transform') ?? ''
-  return `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`
 }
 
 // Anula cualquier clip-path propio del elemento y sus descendientes (atributo,
