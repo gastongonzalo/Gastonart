@@ -2075,7 +2075,7 @@ function esFormaRecorte(el: SVGElement): boolean {
 // Como en Illustrator: poner la forma encima, seleccionar todo y "Recortar".
 // La máscara es la forma de más arriba; una imagen nunca puede ser la máscara.
 function recortarConMascara(): void {
-  if (!svgEl || grafSeleccion.length < 2) return
+  if (!svgEl || !grafSeleccion.length) return
   // Trabajamos sobre los elementos REALES seleccionados (no sus wrappers de
   // arrastre, que ocultan data-agregado). Orden de documento (z): último = arriba.
   const sel = [...grafSeleccion]
@@ -2141,20 +2141,68 @@ function recortarConMascara(): void {
   g.setAttribute('data-recorte', id)
   g.setAttribute('clip-path', `url(#${id})`)
   ref.parentNode!.insertBefore(g, ref.nextSibling)
-  // Matriz de la máscara relativa al espacio del grupo recortado (antes de mover).
-  const gCtm = g.getCTM(), mCtm = (mascara as SVGGraphicsElement).getCTM()
-  if (gCtm && mCtm) {
-    const rel = gCtm.inverse().multiply(mCtm)
-    mascara.setAttribute('transform', `matrix(${rel.a} ${rel.b} ${rel.c} ${rel.d} ${rel.e} ${rel.f})`)
+  // La región de recorte: muestreamos el CONTORNO de la forma en píxeles de
+  // PANTALLA (getScreenCTM, sin ambigüedades) y lo pasamos al espacio del grupo
+  // recortado. Así queda alineado aunque la plantilla anide y escale todo.
+  const dRecorte = contornoEnEspacioDe(mascaraSel, g)
+  if (dRecorte) {
+    const pth = document.createElementNS(SVGNS, 'path')
+    pth.setAttribute('d', dRecorte)
+    clip.appendChild(pth)
+  } else {
+    clip.appendChild(mascara) // fallback
   }
-  clip.appendChild(mascara)
   for (const n of contenido) {
     quitarClipsPropios(n) // anular clips propios (hueco) — el recorte es el único
     g.appendChild(n)
   }
+  // la forma máscara original (el círculo/figura que dibujaste) ya cumplió su rol
+  if (dRecorte) nodoManip(mascaraSel).remove()
   grafSeleccion = [g]
   dibujarSelGraf()
   registrarHistorial(); autoguardar()
+}
+
+// Devuelve el atributo `d` del contorno de `forma`, expresado en el espacio de
+// usuario de `destino`. Muestrea por pantalla (getScreenCTM) para no depender de
+// los transforms anidados. Sirve para cualquier forma (círculo, polígono, path).
+function contornoEnEspacioDe(forma: SVGElement, destino: SVGElement): string | null {
+  if (!svgEl) return null
+  const geo = (forma.getAttribute('data-foto') == null && (forma as unknown as SVGGeometryElement).getTotalLength)
+    ? (forma as unknown as SVGGeometryElement)
+    : (forma.querySelector('rect,circle,ellipse,path,polygon,polyline,line') as unknown as SVGGeometryElement | null)
+  if (!geo || !geo.getTotalLength) return null
+  let len = 0
+  try { len = geo.getTotalLength() } catch { return null }
+  if (!len) return null
+  const sCtm = (geo as unknown as SVGGraphicsElement).getScreenCTM()
+  const dInv = (destino as unknown as SVGGraphicsElement).getScreenCTM()?.inverse()
+  if (!sCtm || !dInv) return null
+  const n = Math.min(600, Math.max(48, Math.round(len / 3)))
+  const pt = svgEl.createSVGPoint()
+  const partes: string[] = []
+  for (let i = 0; i < n; i++) {
+    let q: DOMPoint
+    try { q = geo.getPointAtLength((i / n) * len) } catch { continue }
+    pt.x = q.x; pt.y = q.y
+    const enPantalla = pt.matrixTransform(sCtm) // local de la forma → pantalla
+    const enDestino = enPantalla.matrixTransform(dInv) // pantalla → espacio del grupo
+    partes.push(`${enDestino.x.toFixed(2)} ${enDestino.y.toFixed(2)}`)
+  }
+  if (partes.length < 3) return null
+  return 'M ' + partes.join(' L ') + ' Z'
+}
+
+// ¿Hay una foto de hueco (con foto cargada) que esta forma tape? Para ofrecer
+// "Recortar foto" cuando la foto es el fondo y no se puede clickear.
+function hayFotoBajo(el: SVGElement): boolean {
+  if (!svgEl) return false
+  const mb = el.getBoundingClientRect()
+  return Array.from(svgEl.querySelectorAll('[data-foto]')).some((im) => {
+    if (!(im.getAttribute('href') || im.getAttribute('xlink:href'))) return false
+    const cb = im.getBoundingClientRect()
+    return cb.width > 1 && !(mb.right <= cb.left || mb.left >= cb.right || mb.bottom <= cb.top || mb.top >= cb.bottom)
+  })
 }
 
 // Anula cualquier clip-path propio del elemento y sus descendientes (atributo,
@@ -2558,6 +2606,12 @@ function dibujarSelGraf(): void {
     const lib = document.createElement('button'); lib.className = 'graf-btn'; lib.textContent = '✂ Quitar recorte'; lib.title = 'Liberar la máscara de recorte (Ctrl+Alt+7)'
     lib.addEventListener('click', (e) => { e.stopPropagation(); liberarRecorte() })
     tools.appendChild(lib)
+  } else if (grafSeleccion[0].getAttribute('data-agregado') != null && esFormaRecorte(grafSeleccion[0]) && hayFotoBajo(grafSeleccion[0])) {
+    // Una forma tuya sobre la foto de fondo (que no se puede clickear): recortar
+    // la foto con esta forma directamente, sin tener que seleccionar la foto.
+    const rec = document.createElement('button'); rec.className = 'graf-btn'; rec.textContent = '✂ Recortar foto'; rec.title = 'Recortar la foto del fondo con esta forma (Ctrl+7)'
+    rec.addEventListener('click', (e) => { e.stopPropagation(); recortarConMascara() })
+    tools.appendChild(rec)
   } else if (grafSeleccion[0].tagName.toLowerCase() === 'g') {
     const ung = document.createElement('button'); ung.className = 'graf-btn'; ung.textContent = 'Desagrupar'; ung.title = 'Desagrupar (Ctrl+Shift+G)'
     ung.addEventListener('click', (e) => { e.stopPropagation(); desagruparSel() })
