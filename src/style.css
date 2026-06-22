@@ -749,6 +749,33 @@ body {
   font-size: 12px;
 }
 .graf-opac input[type='range'] { width: 64px; cursor: pointer; }
+.graf-grad { width: 26px; padding: 0; font-size: 14px; line-height: 1; }
+
+/* Panel de degradado */
+.grad-panel {
+  position: absolute;
+  z-index: 9;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  background: rgba(11, 16, 24, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.grad-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; color: var(--text); font-size: 12px; font-weight: 600; }
+.grad-cerrar { width: 22px; height: 22px; border: 0; border-radius: 4px; background: #e11d48; color: #fff; cursor: pointer; }
+.grad-stops { display: flex; flex-direction: column; gap: 5px; }
+.grad-fila { display: flex; align-items: center; gap: 6px; }
+.grad-fila input[type='color'] { width: 28px; height: 24px; padding: 1px; border: 1px solid #06121c; border-radius: 4px; background: #131a26; cursor: pointer; }
+.grad-fila input[type='range'] { width: 110px; }
+.grad-del-stop { width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 4px; background: #0b1018; color: var(--text); cursor: pointer; }
+.grad-add { padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; background: #0b1018; color: var(--text); font-size: 11px; cursor: pointer; }
+.grad-ang { color: var(--text); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.grad-ang input[type='range'] { flex: 1; }
 .graf-marquee {
   position: absolute;
   z-index: 8;

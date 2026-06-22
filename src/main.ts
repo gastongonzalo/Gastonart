@@ -1802,7 +1802,7 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
 }
 
@@ -2180,6 +2180,106 @@ function reordenarSel(modo: 'arriba' | 'abajo' | 'tope' | 'fondo'): void {
   dibujarSelGraf(); registrarHistorial(); autoguardar()
 }
 
+// --- Degradados de relleno -------------------------------------------------
+interface ParadaGrad { color: string; pos: number } // pos 0..100
+
+// id del gradiente si el fill del elemento es url(#...).
+function gradIdDe(el: SVGElement): string | null {
+  const f = el.style.fill || el.getAttribute('fill') || ''
+  const m = f.match(/url\(["']?#([^"')]+)/)
+  return m ? m[1] : null
+}
+
+// Lee el degradé actual del elemento, o uno por defecto desde su color sólido.
+function leerDegradado(el: SVGElement): { stops: ParadaGrad[]; angulo: number } {
+  const id = gradIdDe(el)
+  const g = id ? svgEl?.querySelector(`linearGradient[id="${id}"]`) : null
+  if (g) {
+    const stops = Array.from(g.querySelectorAll('stop')).map((s) => ({
+      color: aHex(s.getAttribute('stop-color') || '#000000'),
+      pos: Math.round(parseFloat(s.getAttribute('offset') || '0') * 100),
+    }))
+    const x1 = +(g.getAttribute('x1') ?? 0), y1 = +(g.getAttribute('y1') ?? 0)
+    const x2 = +(g.getAttribute('x2') ?? 1), y2 = +(g.getAttribute('y2') ?? 0)
+    const ang = Math.round((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI)
+    if (stops.length >= 2) return { stops, angulo: (ang + 360) % 360 }
+  }
+  const c = getComputedStyle(el).fill
+  const hex = c && c !== 'none' ? aHex(c) : '#38bdf8'
+  return { stops: [{ color: hex, pos: 0 }, { color: '#ffffff', pos: 100 }], angulo: 0 }
+}
+
+// Crea/actualiza un linearGradient en defs y lo aplica como fill a los elementos.
+function aplicarDegradado(els: SVGElement[], stops: ParadaGrad[], angulo: number): void {
+  if (!svgEl || !els.length) return
+  let defs = svgEl.querySelector('defs')
+  if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
+  let id = gradIdDe(els[0])
+  let grad = id ? svgEl.querySelector(`linearGradient[id="${id}"]`) : null
+  if (!grad) {
+    contadorAgregados++; id = 'grad-' + contadorAgregados
+    grad = document.createElementNS(SVGNS, 'linearGradient')
+    grad.setAttribute('id', id)
+    defs.appendChild(grad)
+  }
+  const t = (angulo * Math.PI) / 180
+  grad.setAttribute('x1', (0.5 - Math.cos(t) / 2).toFixed(4))
+  grad.setAttribute('y1', (0.5 - Math.sin(t) / 2).toFixed(4))
+  grad.setAttribute('x2', (0.5 + Math.cos(t) / 2).toFixed(4))
+  grad.setAttribute('y2', (0.5 + Math.sin(t) / 2).toFixed(4))
+  while (grad.firstChild) grad.removeChild(grad.firstChild)
+  const ordenadas = [...stops].sort((a, b) => a.pos - b.pos)
+  for (const s of ordenadas) {
+    const st = document.createElementNS(SVGNS, 'stop')
+    st.setAttribute('offset', String(s.pos / 100))
+    st.setAttribute('stop-color', s.color)
+    grad.appendChild(st)
+  }
+  for (const el of els) el.style.fill = `url(#${id})`
+}
+
+// Panel flotante para editar el degradé de la selección.
+function abrirPanelDegradado(els: SVGElement[]): void {
+  lienzo.querySelectorAll('.grad-panel').forEach((n) => n.remove())
+  const estado0 = leerDegradado(els[0])
+  let stops = estado0.stops
+  let angulo = estado0.angulo
+  const panel = document.createElement('div')
+  panel.className = 'grad-panel'
+  panel.addEventListener('pointerdown', (e) => e.stopPropagation())
+  const aplicar = () => aplicarDegradado(els, stops, angulo)
+  const render = () => {
+    panel.innerHTML = '<div class="grad-head">Degradado <button class="grad-cerrar">✕</button></div>'
+    const lista = document.createElement('div'); lista.className = 'grad-stops'
+    stops.forEach((s, i) => {
+      const fila = document.createElement('div'); fila.className = 'grad-fila'
+      const col = document.createElement('input'); col.type = 'color'; col.value = s.color
+      col.addEventListener('input', () => { stops[i].color = col.value; aplicar() })
+      const pos = document.createElement('input'); pos.type = 'range'; pos.min = '0'; pos.max = '100'; pos.value = String(s.pos)
+      pos.addEventListener('input', () => { stops[i].pos = +pos.value; aplicar() })
+      fila.append(col, pos)
+      if (stops.length > 2) {
+        const del = document.createElement('button'); del.className = 'grad-del-stop'; del.textContent = '−'
+        del.addEventListener('click', () => { stops.splice(i, 1); aplicar(); render() })
+        fila.append(del)
+      }
+      lista.append(fila)
+    })
+    panel.append(lista)
+    const add = document.createElement('button'); add.className = 'grad-add'; add.textContent = '+ color'
+    add.addEventListener('click', () => { stops.push({ color: '#000000', pos: 100 }); aplicar(); render() })
+    const angLab = document.createElement('label'); angLab.className = 'grad-ang'; angLab.textContent = 'Ángulo '
+    const ang = document.createElement('input'); ang.type = 'range'; ang.min = '0'; ang.max = '360'; ang.value = String(angulo)
+    ang.addEventListener('input', () => { angulo = +ang.value; aplicar() })
+    angLab.append(ang)
+    panel.append(add, angLab)
+    panel.querySelector('.grad-cerrar')!.addEventListener('click', () => { registrarHistorial(); autoguardar(); panel.remove() })
+  }
+  render()
+  lienzo.append(panel)
+  aplicar()
+}
+
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
 function dibujarSelGraf(): void {
   limpiarGraf()
@@ -2231,6 +2331,11 @@ function dibujarSelGraf(): void {
   oi.addEventListener('pointerdown', (e) => e.stopPropagation())
   opac.append('◑', oi)
   tools.append(opac)
+
+  // Degradado de relleno
+  const grad = document.createElement('button'); grad.className = 'graf-btn graf-grad'; grad.textContent = '▦'; grad.title = 'Degradado de relleno'
+  grad.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelDegradado([...grafSeleccion]) })
+  tools.append(grad)
 
   if (multi) {
     const grp = document.createElement('button'); grp.className = 'graf-btn'; grp.textContent = 'Agrupar'; grp.title = 'Agrupar (Ctrl+G)'
