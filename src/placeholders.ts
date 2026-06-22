@@ -181,6 +181,10 @@ export function aplicarFotoDom(
 
   img.setAttribute('width', String(foto.w))
   img.setAttribute('height', String(foto.h))
+  // La posición la fija el transform; anulamos x/y para que no se sumen al
+  // translate (si la plantilla traía x="…" y="…", se duplicaba la posición).
+  img.setAttribute('x', '0')
+  img.setAttribute('y', '0')
   img.setAttribute('transform', `translate(${nx} ${ny}) scale(${scale})`)
   img.setAttribute('href', foto.dataUrl)
   img.setAttributeNS(XLINK, 'xlink:href', foto.dataUrl)

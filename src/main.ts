@@ -2104,10 +2104,27 @@ function recortarConMascara(): void {
   g.setAttribute('data-recorte', id)
   g.setAttribute('clip-path', `url(#${id})`)
   ref.parentNode!.insertBefore(g, ref.nextSibling)
-  for (const n of contenido) g.appendChild(n)
+  for (const n of contenido) {
+    // Si el contenido ya tenía un clip propio (p. ej. el hueco de una foto de
+    // plantilla), lo quitamos: el recorte nuevo pasa a ser la ÚNICA máscara. Un
+    // doble clip desalinea y oculta casi todo.
+    quitarClipsPropios(n)
+    g.appendChild(n)
+  }
   grafSeleccion = [g]
   dibujarSelGraf()
   registrarHistorial(); autoguardar()
+}
+
+// Quita cualquier clip-path propio del elemento y sus descendientes (atributo o
+// inline style), para que solo aplique el recorte nuevo.
+function quitarClipsPropios(raiz: SVGElement): void {
+  const els: Element[] = [raiz, ...Array.from(raiz.querySelectorAll('*'))]
+  for (const el of els) {
+    if (el.getAttribute('clip-path')) el.removeAttribute('clip-path')
+    const he = el as HTMLElement & SVGElement
+    if (he.style && he.style.clipPath) he.style.clipPath = ''
+  }
 }
 
 // Libera un recorte: devuelve el contenido y la forma máscara al lienzo.
