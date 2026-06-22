@@ -2519,15 +2519,29 @@ function crearTiradorEscala(r: Rect, el: SVGElement, eje: 'x' | 'y' | 'xy' = 'xy
     const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
     const tx = tm ? +tm[1] : 0, ty = tm ? +tm[2] : 0
     const s0 = leerScale(tr)
-    let sx = s0.sx, sy = s0.sy
+    const sx0 = s0.sx, sy0 = s0.sy
     let baseW = 100, baseH = 100
     try { const bb = (el as SVGGraphicsElement).getBBox(); baseW = bb.width || 100; baseH = bb.height || 100 } catch { /* default */ }
-    let px = e.clientX, py = e.clientY
+    const hx0 = parseFloat(h.style.left), hy0 = parseFloat(h.style.top)
+    const startX = e.clientX, startY = e.clientY
     const onMove = (ev: PointerEvent) => {
-      const dxs = ev.clientX - px, dys = ev.clientY - py; px = ev.clientX; py = ev.clientY
-      if (eje !== 'y') { sx = Math.max(0.08, sx + dxs / (baseW * k)); h.style.left = parseFloat(h.style.left) + dxs + 'px' }
-      if (eje !== 'x') { sy = Math.max(0.08, sy + dys / (baseH * k)); h.style.top = parseFloat(h.style.top) + dys + 'px' }
+      const accX = ev.clientX - startX, accY = ev.clientY - startY
+      // La esquina (xy) es proporcional; Shift fuerza proporción en cualquier tirador.
+      const prop = eje === 'xy' || ev.shiftKey
+      let sx = sx0, sy = sy0
+      if (prop) {
+        // factor desde el lado que arrastra (xy/x → ancho; y → alto)
+        const denom = eje === 'y' ? Math.max(baseH * sy0 * k, 1) : Math.max(baseW * sx0 * k, 1)
+        const delta = eje === 'y' ? accY : accX
+        const f = Math.max(0.04, 1 + delta / denom)
+        sx = Math.max(0.04, sx0 * f); sy = Math.max(0.04, sy0 * f)
+      } else {
+        if (eje !== 'y') sx = Math.max(0.04, sx0 + accX / (baseW * k))
+        if (eje !== 'x') sy = Math.max(0.04, sy0 + accY / (baseH * k))
+      }
       el.setAttribute('transform', `translate(${tx} ${ty}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
+      h.style.left = hx0 + (sx - sx0) * baseW * k + 'px'
+      h.style.top = hy0 + (sy - sy0) * baseH * k + 'px'
     }
     const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
     try { h.setPointerCapture(e.pointerId) } catch { /* igual escala */ }
