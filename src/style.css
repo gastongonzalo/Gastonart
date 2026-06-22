@@ -813,6 +813,24 @@ body {
   background: #0b1018; color: var(--text); font-size: 12px; cursor: pointer; white-space: nowrap;
 }
 .mas-btn:hover { border-color: var(--accent); }
+
+/* Barra de reencuadre de foto dentro del recorte */
+.reframe-bar {
+  position: absolute; z-index: 10; left: 8px; top: 8px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 11px;
+  background: rgba(11, 16, 24, 0.96);
+  border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.reframe-bar input[type='range'] { width: 120px; cursor: pointer; }
+.reframe-ok {
+  padding: 4px 12px; border: 0; border-radius: 5px;
+  background: var(--accent); color: #06121c; font-weight: 600; cursor: pointer;
+}
+#lienzo.reencuadrando svg { cursor: grab; }
+#lienzo.reencuadrando svg:active { cursor: grabbing; }
 .graf-marquee {
   position: absolute;
   z-index: 8;

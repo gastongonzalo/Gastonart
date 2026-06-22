@@ -1806,6 +1806,7 @@ function desactivarGrafico(): void {
 
 function grafKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
+    if (reframeG) { salirReencuadre(); return }
     if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() } else desactivarGrafico()
   } else if ((e.key === 'Delete' || e.key === 'Backspace') && grafSeleccion.length) {
     e.preventDefault(); borrarGraf()
@@ -1843,6 +1844,7 @@ function wrapperGraf(el: SVGElement): SVGGElement {
 
 function grafPointerDown(e: PointerEvent): void {
   if (!svgEl) return
+  if (reframeG) { iniciarPanReencuadre(e); return } // en reencuadre, arrastrar = mover la foto
   const el = graficoSeleccionable(e.target as Element)
   const aditivo = e.ctrlKey || e.metaKey
   if (!el) {
@@ -2208,6 +2210,127 @@ function hayFotoBajo(el: SVGElement): boolean {
     const cb = im.getBoundingClientRect()
     return cb.width > 1 && !(mb.right <= cb.left || mb.left >= cb.right || mb.bottom <= cb.top || mb.top >= cb.bottom)
   })
+}
+
+// --- Reencuadre: mover/zoomear la foto DENTRO del recorte, con el marco fijo ----
+let reframeG: SVGElement | null = null
+let reframeWrap: SVGGElement | null = null
+let reframeClipAttr = ''
+let reframeOutline: SVGPathElement | null = null
+let reframePan = { x: 0, y: 0 }
+let reframeZoom = 1
+let reframeCen = { x: 0, y: 0 }
+let reframeUnidad = 1 // unidades de usuario del grupo por píxel de pantalla
+
+// Centro (bbox) a partir del atributo d de un path (números en pares x,y).
+function bboxDeD(d: string): { x: number; y: number } {
+  const nums = (d.match(/-?\d+\.?\d*/g) || []).map(Number)
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    minX = Math.min(minX, nums[i]); maxX = Math.max(maxX, nums[i])
+    minY = Math.min(minY, nums[i + 1]); maxY = Math.max(maxY, nums[i + 1])
+  }
+  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+}
+
+function entrarReencuadre(g: SVGElement): void {
+  if (!svgEl) return
+  const foto = g.querySelector('[data-foto], image') as SVGElement | null
+  if (!foto) return
+  reframeG = g
+  reframePan = { x: 0, y: 0 }; reframeZoom = 1
+  // wrapper de reencuadre alrededor de la foto (dentro del grupo recortado)
+  const fp = foto.parentElement as Element | null
+  if (fp && fp !== (g as unknown as Element) && fp.classList.contains('reframe-wrap')) {
+    reframeWrap = fp as unknown as SVGGElement
+  } else {
+    reframeWrap = document.createElementNS(SVGNS, 'g')
+    reframeWrap.setAttribute('class', 'reframe-wrap')
+    fp!.insertBefore(reframeWrap, foto)
+    reframeWrap.appendChild(foto)
+  }
+  reframeWrap.style.opacity = '0.5' // foto completa atenuada para ver el contexto
+  reframeClipAttr = g.getAttribute('clip-path') || ''
+  g.removeAttribute('clip-path') // mostrar la foto completa mientras reencuadrás
+  reframeUnidad = 1 / (((g as SVGGraphicsElement).getScreenCTM()?.a) || 1)
+  const clipId = (reframeClipAttr.match(/#([^)"']+)/) || [])[1]
+  const formaClip = clipId ? svgEl.querySelector(`clipPath[id="${clipId}"] > *`) : null
+  const d = formaClip?.getAttribute('d') || ''
+  reframeCen = d ? bboxDeD(d) : { x: 0, y: 0 }
+  if (d) {
+    reframeOutline = document.createElementNS(SVGNS, 'path')
+    reframeOutline.setAttribute('d', d)
+    reframeOutline.setAttribute('fill', 'none')
+    reframeOutline.setAttribute('stroke', '#ff2d78')
+    reframeOutline.setAttribute('stroke-width', String(2 * reframeUnidad))
+    reframeOutline.setAttribute('stroke-dasharray', `${6 * reframeUnidad} ${4 * reframeUnidad}`)
+    reframeOutline.setAttribute('pointer-events', 'none')
+    g.appendChild(reframeOutline)
+  }
+  lienzo.classList.add('reencuadrando')
+  limpiarGraf()
+  svgEl.addEventListener('wheel', wheelReencuadre, { passive: false })
+  dibujarBarraReencuadre()
+}
+
+function aplicarReencuadre(): void {
+  if (!reframeWrap) return
+  const { x: cx, y: cy } = reframeCen
+  reframeWrap.setAttribute('transform',
+    `translate(${reframePan.x} ${reframePan.y}) translate(${cx} ${cy}) scale(${reframeZoom}) translate(${-cx} ${-cy})`)
+}
+
+function salirReencuadre(): void {
+  if (!reframeG || !svgEl) return
+  if (reframeClipAttr) reframeG.setAttribute('clip-path', reframeClipAttr)
+  if (reframeWrap) reframeWrap.style.opacity = ''
+  reframeOutline?.remove(); reframeOutline = null
+  lienzo.classList.remove('reencuadrando')
+  svgEl.removeEventListener('wheel', wheelReencuadre)
+  lienzo.querySelectorAll('.reframe-bar').forEach((n) => n.remove())
+  const g = reframeG
+  reframeG = null; reframeWrap = null
+  grafSeleccion = [g]
+  dibujarSelGraf()
+  registrarHistorial(); autoguardar()
+}
+
+function wheelReencuadre(e: WheelEvent): void {
+  e.preventDefault()
+  reframeZoom = Math.max(0.1, reframeZoom * (e.deltaY < 0 ? 1.08 : 0.92))
+  aplicarReencuadre()
+  const s = lienzo.querySelector<HTMLInputElement>('.reframe-bar input')
+  if (s) s.value = String(reframeZoom)
+}
+
+function iniciarPanReencuadre(e: PointerEvent): void {
+  if (!svgEl) return
+  e.preventDefault()
+  let sx = e.clientX, sy = e.clientY
+  const onMove = (ev: PointerEvent) => {
+    reframePan.x += (ev.clientX - sx) * reframeUnidad
+    reframePan.y += (ev.clientY - sy) * reframeUnidad
+    sx = ev.clientX; sy = ev.clientY
+    aplicarReencuadre()
+  }
+  const onUp = () => svgEl!.removeEventListener('pointermove', onMove)
+  try { svgEl.setPointerCapture(e.pointerId) } catch { /* igual */ }
+  svgEl.addEventListener('pointermove', onMove)
+  svgEl.addEventListener('pointerup', onUp, { once: true })
+  svgEl.addEventListener('pointercancel', onUp, { once: true })
+}
+
+function dibujarBarraReencuadre(): void {
+  lienzo.querySelectorAll('.reframe-bar').forEach((n) => n.remove())
+  const bar = document.createElement('div'); bar.className = 'reframe-bar'
+  bar.addEventListener('pointerdown', (e) => e.stopPropagation())
+  const txt = document.createElement('span'); txt.textContent = 'Reencuadrar · arrastrá, rueda = zoom'
+  const z = document.createElement('input'); z.type = 'range'; z.min = '0.2'; z.max = '4'; z.step = '0.01'; z.value = String(reframeZoom)
+  z.addEventListener('input', () => { reframeZoom = parseFloat(z.value); aplicarReencuadre() })
+  const ok = document.createElement('button'); ok.textContent = 'Listo'; ok.className = 'reframe-ok'
+  ok.addEventListener('click', (e) => { e.stopPropagation(); salirReencuadre() })
+  bar.append(txt, z, ok)
+  lienzo.append(bar)
 }
 
 // Anula cualquier clip-path propio del elemento y sus descendientes (atributo,
@@ -2634,6 +2757,12 @@ function dibujarSelGraf(): void {
     rec.addEventListener('click', (e) => { e.stopPropagation(); recortarConMascara() })
     tools.appendChild(rec)
   } else if (grupoRecorteDe(grafSeleccion[0])) {
+    const rg = grupoRecorteDe(grafSeleccion[0])!
+    if (rg.querySelector('[data-foto], image')) {
+      const ref = document.createElement('button'); ref.className = 'graf-btn'; ref.textContent = '⤢ Reencuadrar'; ref.title = 'Mover/zoomear la foto dentro del recorte (marco fijo)'
+      ref.addEventListener('click', (e) => { e.stopPropagation(); entrarReencuadre(rg) })
+      tools.appendChild(ref)
+    }
     const lib = document.createElement('button'); lib.className = 'graf-btn'; lib.textContent = '✂ Quitar recorte'; lib.title = 'Liberar la máscara de recorte (Ctrl+Alt+7)'
     lib.addEventListener('click', (e) => { e.stopPropagation(); liberarRecorte() })
     tools.appendChild(lib)
