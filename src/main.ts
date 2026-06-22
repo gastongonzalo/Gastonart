@@ -19,6 +19,7 @@ import {
   type FontFace,
 } from './font'
 import { renderResvg } from './render-resvg'
+import polygonClipping from 'polygon-clipping'
 
 // ---------------------------------------------------------------
 //  Assets
@@ -1802,7 +1803,7 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel, .bt-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
 }
 
@@ -2358,6 +2359,90 @@ function abrirPanelAlinear(): void {
   lienzo.append(panel)
 }
 
+// --- Buscatrazos (operaciones booleanas de formas) -------------------------
+// Aplana una forma a un polígono (anillo) en coords de usuario del SVG, muestreando
+// su contorno y aplicando su matriz (CTM) para respetar transform/escala.
+function elementoAGeom(el: SVGGraphicsElement): number[][][] {
+  const geo = el as unknown as SVGGeometryElement
+  let len = 0
+  try { len = geo.getTotalLength() } catch { return [] }
+  if (!len) return []
+  const ctm = el.getCTM()
+  const n = Math.min(800, Math.max(48, Math.round(len / 3)))
+  const pt = svgEl!.createSVGPoint()
+  const ring: number[][] = []
+  for (let i = 0; i < n; i++) {
+    let q: DOMPoint
+    try { q = geo.getPointAtLength((i / n) * len) } catch { continue }
+    pt.x = q.x; pt.y = q.y
+    const r = ctm ? pt.matrixTransform(ctm) : pt
+    ring.push([r.x, r.y])
+  }
+  if (ring.length < 3) return []
+  ring.push([...ring[0]])
+  return [ring] // un Polygon = [anillo]
+}
+
+// MultiPolygon de polygon-clipping → atributo d (con fill-rule evenodd).
+function multiPolygonAPath(mp: number[][][][]): string {
+  let d = ''
+  for (const poly of mp) for (const ring of poly) {
+    if (ring.length < 3) continue
+    d += 'M ' + ring.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(' L ') + ' Z '
+  }
+  return d.trim()
+}
+
+type OpBool = 'unir' | 'restar' | 'intersecar' | 'excluir'
+// Combina las formas seleccionadas en un único path (unión/resta/intersección/exclusión).
+function buscatrazos(op: OpBool): void {
+  if (!svgEl || grafSeleccion.length < 2) return
+  const nodos = [...grafSeleccion]
+  nodos.sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1)) // fondo→tope
+  const geoms = nodos.map((n) => elementoAGeom(n as SVGGraphicsElement)).filter((g) => g.length)
+  if (geoms.length < 2) { estado.textContent = 'No se pudieron convertir las formas (¿son cerradas?).'; return }
+  const pc = polygonClipping as unknown as Record<string, (...a: unknown[]) => number[][][][]>
+  const fn = ({ unir: pc.union, restar: pc.difference, intersecar: pc.intersection, excluir: pc.xor })[op]
+  let res: number[][][][]
+  try { res = fn(geoms[0], ...geoms.slice(1)) } catch { estado.textContent = 'No se pudo combinar las formas.'; return }
+  const d = multiPolygonAPath(res)
+  if (!d) { estado.textContent = 'El resultado quedó vacío.'; return }
+  const path = document.createElementNS(SVGNS, 'path')
+  path.setAttribute('d', d)
+  path.setAttribute('fill-rule', 'evenodd')
+  const ref = nodos[0] // estilo del de más abajo
+  const fill = ref.style.fill || ref.getAttribute('fill') || '#38bdf8'
+  path.style.fill = fill
+  const stroke = ref.style.stroke || ref.getAttribute('stroke')
+  if (stroke && stroke !== 'none') { path.setAttribute('stroke', stroke); path.setAttribute('stroke-width', ref.getAttribute('stroke-width') || '2'); path.setAttribute('stroke-linejoin', 'round') }
+  path.setAttribute('data-agregado', 'figura')
+  path.setAttribute('data-colormode', 'fill')
+  const top = nodoManip(nodos[nodos.length - 1])
+  top.parentNode!.insertBefore(path, top.nextSibling)
+  for (const n of nodos) nodoManip(n).remove()
+  grafSeleccion = [path]
+  dibujarSelGraf(); registrarHistorial(); autoguardar()
+}
+
+// Popover con las operaciones de buscatrazos.
+function abrirPanelBuscatrazos(): void {
+  lienzo.querySelectorAll('.bt-panel').forEach((n) => n.remove())
+  const panel = document.createElement('div')
+  panel.className = 'alinear-panel bt-panel'
+  panel.addEventListener('pointerdown', (e) => e.stopPropagation())
+  const ops: [string, OpBool][] = [['Unir', 'unir'], ['Restar', 'restar'], ['Intersecar', 'intersecar'], ['Excluir', 'excluir']]
+  panel.innerHTML = '<div class="alinear-head">Buscatrazos <button class="alinear-cerrar">✕</button></div>'
+  const grid = document.createElement('div'); grid.className = 'bt-grid'
+  for (const [txt, op] of ops) {
+    const b = document.createElement('button'); b.textContent = txt
+    b.addEventListener('click', (e) => { e.stopPropagation(); buscatrazos(op) })
+    grid.append(b)
+  }
+  panel.append(grid)
+  panel.querySelector('.alinear-cerrar')!.addEventListener('click', () => panel.remove())
+  lienzo.append(panel)
+}
+
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
 function dibujarSelGraf(): void {
   limpiarGraf()
@@ -2425,6 +2510,9 @@ function dibujarSelGraf(): void {
     const ali = document.createElement('button'); ali.className = 'graf-btn'; ali.textContent = '⊟ Alinear'; ali.title = 'Alinear / distribuir (respecto del primero seleccionado)'
     ali.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelAlinear() })
     tools.appendChild(ali)
+    const bt = document.createElement('button'); bt.className = 'graf-btn'; bt.textContent = '◳ Buscatrazos'; bt.title = 'Combinar formas: unir / restar / intersecar / excluir'
+    bt.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelBuscatrazos() })
+    tools.appendChild(bt)
   } else if (grupoRecorteDe(grafSeleccion[0])) {
     const lib = document.createElement('button'); lib.className = 'graf-btn'; lib.textContent = '✂ Quitar recorte'; lib.title = 'Liberar la máscara de recorte (Ctrl+Alt+7)'
     lib.addEventListener('click', (e) => { e.stopPropagation(); liberarRecorte() })

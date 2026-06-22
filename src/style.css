@@ -798,6 +798,13 @@ body {
   background: #0b1018; color: var(--text); font-size: 16px; cursor: pointer;
 }
 .alinear-grid button:hover { border-color: var(--accent); }
+.bt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+.bt-grid button {
+  padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: #0b1018; color: var(--text); font-size: 12px; cursor: pointer;
+}
+.bt-grid button:hover { border-color: var(--accent); }
 .graf-marquee {
   position: absolute;
   z-index: 8;
