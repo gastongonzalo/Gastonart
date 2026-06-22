@@ -2221,6 +2221,17 @@ function dibujarSelGraf(): void {
   stroke.appendChild(si)
   tools.append(fill, stroke)
 
+  // Opacidad (0 = transparente, 1 = sólido). Aplica a toda la selección.
+  const opac = document.createElement('label'); opac.className = 'graf-opac'; opac.title = 'Opacidad'
+  const oi = document.createElement('input'); oi.type = 'range'; oi.min = '0'; oi.max = '1'; oi.step = '0.01'
+  const op0 = parseFloat(getComputedStyle(grafSeleccion[0]).opacity || '1')
+  oi.value = String(isNaN(op0) ? 1 : op0)
+  oi.addEventListener('input', () => { for (const el of grafSeleccion) el.style.opacity = oi.value })
+  oi.addEventListener('change', () => { registrarHistorial(); autoguardar() })
+  oi.addEventListener('pointerdown', (e) => e.stopPropagation())
+  opac.append('◑', oi)
+  tools.append(opac)
+
   if (multi) {
     const grp = document.createElement('button'); grp.className = 'graf-btn'; grp.textContent = 'Agrupar'; grp.title = 'Agrupar (Ctrl+G)'
     grp.addEventListener('click', (e) => { e.stopPropagation(); agruparSel() })
@@ -2834,11 +2845,14 @@ function construirFotoTools(id: string, r: Rect): void {
   const tools = document.createElement('div')
   tools.className = 'foto-tools'
   Object.assign(tools.style, { right: 'auto', left: r.left + 8 + 'px', top: r.top + 8 + 'px' })
+  const imgFoto = svgEl?.querySelector(`[data-foto="${id}"]`)
+  const op0 = imgFoto?.getAttribute('opacity') ?? '1'
   tools.innerHTML =
     `<button class="ft-cambiar mini">Cambiar foto</button>` +
-    `<label class="ft-zoom">Zoom <input type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label>`
+    `<label class="ft-zoom">Zoom <input class="ft-in-zoom" type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label>` +
+    `<label class="ft-zoom" title="Opacidad">Opac. <input class="ft-in-opac" type="range" min="0" max="1" step="0.01" value="${op0}"></label>`
   tools.querySelector('.ft-cambiar')!.addEventListener('click', () => { fotoActiva = id; inFoto.click() })
-  const slider = tools.querySelector('input')!
+  const slider = tools.querySelector<HTMLInputElement>('.ft-in-zoom')!
   slider.addEventListener('input', () => {
     const foto = fotos[id], fr = framesFoto[id]
     if (!foto || !fr || !svgEl) return
@@ -2846,6 +2860,9 @@ function construirFotoTools(id: string, r: Rect): void {
     const c = aplicarFotoDom(svgEl, id, foto, fr, enc)
     enc.ox = c.ox; enc.oy = c.oy
   })
+  const opac = tools.querySelector<HTMLInputElement>('.ft-in-opac')!
+  opac.addEventListener('input', () => { imgFoto?.setAttribute('opacity', opac.value) })
+  opac.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   zoomSlider = slider
   lienzo.appendChild(tools)
 }

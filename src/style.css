@@ -740,6 +740,15 @@ body {
   font-size: 14px;
   line-height: 1;
 }
+/* Slider de opacidad en la barra de selección. */
+.graf-opac {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  font-size: 12px;
+}
+.graf-opac input[type='range'] { width: 64px; cursor: pointer; }
 .graf-marquee {
   position: absolute;
   z-index: 8;
