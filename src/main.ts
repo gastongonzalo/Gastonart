@@ -3141,6 +3141,22 @@ function construirOverlays(): void {
   // Fotos primero (quedan DEBAJO de los textos). Una por cada hueco de la plantilla.
   for (const img of Array.from(svgEl.querySelectorAll('[data-foto]'))) {
     const id = img.getAttribute('data-foto')!
+    // Foto YA recortada: en modo normal se mueve/elimina el RECORTE COMPLETO (no se
+    // reencuadra). El reencuadre se hace con el botón "Reencuadrar" en modo Gráficos.
+    const rec = img.closest('[data-recorte]') as SVGElement | null
+    if (rec) {
+      const rr = rectUnion([rec], base)
+      if (!rr) continue
+      const hit = crearHit(rr, 'recorte', () => {})
+      hit.classList.add('hit-agregado')
+      hit.title = 'Arrastrá para mover el recorte (para reencuadrar: Gráficos → Reencuadrar)'
+      habilitarArrastreEl(hit, rec)
+      lienzo.appendChild(hit)
+      const del = crearBotonEliminar(rr, () => { rec.remove(); construirOverlays() })
+      lienzo.appendChild(del)
+      revelarAlHover(hit, [del])
+      continue
+    }
     const r = rectFotoVisible(img, base)
     if (!r) continue
     const tieneFoto = !!fotos[id]
