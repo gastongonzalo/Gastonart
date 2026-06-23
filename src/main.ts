@@ -1820,7 +1820,7 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel, .bt-panel, .mas-panel').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
 }
 
@@ -2178,6 +2178,26 @@ function recortarConMascara(): void {
   registrarHistorial(); autoguardar()
 }
 
+// Muestrea el contorno de una forma como lista de puntos [x,y], aplicando
+// `transformar` a cada punto local. [] si no tiene longitud. Base común del
+// recorte (contornoEnEspacioDe) y del buscatrazos (elementoAGeom).
+function muestrearContorno(geo: SVGGeometryElement, transformar: (p: DOMPoint) => { x: number; y: number }): number[][] {
+  let len = 0
+  try { len = geo.getTotalLength() } catch { return [] }
+  if (!len) return []
+  const n = Math.min(800, Math.max(48, Math.round(len / 3)))
+  const pt = svgEl!.createSVGPoint()
+  const pts: number[][] = []
+  for (let i = 0; i < n; i++) {
+    let q: DOMPoint
+    try { q = geo.getPointAtLength((i / n) * len) } catch { continue }
+    pt.x = q.x; pt.y = q.y
+    const r = transformar(pt)
+    pts.push([r.x, r.y])
+  }
+  return pts
+}
+
 // Devuelve el atributo `d` del contorno de `forma`, expresado en el espacio de
 // usuario de `destino`. Muestrea por pantalla (getScreenCTM) para no depender de
 // los transforms anidados. Sirve para cualquier forma (círculo, polígono, path).
@@ -2187,24 +2207,12 @@ function contornoEnEspacioDe(forma: SVGElement, destino: SVGElement): string | n
     ? (forma as unknown as SVGGeometryElement)
     : (forma.querySelector('rect,circle,ellipse,path,polygon,polyline,line') as unknown as SVGGeometryElement | null)
   if (!geo || !geo.getTotalLength) return null
-  let len = 0
-  try { len = geo.getTotalLength() } catch { return null }
-  if (!len) return null
   const sCtm = (geo as unknown as SVGGraphicsElement).getScreenCTM()
   const dInv = (destino as unknown as SVGGraphicsElement).getScreenCTM()?.inverse()
   if (!sCtm || !dInv) return null
-  const n = Math.min(600, Math.max(48, Math.round(len / 3)))
-  const pt = svgEl.createSVGPoint()
-  const partes: string[] = []
-  for (let i = 0; i < n; i++) {
-    let q: DOMPoint
-    try { q = geo.getPointAtLength((i / n) * len) } catch { continue }
-    pt.x = q.x; pt.y = q.y
-    const enPantalla = pt.matrixTransform(sCtm) // local de la forma → pantalla
-    const enDestino = enPantalla.matrixTransform(dInv) // pantalla → espacio del grupo
-    partes.push(`${enDestino.x.toFixed(2)} ${enDestino.y.toFixed(2)}`)
-  }
-  if (partes.length < 3) return null
+  const pts = muestrearContorno(geo, (p) => p.matrixTransform(sCtm).matrixTransform(dInv))
+  if (pts.length < 3) return null
+  const partes = pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`)
   return 'M ' + partes.join(' L ') + ' Z'
 }
 
@@ -2563,12 +2571,22 @@ function distribuir(eje: 'h' | 'v'): void {
   dibujarSelGraf(); registrarHistorial(); autoguardar()
 }
 
-// Popover con los botones de alinear/distribuir.
-function abrirPanelAlinear(): void {
+// Crea un popover flotante (cierra los otros), con cabecera + botón ✕. Devuelve el
+// panel para que el llamador le agregue el cuerpo.
+function crearPopover(titulo: string): HTMLDivElement {
   lienzo.querySelectorAll('.alinear-panel').forEach((n) => n.remove())
   const panel = document.createElement('div')
   panel.className = 'alinear-panel'
   panel.addEventListener('pointerdown', (e) => e.stopPropagation())
+  panel.innerHTML = `<div class="alinear-head">${titulo} <button class="alinear-cerrar">✕</button></div>`
+  panel.querySelector('.alinear-cerrar')!.addEventListener('click', () => panel.remove())
+  lienzo.append(panel)
+  return panel
+}
+
+// Popover con los botones de alinear/distribuir.
+function abrirPanelAlinear(): void {
+  const panel = crearPopover('Alinear (respecto del 1.º)')
   const btns: [string, () => void, string][] = [
     ['⊣', () => alinear('izq'), 'Alinear a la izquierda'],
     ['⊪', () => alinear('centroH'), 'Centrar horizontal'],
@@ -2579,7 +2597,6 @@ function abrirPanelAlinear(): void {
     ['↔', () => distribuir('h'), 'Distribuir horizontal'],
     ['↕', () => distribuir('v'), 'Distribuir vertical'],
   ]
-  panel.innerHTML = '<div class="alinear-head">Alinear (respecto del 1.º) <button class="alinear-cerrar">✕</button></div>'
   const grid = document.createElement('div'); grid.className = 'alinear-grid'
   for (const [icono, fn, titulo] of btns) {
     const b = document.createElement('button'); b.textContent = icono; b.title = titulo
@@ -2587,29 +2604,14 @@ function abrirPanelAlinear(): void {
     grid.append(b)
   }
   panel.append(grid)
-  panel.querySelector('.alinear-cerrar')!.addEventListener('click', () => panel.remove())
-  lienzo.append(panel)
 }
 
 // --- Buscatrazos (operaciones booleanas de formas) -------------------------
 // Aplana una forma a un polígono (anillo) en coords de usuario del SVG, muestreando
 // su contorno y aplicando su matriz (CTM) para respetar transform/escala.
 function elementoAGeom(el: SVGGraphicsElement): number[][][] {
-  const geo = el as unknown as SVGGeometryElement
-  let len = 0
-  try { len = geo.getTotalLength() } catch { return [] }
-  if (!len) return []
   const ctm = el.getCTM()
-  const n = Math.min(800, Math.max(48, Math.round(len / 3)))
-  const pt = svgEl!.createSVGPoint()
-  const ring: number[][] = []
-  for (let i = 0; i < n; i++) {
-    let q: DOMPoint
-    try { q = geo.getPointAtLength((i / n) * len) } catch { continue }
-    pt.x = q.x; pt.y = q.y
-    const r = ctm ? pt.matrixTransform(ctm) : pt
-    ring.push([r.x, r.y])
-  }
+  const ring = muestrearContorno(el as unknown as SVGGeometryElement, (p) => (ctm ? p.matrixTransform(ctm) : p))
   if (ring.length < 3) return []
   ring.push([...ring[0]])
   return [ring] // un Polygon = [anillo]
@@ -2658,12 +2660,8 @@ function buscatrazos(op: OpBool): void {
 
 // Popover con las operaciones de buscatrazos.
 function abrirPanelBuscatrazos(): void {
-  lienzo.querySelectorAll('.bt-panel').forEach((n) => n.remove())
-  const panel = document.createElement('div')
-  panel.className = 'alinear-panel bt-panel'
-  panel.addEventListener('pointerdown', (e) => e.stopPropagation())
+  const panel = crearPopover('Buscatrazos')
   const ops: [string, OpBool][] = [['Unir', 'unir'], ['Restar', 'restar'], ['Intersecar', 'intersecar'], ['Excluir', 'excluir']]
-  panel.innerHTML = '<div class="alinear-head">Buscatrazos <button class="alinear-cerrar">✕</button></div>'
   const grid = document.createElement('div'); grid.className = 'bt-grid'
   for (const [txt, op] of ops) {
     const b = document.createElement('button'); b.textContent = txt
@@ -2671,19 +2669,13 @@ function abrirPanelBuscatrazos(): void {
     grid.append(b)
   }
   panel.append(grid)
-  panel.querySelector('.alinear-cerrar')!.addEventListener('click', () => panel.remove())
-  lienzo.append(panel)
 }
 
 // Popover "Más": capas (frente/atrás/subir/bajar) y, si hay varios, alinear y
 // buscatrazos. Mantiene la barra principal despejada.
 function abrirPanelMas(): void {
-  lienzo.querySelectorAll('.mas-panel').forEach((n) => n.remove())
   const multi = grafSeleccion.length > 1
-  const panel = document.createElement('div')
-  panel.className = 'alinear-panel mas-panel'
-  panel.addEventListener('pointerdown', (e) => e.stopPropagation())
-  panel.innerHTML = '<div class="alinear-head">Más <button class="alinear-cerrar">✕</button></div>'
+  const panel = crearPopover('Más')
   const cont = document.createElement('div'); cont.className = 'mas-cont'
   const capas: [string, 'arriba' | 'abajo' | 'tope' | 'fondo'][] = [
     ['↟ Traer al frente', 'tope'], ['↑ Subir una capa', 'arriba'],
@@ -2696,15 +2688,13 @@ function abrirPanelMas(): void {
   }
   if (multi) {
     const a = document.createElement('button'); a.className = 'mas-btn'; a.textContent = '⊟ Alinear / distribuir'
-    a.addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); abrirPanelAlinear() })
+    a.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelAlinear() })
     cont.append(a)
     const bt = document.createElement('button'); bt.className = 'mas-btn'; bt.textContent = '◳ Buscatrazos'
-    bt.addEventListener('click', (e) => { e.stopPropagation(); panel.remove(); abrirPanelBuscatrazos() })
+    bt.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelBuscatrazos() })
     cont.append(bt)
   }
   panel.append(cont)
-  panel.querySelector('.alinear-cerrar')!.addEventListener('click', () => panel.remove())
-  lienzo.append(panel)
 }
 
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
