@@ -1926,7 +1926,7 @@ function iniciarMarquee(e: PointerEvent): void {
   svgEl.addEventListener('pointercancel', onUp, { once: true })
 }
 
-// Unidades seleccionables cuyo bounding-box (en px) toca el rect dado.
+// Unidades seleccionables cuyo bounding-box (en px) queda COMPLETAMENTE dentro del rect.
 function elementosEnRect(rect: { left: number; top: number; right: number; bottom: number }): SVGElement[] {
   if (!svgEl) return []
   const vistos = new Set<SVGElement>()
@@ -1937,7 +1937,8 @@ function elementosEnRect(rect: { left: number; top: number; right: number; botto
     vistos.add(u)
     const b = u.getBoundingClientRect()
     if (b.width < 0.5 && b.height < 0.5) continue
-    if (b.left < rect.right && b.right > rect.left && b.top < rect.bottom && b.bottom > rect.top) out.push(u)
+    // Solo si el elemento queda COMPLETAMENTE dentro del recuadro (contención, no roce).
+    if (b.left >= rect.left && b.right <= rect.right && b.top >= rect.top && b.bottom <= rect.bottom) out.push(u)
   }
   return out
 }
