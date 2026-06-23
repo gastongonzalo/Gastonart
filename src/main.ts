@@ -3504,6 +3504,12 @@ function construirOverlays(): void {
       crearBotonQuitarFondo(r,
         () => im.getAttribute('href') || im.getAttributeNS(XLINK, 'href') || '',
         (foto) => { im.setAttribute('href', foto.dataUrl); im.setAttributeNS(XLINK, 'xlink:href', foto.dataUrl) }),
+      crearBotonEditarImg(r, () => abrirEditorImagen(im.getAttribute('href') || im.getAttributeNS(XLINK, 'href') || '', (foto) => {
+        im.setAttribute('href', foto.dataUrl); im.setAttributeNS(XLINK, 'xlink:href', foto.dataUrl)
+        // Si cambió el aspecto (recorte/rotación), mantener el ancho y ajustar el alto.
+        const W = parseFloat(im.getAttribute('width') || '0')
+        if (W) im.setAttribute('height', String(W * foto.h / foto.w))
+      })),
       ...handlesMascara(im, base),
     ]
     for (const c of ctrls) lienzo.appendChild(c)
@@ -3563,6 +3569,18 @@ function crearBotonQuitarFondo(r: Rect, getSrc: () => string, aplicar: (f: Foto)
   b.title = 'Quitar el fondo de la imagen (IA, corre en tu navegador)'
   Object.assign(b.style, { left: r.left - 2 + 'px', top: r.top + r.height + 4 + 'px' })
   b.addEventListener('click', (e) => { e.stopPropagation(); void ejecutarQuitarFondo(getSrc(), aplicar, b) })
+  return b
+}
+
+// Botón "Editar" de una imagen (abre el editor de imágenes). Debajo de "Quitar
+// fondo", misma columna izquierda.
+function crearBotonEditarImg(r: Rect, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.className = 'btn-quitarfondo btn-editarimg'
+  b.textContent = '✎ Editar'
+  b.title = 'Editar la imagen (borrador mágico, ajustes, filtros, recorte…)'
+  Object.assign(b.style, { left: r.left - 2 + 'px', top: r.top + r.height + 28 + 'px' })
+  b.addEventListener('click', (e) => { e.stopPropagation(); onClick() })
   return b
 }
 
@@ -3752,14 +3770,20 @@ function construirFotoTools(id: string, r: Rect): void {
   opac.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   zoomSlider = slider
   if (fotos[id]) {
-    const qf = document.createElement('button')
-    qf.className = 'mini ft-fondo'; qf.textContent = 'Quitar fondo'
-    qf.title = 'Quitar el fondo de la foto (IA, corre en tu navegador)'
-    qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, (foto) => {
+    const reaplicar = (foto: Foto) => {
       fotos[id] = foto
       const fr = framesFoto[id], enc = encuadreDe(id)
       if (fr && svgEl) { const c = aplicarFotoDom(svgEl, id, foto, fr, enc); enc.ox = c.ox; enc.oy = c.oy }
-    }, qf))
+    }
+    const ed = document.createElement('button')
+    ed.className = 'mini ft-fondo'; ed.textContent = '✎ Editar'
+    ed.title = 'Editar la foto (borrador mágico, ajustes, filtros, recorte…)'
+    ed.addEventListener('click', () => abrirEditorImagen(fotos[id].dataUrl, reaplicar))
+    tools.appendChild(ed)
+    const qf = document.createElement('button')
+    qf.className = 'mini ft-fondo'; qf.textContent = 'Quitar fondo'
+    qf.title = 'Quitar el fondo de la foto (IA, corre en tu navegador)'
+    qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, reaplicar, qf))
     tools.appendChild(qf)
   }
   lienzo.appendChild(tools)
@@ -4106,6 +4130,267 @@ async function ejecutarQuitarFondo(src: string, aplicar: (foto: Foto) => void, b
     quitandoFondo = false
     if (btn) { btn.disabled = false; btn.textContent = txt }
   }
+}
+
+// ---------------------------------------------------------------
+//  Editor de imágenes (borrador mágico, ajustes, filtros, recorte, voltear)
+// ---------------------------------------------------------------
+// Modal con un canvas a resolución nativa (acotada). cv = imagen de trabajo;
+// snap = copia para "Restaurar". Los ajustes (brillo/contraste/saturación) se
+// previsualizan con filtro CSS y se hornean al aplicar; los filtros y las ops
+// geométricas se hornean en cv (y snap) al instante.
+type PanelImg = 'magico' | 'borrar' | 'restaurar' | 'recortar' | 'ajustes' | 'filtros'
+function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'imged-overlay'
+  overlay.innerHTML =
+    `<div class="imged-modal">
+      <div class="imged-top">
+        <strong>Editar imagen</strong><span class="imged-estado"></span>
+        <div class="imged-actions"><button class="imged-cancelar mini">Cancelar</button><button class="imged-aplicar">Aplicar</button></div>
+      </div>
+      <div class="imged-tools"></div>
+      <div class="imged-opts"></div>
+      <div class="imged-stage"><canvas class="imged-cv"></canvas><div class="imged-sel" hidden></div></div>
+    </div>`
+  document.body.appendChild(overlay)
+  const q = <T extends Element>(s: string) => overlay.querySelector<T>(s)!
+  const cv = q<HTMLCanvasElement>('.imged-cv')
+  const ctx = cv.getContext('2d', { willReadFrequently: true })!
+  const sel = q<HTMLDivElement>('.imged-sel')
+  const stage = q<HTMLDivElement>('.imged-stage')
+  const opts = q<HTMLDivElement>('.imged-opts')
+  const toolsBar = q<HTMLDivElement>('.imged-tools')
+  const estadoEd = q<HTMLSpanElement>('.imged-estado')
+  const snap = document.createElement('canvas')
+  const sctx = snap.getContext('2d')!
+  const adj = { b: 1, c: 1, s: 1 }
+  let panel: PanelImg = 'magico'
+  let brush = 40, tol = 30
+  let cargada = false
+
+  const render = () => { cv.style.filter = `brightness(${adj.b}) contrast(${adj.c}) saturate(${adj.s})` }
+  const ajustarStage = () => {
+    const k = Math.min(stage.clientWidth / cv.width, stage.clientHeight / cv.height)
+    cv.style.width = cv.width * k + 'px'; cv.style.height = cv.height * k + 'px'
+  }
+  // Reemplaza el contenido de cv y snap por canvases nuevos (ops geométricas).
+  const reemplazar = (nuevoCv: HTMLCanvasElement, nuevoSnap: HTMLCanvasElement) => {
+    cv.width = nuevoCv.width; cv.height = nuevoCv.height
+    ctx.clearRect(0, 0, cv.width, cv.height); ctx.filter = 'none'; ctx.drawImage(nuevoCv, 0, 0)
+    snap.width = nuevoSnap.width; snap.height = nuevoSnap.height
+    sctx.clearRect(0, 0, snap.width, snap.height); sctx.drawImage(nuevoSnap, 0, 0)
+    ajustarStage(); render()
+  }
+  const nuevoCanvas = (w: number, h: number) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c }
+
+  const img = new Image()
+  img.onload = () => {
+    const cap = 1600
+    const esc = Math.min(1, cap / Math.max(img.naturalWidth, img.naturalHeight))
+    const w = Math.max(1, Math.round(img.naturalWidth * esc)), h = Math.max(1, Math.round(img.naturalHeight * esc))
+    cv.width = w; cv.height = h; snap.width = w; snap.height = h
+    ctx.drawImage(img, 0, 0, w, h); sctx.drawImage(cv, 0, 0)
+    cargada = true; ajustarStage(); render()
+  }
+  img.onerror = () => { estadoEd.textContent = 'No se pudo cargar la imagen' }
+  img.src = src
+
+  // ---- Herramientas de pixel ----
+  const aPx = (e: PointerEvent) => {
+    const r = cv.getBoundingClientRect()
+    return { x: Math.round((e.clientX - r.left) * cv.width / r.width), y: Math.round((e.clientY - r.top) * cv.height / r.height) }
+  }
+  const borradorMagico = (sx: number, sy: number) => {
+    const w = cv.width, h = cv.height
+    if (sx < 0 || sy < 0 || sx >= w || sy >= h) return
+    const data = ctx.getImageData(0, 0, w, h), d = data.data
+    const i0 = (sy * w + sx) * 4
+    if (d[i0 + 3] === 0) return
+    const tr = d[i0], tg = d[i0 + 1], tb = d[i0 + 2]
+    const umbral = (tol / 100) * 180, u2 = umbral * umbral
+    const vis = new Uint8Array(w * h), stack = [sy * w + sx]
+    while (stack.length) {
+      const p = stack.pop()!
+      if (vis[p]) continue
+      vis[p] = 1
+      const i = p * 4
+      if (d[i + 3] === 0) continue
+      const dr = d[i] - tr, dg = d[i + 1] - tg, db = d[i + 2] - tb
+      if (dr * dr + dg * dg + db * db > u2) continue
+      d[i + 3] = 0
+      const x = p % w, y = (p / w) | 0
+      if (x > 0) stack.push(p - 1); if (x < w - 1) stack.push(p + 1)
+      if (y > 0) stack.push(p - w); if (y < h - 1) stack.push(p + w)
+    }
+    ctx.putImageData(data, 0, 0)
+  }
+  const trazo = (x0: number, y0: number, x1: number, y1: number, modo: 'borrar' | 'restaurar') => {
+    const pasos = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (brush / 4)))
+    for (let s = 0; s <= pasos; s++) {
+      const x = x0 + (x1 - x0) * s / pasos, y = y0 + (y1 - y0) * s / pasos
+      if (modo === 'borrar') {
+        ctx.save(); ctx.globalCompositeOperation = 'destination-out'
+        ctx.beginPath(); ctx.arc(x, y, brush / 2, 0, 2 * Math.PI); ctx.fill(); ctx.restore()
+      } else {
+        ctx.save(); ctx.beginPath(); ctx.arc(x, y, brush / 2, 0, 2 * Math.PI); ctx.clip()
+        ctx.clearRect(0, 0, cv.width, cv.height); ctx.drawImage(snap, 0, 0); ctx.restore()
+      }
+    }
+  }
+  let pintando = false, ult: { x: number; y: number } | null = null
+  let cropIni: { x: number; y: number } | null = null, cropRect: { x: number; y: number; w: number; h: number } | null = null
+  cv.addEventListener('pointerdown', (e) => {
+    if (!cargada) return
+    const p = aPx(e)
+    if (panel === 'magico') { borradorMagico(p.x, p.y); return }
+    if (panel === 'recortar') { cropIni = p; cropRect = null; cv.setPointerCapture(e.pointerId); return }
+    if (panel === 'borrar' || panel === 'restaurar') {
+      pintando = true; ult = p; trazo(p.x, p.y, p.x, p.y, panel); cv.setPointerCapture(e.pointerId)
+    }
+  })
+  cv.addEventListener('pointermove', (e) => {
+    if (!cargada) return
+    const p = aPx(e)
+    if (cropIni && panel === 'recortar') {
+      cropRect = { x: Math.min(cropIni.x, p.x), y: Math.min(cropIni.y, p.y), w: Math.abs(p.x - cropIni.x), h: Math.abs(p.y - cropIni.y) }
+      dibujarSel(); return
+    }
+    if (pintando && ult) { trazo(ult.x, ult.y, p.x, p.y, panel as 'borrar' | 'restaurar'); ult = p }
+  })
+  const finPuntero = () => { pintando = false; ult = null; cropIni = null }
+  cv.addEventListener('pointerup', finPuntero)
+  cv.addEventListener('pointercancel', finPuntero)
+
+  const dibujarSel = () => {
+    if (!cropRect) { sel.hidden = true; return }
+    const r = cv.getBoundingClientRect(), sr = stage.getBoundingClientRect()
+    const k = r.width / cv.width
+    sel.hidden = false
+    sel.style.left = (r.left - sr.left + cropRect.x * k) + 'px'
+    sel.style.top = (r.top - sr.top + cropRect.y * k) + 'px'
+    sel.style.width = cropRect.w * k + 'px'; sel.style.height = cropRect.h * k + 'px'
+  }
+
+  // ---- Ops geométricas / filtros ----
+  const aplicarFiltro = (filtro: string) => {
+    for (const c of [cv, snap]) {
+      const t = nuevoCanvas(c.width, c.height), tctx = t.getContext('2d')!
+      tctx.filter = filtro; tctx.drawImage(c, 0, 0)
+      const cc = c.getContext('2d')!; cc.clearRect(0, 0, c.width, c.height); cc.filter = 'none'; cc.drawImage(t, 0, 0)
+    }
+    render()
+  }
+  const voltear = (eje: 'h' | 'v') => {
+    const nc = nuevoCanvas(cv.width, cv.height), ns = nuevoCanvas(snap.width, snap.height)
+    for (const [dst, srcC] of [[nc, cv], [ns, snap]] as [HTMLCanvasElement, HTMLCanvasElement][]) {
+      const c = dst.getContext('2d')!
+      c.translate(eje === 'h' ? dst.width : 0, eje === 'v' ? dst.height : 0)
+      c.scale(eje === 'h' ? -1 : 1, eje === 'v' ? -1 : 1)
+      c.drawImage(srcC, 0, 0)
+    }
+    reemplazar(nc, ns)
+  }
+  const rotar = () => {
+    const nc = nuevoCanvas(cv.height, cv.width), ns = nuevoCanvas(snap.height, snap.width)
+    for (const [dst, srcC] of [[nc, cv], [ns, snap]] as [HTMLCanvasElement, HTMLCanvasElement][]) {
+      const c = dst.getContext('2d')!
+      c.translate(dst.width, 0); c.rotate(Math.PI / 2); c.drawImage(srcC, 0, 0)
+    }
+    reemplazar(nc, ns)
+  }
+  const aplicarRecorte = () => {
+    if (!cropRect || cropRect.w < 4 || cropRect.h < 4) return
+    const { x, y, w, h } = cropRect
+    const nc = nuevoCanvas(w, h), ns = nuevoCanvas(w, h)
+    nc.getContext('2d')!.drawImage(cv, x, y, w, h, 0, 0, w, h)
+    ns.getContext('2d')!.drawImage(snap, x, y, w, h, 0, 0, w, h)
+    cropRect = null; sel.hidden = true
+    reemplazar(nc, ns)
+  }
+
+  // ---- UI: barra de herramientas + opciones contextuales ----
+  const setPanel = (p: PanelImg) => { panel = p; cropRect = null; cropIni = null; sel.hidden = true; pintarBarra(); pintarOpts() }
+  const tools: [PanelImg | 'voltearH' | 'voltearV' | 'rotar', string, string][] = [
+    ['magico', '✨ Borrador mágico', 'Clic para borrar una zona de color similar'],
+    ['borrar', '🧽 Borrador', 'Pincel para borrar a mano'],
+    ['restaurar', '↩ Restaurar', 'Pincel para traer de vuelta lo borrado'],
+    ['recortar', '⃞ Recortar', 'Arrastrá para elegir el área'],
+    ['ajustes', '🎚 Ajustes', 'Brillo, contraste, saturación'],
+    ['filtros', '🎨 Filtros', 'B&N, sepia, vintage…'],
+    ['voltearH', '⇆', 'Voltear horizontal'],
+    ['voltearV', '⇅', 'Voltear vertical'],
+    ['rotar', '⟳', 'Rotar 90°'],
+  ]
+  const pintarBarra = () => {
+    toolsBar.innerHTML = ''
+    for (const [id, label, tip] of tools) {
+      const b = document.createElement('button')
+      b.className = 'imged-tbtn' + (id === panel ? ' activo' : ''); b.textContent = label; b.title = tip
+      b.addEventListener('click', () => {
+        if (id === 'voltearH') voltear('h')
+        else if (id === 'voltearV') voltear('v')
+        else if (id === 'rotar') rotar()
+        else setPanel(id)
+      })
+      toolsBar.appendChild(b)
+    }
+  }
+  const slider = (label: string, min: number, max: number, step: number, val: number, oninput: (v: number) => void): HTMLLabelElement => {
+    const l = document.createElement('label'); l.className = 'imged-slider'
+    const sp = document.createElement('span'); sp.textContent = label
+    const inp = document.createElement('input'); inp.type = 'range'; inp.min = String(min); inp.max = String(max); inp.step = String(step); inp.value = String(val)
+    inp.addEventListener('input', () => oninput(parseFloat(inp.value)))
+    l.append(sp, inp); return l
+  }
+  const pintarOpts = () => {
+    opts.innerHTML = ''
+    if (panel === 'magico') {
+      opts.appendChild(slider('Tolerancia', 1, 100, 1, tol, (v) => { tol = v }))
+      const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Tip: clic en el fondo. Más tolerancia = borra colores más distintos.'
+      opts.appendChild(h)
+    } else if (panel === 'borrar' || panel === 'restaurar') {
+      opts.appendChild(slider('Tamaño', 5, 200, 1, brush, (v) => { brush = v }))
+    } else if (panel === 'recortar') {
+      const ap = document.createElement('button'); ap.className = 'imged-tbtn'; ap.textContent = 'Aplicar recorte'
+      ap.addEventListener('click', aplicarRecorte)
+      const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Arrastrá sobre la imagen para elegir el área y luego “Aplicar recorte”.'
+      opts.append(ap, h)
+    } else if (panel === 'ajustes') {
+      opts.appendChild(slider('Brillo', 0.2, 2, 0.01, adj.b, (v) => { adj.b = v; render() }))
+      opts.appendChild(slider('Contraste', 0.2, 2, 0.01, adj.c, (v) => { adj.c = v; render() }))
+      opts.appendChild(slider('Saturación', 0, 2, 0.01, adj.s, (v) => { adj.s = v; render() }))
+    } else if (panel === 'filtros') {
+      const filtros: [string, string][] = [
+        ['Blanco y negro', 'grayscale(1)'], ['Sepia', 'sepia(1)'],
+        ['Vintage', 'sepia(0.4) contrast(1.1) saturate(1.3)'], ['Más contraste', 'contrast(1.25)'],
+        ['Frío', 'saturate(1.2) hue-rotate(-12deg)'], ['Cálido', 'saturate(1.2) sepia(0.2)'],
+      ]
+      for (const [nombre, f] of filtros) {
+        const b = document.createElement('button'); b.className = 'imged-tbtn'; b.textContent = nombre
+        b.addEventListener('click', () => aplicarFiltro(f))
+        opts.appendChild(b)
+      }
+    }
+  }
+
+  // ---- Cerrar / aplicar ----
+  const cerrar = () => { window.removeEventListener('resize', ajustarStage); overlay.remove() }
+  q<HTMLButtonElement>('.imged-cancelar').addEventListener('click', cerrar)
+  q<HTMLButtonElement>('.imged-aplicar').addEventListener('click', () => {
+    if (!cargada) { cerrar(); return }
+    // Hornear los ajustes (brillo/contraste/saturación) en un canvas de salida.
+    const out = nuevoCanvas(cv.width, cv.height), octx = out.getContext('2d')!
+    octx.filter = `brightness(${adj.b}) contrast(${adj.c}) saturate(${adj.s})`
+    octx.drawImage(cv, 0, 0)
+    const dataUrl = out.toDataURL('image/png')
+    onAplicar({ dataUrl, w: out.width, h: out.height })
+    registrarHistorial(); autoguardar()
+    cerrar()
+  })
+  overlay.addEventListener('pointerdown', (e) => { if (e.target === overlay) cerrar() })
+  window.addEventListener('resize', ajustarStage)
+  pintarBarra(); pintarOpts()
 }
 
 // ---------------------------------------------------------------
