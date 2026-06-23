@@ -1849,6 +1849,7 @@ function grafPointerDown(e: PointerEvent): void {
   const aditivo = e.ctrlKey || e.metaKey
   if (!el) {
     // Clic en vacío: recuadro de selección (marquee). Sin Ctrl, limpia primero.
+    e.preventDefault() // si no, arrastrar selecciona el TEXTO del SVG (resaltado azul)
     if (!aditivo) { grafSeleccion = []; limpiarGraf() }
     iniciarMarquee(e)
     return

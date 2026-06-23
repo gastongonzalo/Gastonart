@@ -682,6 +682,11 @@ body {
 .modo-grafico .mascara-wrap,
 .modo-grafico .mask-handle { pointer-events: none; }
 .modo-grafico svg { cursor: pointer; }
+/* En modo gráficos, arrastrar es para seleccionar/mover: nunca seleccionar texto. */
+#lienzo.modo-grafico, #lienzo.modo-grafico svg, #lienzo.modo-grafico text {
+  user-select: none;
+  -webkit-user-select: none;
+}
 .graf-sel {
   position: absolute;
   z-index: 6;
