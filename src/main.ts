@@ -1743,6 +1743,246 @@ function finalizarPluma(cerrado: boolean): void {
   construirOverlays()
 }
 
+// ============ Editar puntos de un trazo terminado (estilo Illustrator) ============
+// Convierte el atributo `d` de un path en anclas con manijas in/out. Soporta
+// M L H V C S Q T Z (absoluto y relativo) y un solo subtrazo. Devuelve null si
+// no se puede editar (varios subtrazos, arcos A, etc.).
+function parsearD(d: string): { anclas: Ancla[]; cerrado: boolean } | null {
+  const toks = d.match(/[a-zA-Z]|-?\d*\.?\d+(?:[eE][-+]?\d+)?/g)
+  if (!toks) return null
+  const anclas: Ancla[] = []
+  let i = 0, cx = 0, cy = 0, sx = 0, sy = 0, cerrado = false, nM = 0
+  let prevCtrl: { x: number; y: number } | null = null // 2º control previo (para S)
+  let prevQ: { x: number; y: number } | null = null     // control quad previo (para T)
+  let cmd = ''
+  const num = () => parseFloat(toks[i++])
+  const esNum = (t: string) => /[-\d.]/.test(t[0])
+  const nuevaAncla = (x: number, y: number) => { anclas.push({ x, y, hix: 0, hiy: 0, hox: 0, hoy: 0 }); return anclas[anclas.length - 1] }
+  while (i < toks.length) {
+    if (!esNum(toks[i])) cmd = toks[i++]
+    const rel = cmd === cmd.toLowerCase()
+    const C = cmd.toUpperCase()
+    if (C === 'M') {
+      const x = num() + (rel ? cx : 0), y = num() + (rel ? cy : 0)
+      if (++nM > 1) return null // varios subtrazos: no editable acá
+      cx = sx = x; cy = sy = y; nuevaAncla(x, y); prevCtrl = prevQ = null
+      cmd = rel ? 'l' : 'L' // coords siguientes sin letra = lineTo
+    } else if (C === 'L') {
+      const x = num() + (rel ? cx : 0), y = num() + (rel ? cy : 0)
+      cx = x; cy = y; nuevaAncla(x, y); prevCtrl = prevQ = null
+    } else if (C === 'H') {
+      const x = num() + (rel ? cx : 0); cx = x; nuevaAncla(x, cy); prevCtrl = prevQ = null
+    } else if (C === 'V') {
+      const y = num() + (rel ? cy : 0); cy = y; nuevaAncla(cx, y); prevCtrl = prevQ = null
+    } else if (C === 'C' || C === 'S') {
+      let x1: number, y1: number
+      if (C === 'C') { x1 = num() + (rel ? cx : 0); y1 = num() + (rel ? cy : 0) }
+      else { x1 = prevCtrl ? 2 * cx - prevCtrl.x : cx; y1 = prevCtrl ? 2 * cy - prevCtrl.y : cy }
+      const x2 = num() + (rel ? cx : 0), y2 = num() + (rel ? cy : 0)
+      const x = num() + (rel ? cx : 0), y = num() + (rel ? cy : 0)
+      const prev = anclas[anclas.length - 1]
+      prev.hox = x1 - prev.x; prev.hoy = y1 - prev.y
+      const a = nuevaAncla(x, y); a.hix = x2 - x; a.hiy = y2 - y
+      cx = x; cy = y; prevCtrl = { x: x2, y: y2 }; prevQ = null
+    } else if (C === 'Q' || C === 'T') {
+      let qx: number, qy: number
+      if (C === 'Q') { qx = num() + (rel ? cx : 0); qy = num() + (rel ? cy : 0) }
+      else { qx = prevQ ? 2 * cx - prevQ.x : cx; qy = prevQ ? 2 * cy - prevQ.y : cy }
+      const x = num() + (rel ? cx : 0), y = num() + (rel ? cy : 0)
+      const prev = anclas[anclas.length - 1]
+      prev.hox = (2 / 3) * (qx - prev.x); prev.hoy = (2 / 3) * (qy - prev.y)
+      const a = nuevaAncla(x, y); a.hix = (2 / 3) * (qx - x); a.hiy = (2 / 3) * (qy - y)
+      cx = x; cy = y; prevQ = { x: qx, y: qy }; prevCtrl = null
+    } else if (C === 'Z') {
+      cerrado = true; cx = sx; cy = sy; prevCtrl = prevQ = null
+    } else {
+      return null // comando no soportado (p.ej. A)
+    }
+  }
+  if (anclas.length < 2) return null
+  // Si cerró y el último coincide con el primero, fusionar (su manija de entrada
+  // pasa al primer ancla) para no dejar un punto duplicado.
+  if (cerrado && anclas.length > 2) {
+    const u = anclas[anclas.length - 1], p0 = anclas[0]
+    if (Math.hypot(u.x - p0.x, u.y - p0.y) < 0.01) {
+      p0.hix = u.hix; p0.hiy = u.hiy; anclas.pop()
+    }
+  }
+  return { anclas, cerrado }
+}
+
+let editPath: SVGPathElement | null = null
+let editAnclas: Ancla[] = []
+let editCerrado = false
+let editCapa: HTMLDivElement | null = null
+let editLineas: SVGSVGElement | null = null
+
+function ctmEdit(): DOMMatrix { return editPath!.getScreenCTM() as DOMMatrix }
+// local (espacio del `d`) -> px relativos al lienzo
+function localAPx(ux: number, uy: number): { left: number; top: number } {
+  const p = svgEl!.createSVGPoint(); p.x = ux; p.y = uy
+  const s = p.matrixTransform(ctmEdit())
+  const base = lienzo.getBoundingClientRect()
+  return { left: s.x - base.left, top: s.y - base.top }
+}
+// pantalla (clientX/Y) -> local (espacio del `d`)
+function pantallaALocal(clientX: number, clientY: number): { x: number; y: number } {
+  const p = svgEl!.createSVGPoint(); p.x = clientX; p.y = clientY
+  const l = p.matrixTransform(ctmEdit().inverse())
+  return { x: l.x, y: l.y }
+}
+
+function entrarEditarPuntos(path: SVGPathElement): void {
+  const r = parsearD(path.getAttribute('d') || '')
+  if (!r) { alert('Este trazo no se puede editar punto a punto (tiene varios subtrazos o arcos).'); return }
+  cerrarEditorPuntos()
+  editPath = path
+  editAnclas = r.anclas
+  editCerrado = r.cerrado
+  limpiarGraf()
+  editLineas = document.createElementNS(SVGNS, 'svg') as unknown as SVGSVGElement
+  editLineas.setAttribute('class', 'edit-svg')
+  lienzo.appendChild(editLineas)
+  editCapa = document.createElement('div')
+  editCapa.className = 'edit-capa'
+  editCapa.addEventListener('pointerdown', editPointerDown)
+  editCapa.addEventListener('dblclick', editDblClick)
+  lienzo.appendChild(editCapa)
+  document.addEventListener('keydown', editKey)
+  dibujarEditor()
+}
+
+function dibujarEditor(): void {
+  if (!editPath || !editCapa) return
+  editPath.setAttribute('d', dPluma(editAnclas, editCerrado))
+  lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
+  if (editLineas) {
+    editLineas.setAttribute('width', String(lienzo.clientWidth))
+    editLineas.setAttribute('height', String(lienzo.clientHeight))
+    while (editLineas.firstChild) editLineas.removeChild(editLineas.firstChild)
+  }
+  const linea = (x1: number, y1: number, x2: number, y2: number) => {
+    const ln = document.createElementNS(SVGNS, 'line')
+    ln.setAttribute('x1', String(x1)); ln.setAttribute('y1', String(y1))
+    ln.setAttribute('x2', String(x2)); ln.setAttribute('y2', String(y2))
+    editLineas!.appendChild(ln)
+  }
+  const dot = (left: number, top: number, cls: string) => {
+    const d = document.createElement('div'); d.className = cls
+    d.style.left = left + 'px'; d.style.top = top + 'px'
+    lienzo.appendChild(d)
+  }
+  editAnclas.forEach((a) => {
+    const s = localAPx(a.x, a.y)
+    if (tieneIn(a)) { const h = localAPx(a.x + a.hix, a.y + a.hiy); linea(s.left, s.top, h.left, h.top); dot(h.left, h.top, 'pluma-manija') }
+    if (tieneOut(a)) { const h = localAPx(a.x + a.hox, a.y + a.hoy); linea(s.left, s.top, h.left, h.top); dot(h.left, h.top, 'pluma-manija') }
+    dot(s.left, s.top, 'pluma-pt')
+  })
+}
+
+// Devuelve qué se tocó: un ancla o una manija (in/out) cercana al puntero.
+function editHit(clientX: number, clientY: number): { i: number; tipo: 'a' | 'in' | 'out' } | null {
+  const base = lienzo.getBoundingClientRect()
+  const px = clientX - base.left, py = clientY - base.top
+  let mejor: { i: number; tipo: 'a' | 'in' | 'out'; d: number } | null = null
+  const probar = (i: number, tipo: 'a' | 'in' | 'out', lx: number, ly: number) => {
+    const p = localAPx(lx, ly); const d = Math.hypot(p.left - px, p.top - py)
+    if (d < 11 && (!mejor || d < mejor.d)) mejor = { i, tipo, d }
+  }
+  editAnclas.forEach((a, i) => {
+    if (tieneIn(a)) probar(i, 'in', a.x + a.hix, a.y + a.hiy)
+    if (tieneOut(a)) probar(i, 'out', a.x + a.hox, a.y + a.hoy)
+  })
+  // Las anclas se prueban después para que las manijas (encima) ganen al empatar.
+  editAnclas.forEach((a, i) => probar(i, 'a', a.x, a.y))
+  const m = mejor as { i: number; tipo: 'a' | 'in' | 'out'; d: number } | null
+  return m ? { i: m.i, tipo: m.tipo } : null
+}
+
+function editPointerDown(e: PointerEvent): void {
+  if (!editCapa) return
+  const hit = editHit(e.clientX, e.clientY)
+  if (!hit) { salirEditarPuntos(); return } // clic en vacío: terminar
+  e.preventDefault()
+  const a = editAnclas[hit.i]
+  // Alt + clic sobre un ANCLA (sin arrastrar) = eliminar el punto.
+  if (hit.tipo === 'a' && e.altKey && editAnclas.length > 2) {
+    let movido = false
+    const onMv = () => { movido = true }
+    const onUp = () => {
+      editCapa!.removeEventListener('pointermove', onMv)
+      if (!movido) { editAnclas.splice(hit.i, 1); dibujarEditor() }
+    }
+    editCapa.addEventListener('pointermove', onMv)
+    editCapa.addEventListener('pointerup', onUp, { once: true })
+    return
+  }
+  // ¿El ancla estaba liso (manijas espejadas)? Si sí, al mover una manija se
+  // mueve la otra, salvo que se mantenga Alt (rompe la simetría).
+  const liso = tieneIn(a) && tieneOut(a) &&
+    Math.abs(a.hix + a.hox) < 0.01 && Math.abs(a.hiy + a.hoy) < 0.01
+  const onMove = (ev: PointerEvent) => {
+    const l = pantallaALocal(ev.clientX, ev.clientY)
+    if (hit.tipo === 'a') {
+      a.x = l.x; a.y = l.y // las manijas son relativas: se mueven con el ancla
+    } else if (hit.tipo === 'out') {
+      a.hox = l.x - a.x; a.hoy = l.y - a.y
+      if (liso && !ev.altKey) { a.hix = -a.hox; a.hiy = -a.hoy }
+    } else {
+      a.hix = l.x - a.x; a.hiy = l.y - a.y
+      if (liso && !ev.altKey) { a.hox = -a.hix; a.hoy = -a.hiy }
+    }
+    dibujarEditor()
+  }
+  const onUp = () => editCapa!.removeEventListener('pointermove', onMove)
+  try { editCapa.setPointerCapture(e.pointerId) } catch { /* igual edita */ }
+  editCapa.addEventListener('pointermove', onMove)
+  editCapa.addEventListener('pointerup', onUp, { once: true })
+  editCapa.addEventListener('pointercancel', onUp, { once: true })
+}
+
+// Doble clic sobre un ancla: alterna entre esquina (sin manijas) y liso.
+function editDblClick(e: MouseEvent): void {
+  const hit = editHit(e.clientX, e.clientY)
+  if (!hit || hit.tipo !== 'a') return
+  e.preventDefault()
+  const n = editAnclas.length, i = hit.i, a = editAnclas[i]
+  if (tieneIn(a) || tieneOut(a)) { a.hix = a.hiy = a.hox = a.hoy = 0 } // -> esquina
+  else { // -> liso: manijas según la dirección de los vecinos
+    const prev = editAnclas[(i - 1 + n) % n], next = editAnclas[(i + 1) % n]
+    const vx = next.x - prev.x, vy = next.y - prev.y
+    const len = Math.hypot(vx, vy) || 1
+    const mag = Math.min(Math.hypot(a.x - prev.x, a.y - prev.y), Math.hypot(next.x - a.x, next.y - a.y)) / 3
+    a.hox = (vx / len) * mag; a.hoy = (vy / len) * mag
+    a.hix = -a.hox; a.hiy = -a.hoy
+  }
+  dibujarEditor()
+}
+
+function editKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); salirEditarPuntos() }
+}
+
+function salirEditarPuntos(): void {
+  if (!editPath) return
+  editPath.setAttribute('d', dPluma(editAnclas, editCerrado))
+  const path = editPath
+  cerrarEditorPuntos()
+  registrarHistorial(); autoguardar()
+  if (modoGrafico) { grafSeleccion = [path]; dibujarSelGraf() }
+  else construirOverlays()
+}
+
+function editandoPuntos(): boolean { return editPath != null }
+
+function cerrarEditorPuntos(): void {
+  editCapa?.remove(); editCapa = null
+  editLineas?.remove(); editLineas = null
+  lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
+  document.removeEventListener('keydown', editKey)
+  editPath = null; editAnclas = []; editCerrado = false
+}
+
 // ---------------------------------------------------------------
 //  Modo Gráficos: seleccionar/editar vectores e imágenes de la plantilla
 // ---------------------------------------------------------------
@@ -1878,6 +2118,7 @@ function wrapperGraf(el: SVGElement): SVGGElement {
 
 function grafPointerDown(e: PointerEvent): void {
   if (!svgEl) return
+  if (editandoPuntos()) return // editando puntos: lo maneja la capa del editor
   if (reframeG) { iniciarPanReencuadre(e); return } // en reencuadre, arrastrar = mover la foto
   const el = graficoSeleccionable(e.target as Element)
   const aditivo = e.ctrlKey || e.metaKey
@@ -2817,6 +3058,13 @@ function dibujarSelGraf(): void {
     const ung = document.createElement('button'); ung.className = 'graf-btn'; ung.textContent = 'Desagrupar'; ung.title = 'Desagrupar (Ctrl+Shift+G)'
     ung.addEventListener('click', (e) => { e.stopPropagation(); desagruparSel() })
     tools.appendChild(ung)
+  }
+
+  // Editar puntos: solo para un path (trazo) suelto.
+  if (!multi && grafSeleccion[0].tagName.toLowerCase() === 'path') {
+    const ep = document.createElement('button'); ep.className = 'graf-btn'; ep.textContent = '✎ Puntos'; ep.title = 'Editar los puntos del trazo (mover anclas y manijas)'
+    ep.addEventListener('click', (e) => { e.stopPropagation(); entrarEditarPuntos(grafSeleccion[0] as SVGPathElement) })
+    tools.appendChild(ep)
   }
 
   // Secundarios (capas, alinear, buscatrazos) en un menú "Más" para no saturar.
