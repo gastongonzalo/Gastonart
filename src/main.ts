@@ -2814,61 +2814,31 @@ function dibujarSelGraf(): void {
   }
 }
 
-// Tirador de escala para un gráfico/grupo/recorte: escala su wrapper manteniendo
-// fija la esquina superior-izquierda. eje 'xy' = esquina (proporcional), 'x'/'y' =
-// costado (libre, un solo eje). Shift fuerza proporción en cualquiera.
+// Calcula (sx, sy) de un tirador de escala: esquina (xy) o Shift = proporcional;
+// costados (x/y) = libre en un solo eje. El pivote/transform los pone el llamador.
+function calcularEscalaTirador(
+  eje: 'x' | 'y' | 'xy', accX: number, accY: number,
+  sx0: number, sy0: number, bw: number, bh: number, k: number, shift: boolean,
+): { sx: number; sy: number } {
+  if (eje === 'xy' || shift) {
+    const denom = eje === 'y' ? Math.max(bh * sy0 * k, 1) : Math.max(bw * sx0 * k, 1)
+    const delta = eje === 'y' ? accY : accX
+    const f = Math.max(0.04, 1 + delta / denom)
+    return { sx: Math.max(0.04, sx0 * f), sy: Math.max(0.04, sy0 * f) }
+  }
+  return {
+    sx: eje !== 'y' ? Math.max(0.04, sx0 + accX / (bw * k)) : sx0,
+    sy: eje !== 'x' ? Math.max(0.04, sy0 + accY / (bh * k)) : sy0,
+  }
+}
+
+// Tirador de escala para la selección de modo Gráficos: escala el WRAPPER del
+// elemento (preserva matrices de Illustrator). Delega en crearTiradorEscala.
 function crearTiradorEscalaGraf(r: Rect, eje: 'x' | 'y' | 'xy' = 'xy'): HTMLDivElement {
-  const h = document.createElement('div')
-  h.className = 'resize-handle resize-handle-' + eje
-  const left = eje === 'y' ? r.left + r.width / 2 - 7 : r.left + r.width - 7
-  const top = eje === 'x' ? r.top + r.height / 2 - 7 : r.top + r.height - 7
-  Object.assign(h.style, { left: left + 'px', top: top + 'px' })
-  h.addEventListener('pointerdown', (e) => {
-    const sel = grafSeleccion[0]
-    if (!svgEl || !sel) return
-    e.preventDefault(); e.stopPropagation()
-    const g = wrapperGraf(sel)
-    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
-    const tr = g.getAttribute('transform') ?? ''
-    const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
-    const cx0 = tm ? +tm[1] : 0, cy0 = tm ? +tm[2] : 0
-    const sc = leerScale(tr)
-    const sx0 = sc.sx, sy0 = sc.sy
-    let bb = { x: 0, y: 0, width: 100, height: 100 }
-    try { bb = g.getBBox() } catch { /* default */ }
-    const bw = bb.width || 100, bh = bb.height || 100
-    const px = bb.x, py = bb.y                     // pivote = esquina sup-izq (coords del hijo)
-    const ax = cx0 + sx0 * px, ay = cy0 + sy0 * py // posición fija del pivote (coords del padre)
-    const hx0 = parseFloat(h.style.left), hy0 = parseFloat(h.style.top)
-    const startX = e.clientX, startY = e.clientY
-    const onMove = (ev: PointerEvent) => {
-      const accX = ev.clientX - startX, accY = ev.clientY - startY
-      const prop = eje === 'xy' || ev.shiftKey
-      let sx = sx0, sy = sy0
-      if (prop) {
-        const denom = eje === 'y' ? Math.max(bh * sy0 * k, 1) : Math.max(bw * sx0 * k, 1)
-        const delta = eje === 'y' ? accY : accX
-        const f = Math.max(0.04, 1 + delta / denom)
-        sx = Math.max(0.04, sx0 * f); sy = Math.max(0.04, sy0 * f)
-      } else {
-        if (eje !== 'y') sx = Math.max(0.04, sx0 + accX / (bw * k))
-        if (eje !== 'x') sy = Math.max(0.04, sy0 + accY / (bh * k))
-      }
-      g.setAttribute('transform', `translate(${ax - sx * px} ${ay - sy * py}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
-      h.style.left = hx0 + (sx - sx0) * bw * k + 'px'
-      h.style.top = hy0 + (sy - sy0) * bh * k + 'px'
-    }
-    const onUp = () => {
-      h.removeEventListener('pointermove', onMove)
-      registrarHistorial(); autoguardar()
-      dibujarSelGraf()
-    }
-    try { h.setPointerCapture(e.pointerId) } catch { /* igual escala */ }
-    h.addEventListener('pointermove', onMove)
-    h.addEventListener('pointerup', onUp, { once: true })
-    h.addEventListener('pointercancel', onUp, { once: true })
+  return crearTiradorEscala(r, grafSeleccion[0], eje, {
+    wrap: true,
+    onFin: () => { registrarHistorial(); autoguardar(); dibujarSelGraf() },
   })
-  return h
 }
 
 // Arrastre genérico de un elemento (mueve su transform translate).
@@ -2954,47 +2924,40 @@ function leerScale(tr: string): { sx: number; sy: number } {
   return { sx, sy: m[2] != null ? +m[2] : sx }
 }
 
-// Tirador de redimensión para figuras/íconos: cambia el scale del transform.
-// eje 'xy' = esquina (ambos lados a la vez), 'x' = sólo ancho, 'y' = sólo alto.
-function crearTiradorEscala(r: Rect, el: SVGElement, eje: 'x' | 'y' | 'xy' = 'xy'): HTMLDivElement {
+// Tirador de redimensión (figuras/íconos/imágenes/recortes/grupos). Escala el
+// `el` (o su wrapper si opts.wrap) con pivote fijo en la esquina sup-izq del bbox.
+// eje 'xy' = esquina (proporcional), 'x'/'y' = costado (libre). Shift = proporcional.
+function crearTiradorEscala(
+  r: Rect, el: SVGElement, eje: 'x' | 'y' | 'xy' = 'xy',
+  opts?: { wrap?: boolean; onFin?: () => void },
+): HTMLDivElement {
   const h = document.createElement('div')
   h.className = 'resize-handle resize-handle-' + eje
   const left = eje === 'y' ? r.left + r.width / 2 - 7 : r.left + r.width - 7
   const top = eje === 'x' ? r.top + r.height / 2 - 7 : r.top + r.height - 7
   Object.assign(h.style, { left: left + 'px', top: top + 'px' })
   h.addEventListener('pointerdown', (e) => {
-    if (!svgEl) return
+    if (!svgEl || !el) return
     e.preventDefault(); e.stopPropagation()
+    const target = opts?.wrap ? wrapperGraf(el) : el
     const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
-    const tr = el.getAttribute('transform') ?? ''
+    const tr = target.getAttribute('transform') ?? ''
     const tm = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
-    const tx = tm ? +tm[1] : 0, ty = tm ? +tm[2] : 0
+    const cx0 = tm ? +tm[1] : 0, cy0 = tm ? +tm[2] : 0
     const s0 = leerScale(tr)
     const sx0 = s0.sx, sy0 = s0.sy
-    let baseW = 100, baseH = 100
-    try { const bb = (el as SVGGraphicsElement).getBBox(); baseW = bb.width || 100; baseH = bb.height || 100 } catch { /* default */ }
+    let baseW = 100, baseH = 100, bx = 0, by = 0
+    try { const bb = (target as SVGGraphicsElement).getBBox(); baseW = bb.width || 100; baseH = bb.height || 100; bx = bb.x; by = bb.y } catch { /* default */ }
+    const ax = cx0 + sx0 * bx, ay = cy0 + sy0 * by // posición fija del pivote (esquina sup-izq del bbox)
     const hx0 = parseFloat(h.style.left), hy0 = parseFloat(h.style.top)
     const startX = e.clientX, startY = e.clientY
     const onMove = (ev: PointerEvent) => {
-      const accX = ev.clientX - startX, accY = ev.clientY - startY
-      // La esquina (xy) es proporcional; Shift fuerza proporción en cualquier tirador.
-      const prop = eje === 'xy' || ev.shiftKey
-      let sx = sx0, sy = sy0
-      if (prop) {
-        // factor desde el lado que arrastra (xy/x → ancho; y → alto)
-        const denom = eje === 'y' ? Math.max(baseH * sy0 * k, 1) : Math.max(baseW * sx0 * k, 1)
-        const delta = eje === 'y' ? accY : accX
-        const f = Math.max(0.04, 1 + delta / denom)
-        sx = Math.max(0.04, sx0 * f); sy = Math.max(0.04, sy0 * f)
-      } else {
-        if (eje !== 'y') sx = Math.max(0.04, sx0 + accX / (baseW * k))
-        if (eje !== 'x') sy = Math.max(0.04, sy0 + accY / (baseH * k))
-      }
-      el.setAttribute('transform', `translate(${tx} ${ty}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
+      const { sx, sy } = calcularEscalaTirador(eje, ev.clientX - startX, ev.clientY - startY, sx0, sy0, baseW, baseH, k, ev.shiftKey)
+      target.setAttribute('transform', `translate(${ax - sx * bx} ${ay - sy * by}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
       h.style.left = hx0 + (sx - sx0) * baseW * k + 'px'
       h.style.top = hy0 + (sy - sy0) * baseH * k + 'px'
     }
-    const onUp = () => { h.removeEventListener('pointermove', onMove); construirOverlays() }
+    const onUp = () => { h.removeEventListener('pointermove', onMove); (opts?.onFin ?? construirOverlays)() }
     try { h.setPointerCapture(e.pointerId) } catch { /* igual escala */ }
     h.addEventListener('pointermove', onMove)
     h.addEventListener('pointerup', onUp, { once: true })
@@ -3152,9 +3115,14 @@ function construirOverlays(): void {
       hit.title = 'Arrastrá para mover el recorte (para reencuadrar: Gráficos → Reencuadrar)'
       habilitarArrastreEl(hit, rec)
       lienzo.appendChild(hit)
-      const del = crearBotonEliminar(rr, () => { rec.remove(); construirOverlays() })
-      lienzo.appendChild(del)
-      revelarAlHover(hit, [del])
+      const ctrls = [
+        crearBotonEliminar(rr, () => { rec.remove(); construirOverlays() }),
+        crearTiradorEscala(rr, rec, 'x'),  // ancho
+        crearTiradorEscala(rr, rec, 'y'),  // alto
+        crearTiradorEscala(rr, rec, 'xy'), // proporcional (esquina)
+      ]
+      for (const c of ctrls) lienzo.appendChild(c)
+      revelarAlHover(hit, ctrls)
       continue
     }
     const r = rectFotoVisible(img, base)
