@@ -518,7 +518,11 @@ for (const tipo of TIPOS_FIGURA) {
 function cerrarPanelesFlotantes(excepto?: Element): void {
   for (const sel of ['#menu-figura', '#panel-iconos', '#panel-imagen', '#panel-gfonts', '#panel-tamano']) {
     const p = document.querySelector<HTMLElement>(sel)
-    if (p && p !== excepto) p.hidden = true
+    if (p && p !== excepto) {
+      // Soltar el foco del input de búsqueda (si no, su cursor sigue parpadeando).
+      if (p.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
+      p.hidden = true
+    }
   }
 }
 document.querySelector('#btn-add-figura')!.addEventListener('click', (e) => {
@@ -738,7 +742,16 @@ document.querySelector('#btn-grafico')!.addEventListener('click', (e) => {
   if (modoGrafico) desactivarGrafico()
   else activarGrafico()
 })
-document.addEventListener('click', () => { menuFigura.hidden = true })
+// Cerrar los paneles flotantes al hacer clic fuera de ellos (si no, el input de
+// búsqueda queda con foco y su cursor parpadea arriba a la izquierda). Se excluye
+// cada panel y su botón disparador para no cerrarlos en el mismo clic que los abre.
+const SEL_PANELES = '#menu-figura, #panel-iconos, #panel-imagen, #panel-gfonts, #panel-tamano'
+const SEL_DISPARADORES = '#btn-add-figura, #btn-add-icono, #btn-add-img, #btn-tamano, #bt-gfonts'
+document.addEventListener('pointerdown', (e) => {
+  const t = e.target as Element | null
+  if (!t || t.closest(SEL_PANELES) || t.closest(SEL_DISPARADORES)) return
+  cerrarPanelesFlotantes()
+}, true)
 inImgNueva.addEventListener('change', async () => {
   const file = inImgNueva.files?.[0]
   if (!file) return
