@@ -471,6 +471,7 @@ app.innerHTML = `
   <div id="panel-export" hidden>
     <div class="pe-head">
       <span>PNG exportado (resvg)</span>
+      <label class="pe-transp" title="Oculta el fondo a sangre de la placa para que el PNG quede transparente"><input type="checkbox" id="pe-transparente"> Fondo transparente</label>
       <a id="pe-descargar" download>Descargar</a>
       <button id="pe-cerrar" class="mini">Cerrar</button>
     </div>
@@ -486,6 +487,7 @@ const inFoto = document.querySelector<HTMLInputElement>('#in-foto')!
 const panelExport = document.querySelector<HTMLDivElement>('#panel-export')!
 const peImg = document.querySelector<HTMLImageElement>('#pe-img')!
 const peDescargar = document.querySelector<HTMLAnchorElement>('#pe-descargar')!
+const peTransparente = document.querySelector<HTMLInputElement>('#pe-transparente')!
 const inImgNueva = document.querySelector<HTMLInputElement>('#in-img-nueva')!
 const barraTexto = document.querySelector<HTMLDivElement>('#barra-texto')!
 const btSize = document.querySelector<HTMLSpanElement>('#bt-size')!
@@ -4109,14 +4111,34 @@ async function ejecutarQuitarFondo(src: string, aplicar: (foto: Foto) => void, b
 // ---------------------------------------------------------------
 //  Exportar (resvg)
 // ---------------------------------------------------------------
-btnExport.addEventListener('click', async () => {
+// Elementos "a sangre" (fondo de la placa): los que cubren ≥90% del SVG en
+// pantalla. Robusto ante grupos anidados/escalados (usa rects de pantalla). Se
+// ocultan para exportar con fondo transparente.
+function elementosFondoASangre(): SVGElement[] {
+  if (!svgEl) return []
+  const sr = svgEl.getBoundingClientRect()
+  const areaSvg = sr.width * sr.height || 1
+  const out: SVGElement[] = []
+  for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('rect, path, image, polygon, circle, ellipse'))) {
+    const r = el.getBoundingClientRect()
+    if ((r.width * r.height) / areaSvg >= 0.9) out.push(el)
+  }
+  return out
+}
+
+async function exportarPNG(): Promise<void> {
   try {
     cerrarEditor()
     if (!svgEl) return
+    const transp = peTransparente.checked
     estado.textContent = 'Exportando…'
+    // Fondo transparente: ocultar el fondo a sangre mientras serializamos.
+    const ocultados: SVGElement[] = []
+    if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
     // Exportamos EXACTAMENTE el SVG vivo (ya tiene wrap + shrink + foto aplicados),
     // así el PNG es idéntico a lo que se ve en el editor.
     const svg = new XMLSerializer().serializeToString(svgEl)
+    for (const el of ocultados) el.style.display = '' // restaurar el editor
     // Ancho de export = ancho del lienzo (viewBox), acotado para no exagerar.
     const vbW = svgEl.viewBox.baseVal.width || 1080
     const anchoExport = Math.round(Math.min(2480, Math.max(1080, vbW)))
@@ -4124,14 +4146,17 @@ btnExport.addEventListener('click', async () => {
     const url = URL.createObjectURL(blob)
     peImg.src = url
     peDescargar.href = url
-    peDescargar.setAttribute('download', `${nombreCorto(plantillaActual)}.png`)
+    peDescargar.setAttribute('download', `${nombreCorto(plantillaActual)}${transp ? '-transparente' : ''}.png`)
     panelExport.hidden = false
-    estado.textContent = 'PNG exportado.'
+    estado.textContent = transp ? 'PNG exportado (fondo transparente).' : 'PNG exportado.'
   } catch (err) {
     estado.textContent = '❌ ' + (err instanceof Error ? err.message : String(err))
     console.error(err)
   }
-})
+}
+btnExport.addEventListener('click', () => void exportarPNG())
+// Re-render al cambiar el modo transparente (si el panel ya está abierto).
+peTransparente.addEventListener('change', () => { if (!panelExport.hidden) void exportarPNG() })
 
 // --- ZIP (modo store, sin compresión: los PNG ya están comprimidos) ---
 function crc32(buf: Uint8Array): number {
