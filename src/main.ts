@@ -4192,6 +4192,78 @@ function inpaintPullPush(d: Uint8ClampedArray, w: number, h: number): void {
   }
 }
 
+// Relleno generativo con IA local: modelo MI-GAN (migan_pipeline_v2.onnx) corrido
+// con onnxruntime-web. Reconstruye con TEXTURA (mejor que pull-push) y sigue 100%
+// en el navegador. Import diferido + sesión cacheada; la 1.ª vez baja el modelo.
+let miganSesion: Promise<{ ort: typeof import('onnxruntime-web'); sesion: import('onnxruntime-web').InferenceSession }> | null = null
+function cargarMigan() {
+  if (!miganSesion) miganSesion = (async () => {
+    const ort = await import('onnxruntime-web')
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/'
+    ort.env.wasm.numThreads = 1
+    const url = 'https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx'
+    const sesion = await ort.InferenceSession.create(url, { executionProviders: ['webgpu', 'wasm'] })
+    return { ort, sesion }
+  })()
+  return miganSesion
+}
+async function rellenarConIA(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D): Promise<'ok' | 'vacio' | 'error'> {
+  const w = cv.width, h = cv.height
+  const data = ctx.getImageData(0, 0, w, h), d = data.data
+  let minx = w, miny = h, maxx = -1, maxy = -1
+  for (let i = 0; i < w * h; i++) if (d[i * 4 + 3] === 0) { const x = i % w, y = (i / w) | 0; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y }
+  if (maxx < 0) return 'vacio'
+  try {
+    const M = 512
+    // Ventana cuadrada centrada en el hueco con margen de contexto (mejor detalle
+    // que mandar la imagen entera reducida a 512).
+    const bw = maxx - minx + 1, bh = maxy - miny + 1
+    const side = Math.min(w, h, Math.round(Math.max(bw, bh) * 2 + 32))
+    const cx = (minx + maxx) / 2, cy = (miny + maxy) / 2
+    const sx = Math.max(0, Math.min(Math.round(cx - side / 2), w - side))
+    const sy = Math.max(0, Math.min(Math.round(cy - side / 2), h - side))
+    const tmp = document.createElement('canvas'); tmp.width = M; tmp.height = M
+    const tctx = tmp.getContext('2d')!
+    tctx.drawImage(cv, sx, sy, side, side, 0, 0, M, M)
+    const crop = tctx.getImageData(0, 0, M, M).data
+    const imgArr = new Uint8Array(3 * M * M), maskArr = new Uint8Array(M * M)
+    for (let p = 0; p < M * M; p++) {
+      imgArr[p] = crop[p * 4]; imgArr[M * M + p] = crop[p * 4 + 1]; imgArr[2 * M * M + p] = crop[p * 4 + 2]
+      maskArr[p] = crop[p * 4 + 3] === 0 ? 0 : 255 // 255 conservar, 0 rellenar
+    }
+    const { ort, sesion } = await cargarMigan()
+    const feeds: Record<string, import('onnxruntime-web').Tensor> = {}
+    feeds[sesion.inputNames[0]] = new ort.Tensor('uint8', imgArr, [1, 3, M, M])
+    feeds[sesion.inputNames[1]] = new ort.Tensor('uint8', maskArr, [1, 1, M, M])
+    const out = await sesion.run(feeds)
+    const o = Object.values(out)[0]
+    const dims = o.dims as number[], od = o.data as Uint8Array | Float32Array
+    const esFloat = o.type === 'float32'
+    const val = (k: number) => { const v = esFloat ? (od[k] as number) * 255 : od[k] as number; return v < 0 ? 0 : v > 255 ? 255 : v }
+    const hwc = dims.length === 4 && dims[3] === 3
+    const outImg = tctx.createImageData(M, M)
+    for (let p = 0; p < M * M; p++) {
+      const r = hwc ? val(p * 3) : val(p)
+      const g = hwc ? val(p * 3 + 1) : val(M * M + p)
+      const b = hwc ? val(p * 3 + 2) : val(2 * M * M + p)
+      outImg.data[p * 4] = r; outImg.data[p * 4 + 1] = g; outImg.data[p * 4 + 2] = b; outImg.data[p * 4 + 3] = 255
+    }
+    tctx.putImageData(outImg, 0, 0)
+    const res = document.createElement('canvas'); res.width = side; res.height = side
+    const rctx = res.getContext('2d')!; rctx.drawImage(tmp, 0, 0, M, M, 0, 0, side, side)
+    const rd = rctx.getImageData(0, 0, side, side).data
+    for (let yy = 0; yy < side; yy++) for (let xx = 0; xx < side; xx++) {
+      const gi = (sy + yy) * w + (sx + xx)
+      if (d[gi * 4 + 3] === 0) { const ri = (yy * side + xx) * 4; d[gi * 4] = rd[ri]; d[gi * 4 + 1] = rd[ri + 1]; d[gi * 4 + 2] = rd[ri + 2]; d[gi * 4 + 3] = 255 }
+    }
+    ctx.putImageData(data, 0, 0)
+    return 'ok'
+  } catch (e) {
+    console.error('inpaint IA:', e)
+    return 'error'
+  }
+}
+
 function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   const overlay = document.createElement('div')
   overlay.className = 'imged-overlay'
@@ -4415,13 +4487,14 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
 
   // ---- UI: barra de herramientas + opciones contextuales ----
   const setPanel = (p: PanelImg) => { panel = p; cropRect = null; cropIni = null; sel.hidden = true; pintarBarra(); pintarOpts() }
-  type Accion = 'rellenar' | 'voltearH' | 'voltearV' | 'rotar'
+  type Accion = 'rellenar' | 'rellenarIA' | 'voltearH' | 'voltearV' | 'rotar'
   const tools: [PanelImg | Accion, string, string][] = [
     ['magico', '✨ Borrador mágico', 'Clic para borrar una zona de color similar'],
     ['lazo', '🔗 Lazo', 'Dibujá una selección libre para borrar lo de adentro'],
     ['borrar', '🧽 Borrador', 'Pincel para borrar a mano'],
     ['restaurar', '↩ Restaurar', 'Pincel para traer de vuelta lo borrado'],
-    ['rellenar', '🪄 Rellenar', 'Rellenar por contexto lo borrado (con el entorno)'],
+    ['rellenar', '🪄 Rellenar', 'Rellenar por contexto lo borrado (rápido, con el entorno)'],
+    ['rellenarIA', '✨ Rellenar IA', 'Relleno generativo con IA local (mejor textura; baja el modelo la 1.ª vez)'],
     ['recortar', '⃞ Recortar', 'Arrastrá para elegir el área'],
     ['ajustes', '🎚 Ajustes', 'Brillo, contraste, saturación'],
     ['filtros', '🎨 Filtros', 'B&N, sepia, vintage…'],
@@ -4429,15 +4502,24 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     ['voltearV', '⇅', 'Voltear vertical'],
     ['rotar', '⟳', 'Rotar 90°'],
   ]
-  const acciones: Accion[] = ['rellenar', 'voltearH', 'voltearV', 'rotar']
+  const acciones: Accion[] = ['rellenar', 'rellenarIA', 'voltearH', 'voltearV', 'rotar']
+  let procesandoIA = false
   const pintarBarra = () => {
     toolsBar.innerHTML = ''
     for (const [id, label, tip] of tools) {
       const b = document.createElement('button')
       const esAccion = (acciones as string[]).includes(id)
       b.className = 'imged-tbtn' + (!esAccion && id === panel ? ' activo' : ''); b.textContent = label; b.title = tip
-      b.addEventListener('click', () => {
+      b.addEventListener('click', async () => {
         if (id === 'rellenar') { if (!rellenarTransparente()) estadoEd.textContent = 'No hay nada borrado para rellenar' }
+        else if (id === 'rellenarIA') {
+          if (procesandoIA) return
+          procesandoIA = true; b.disabled = true; const t0 = b.textContent
+          estadoEd.textContent = 'Rellenando con IA… (la 1.ª vez descarga el modelo, puede tardar)'
+          const r = await rellenarConIA(cv, ctx)
+          estadoEd.textContent = r === 'ok' ? 'Relleno con IA listo ✓' : r === 'vacio' ? 'No hay nada borrado para rellenar' : 'No se pudo rellenar con IA (ver consola)'
+          procesandoIA = false; b.disabled = false; b.textContent = t0 ?? '✨ Rellenar IA'
+        }
         else if (id === 'voltearH') voltear('h')
         else if (id === 'voltearV') voltear('v')
         else if (id === 'rotar') rotar()
