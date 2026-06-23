@@ -3499,6 +3499,9 @@ function construirOverlays(): void {
       crearBotonEliminar(r, () => { im.remove(); construirOverlays() }),
       crearTiradorResize(r, im),
       crearBotonMascara(r, im),
+      crearBotonQuitarFondo(r,
+        () => im.getAttribute('href') || im.getAttributeNS(XLINK, 'href') || '',
+        (foto) => { im.setAttribute('href', foto.dataUrl); im.setAttributeNS(XLINK, 'xlink:href', foto.dataUrl) }),
       ...handlesMascara(im, base),
     ]
     for (const c of ctrls) lienzo.appendChild(c)
@@ -3547,6 +3550,18 @@ function revelarAlHover(hit: HTMLElement, ctrls: HTMLElement[]): void {
     n.addEventListener('pointerenter', mostrar)
     n.addEventListener('pointerleave', ocultar)
   }
+}
+
+// Botón "Quitar fondo" (abajo-izquierda de la imagen). getSrc lee la URL actual;
+// aplicar recibe la foto ya procesada (PNG con alfa) y la coloca donde corresponda.
+function crearBotonQuitarFondo(r: Rect, getSrc: () => string, aplicar: (f: Foto) => void): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.className = 'btn-quitarfondo'
+  b.textContent = 'Quitar fondo'
+  b.title = 'Quitar el fondo de la imagen (IA, corre en tu navegador)'
+  Object.assign(b.style, { left: r.left - 2 + 'px', top: r.top + r.height + 4 + 'px' })
+  b.addEventListener('click', (e) => { e.stopPropagation(); void ejecutarQuitarFondo(getSrc(), aplicar, b) })
+  return b
 }
 
 // Botón ✕ para eliminar un elemento agregado (esquina sup. derecha de su caja).
@@ -3734,6 +3749,17 @@ function construirFotoTools(id: string, r: Rect): void {
   opac.addEventListener('input', () => { imgFoto?.setAttribute('opacity', opac.value) })
   opac.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   zoomSlider = slider
+  if (fotos[id]) {
+    const qf = document.createElement('button')
+    qf.className = 'mini ft-fondo'; qf.textContent = 'Quitar fondo'
+    qf.title = 'Quitar el fondo de la foto (IA, corre en tu navegador)'
+    qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, (foto) => {
+      fotos[id] = foto
+      const fr = framesFoto[id], enc = encuadreDe(id)
+      if (fr && svgEl) { const c = aplicarFotoDom(svgEl, id, foto, fr, enc); enc.ox = c.ox; enc.oy = c.oy }
+    }, qf))
+    tools.appendChild(qf)
+  }
   lienzo.appendChild(tools)
 }
 
@@ -4047,6 +4073,37 @@ function leerFoto(file: File): Promise<Foto> {
     }
     reader.readAsDataURL(file)
   })
+}
+
+// ---------------------------------------------------------------
+//  Quitar fondo (segmentación con IA, 100% en el navegador)
+// ---------------------------------------------------------------
+// Usa @imgly/background-removal (modelo U2Net). Se importa de forma diferida para
+// no inflar el bundle; la 1ª vez descarga el modelo (~40 MB) y lo cachea. La
+// imagen nunca sale del navegador. Devuelve un PNG con alfa (vía leerFoto).
+let quitandoFondo = false
+async function ejecutarQuitarFondo(src: string, aplicar: (foto: Foto) => void, btn?: HTMLButtonElement): Promise<void> {
+  if (quitandoFondo) return
+  if (!src) { alert('No hay imagen para procesar.'); return }
+  quitandoFondo = true
+  const txt = btn?.textContent ?? ''
+  if (btn) { btn.disabled = true; btn.textContent = 'Quitando…' }
+  estado.textContent = 'Quitando el fondo… (la 1.ª vez descarga el modelo, puede tardar)'
+  try {
+    const { removeBackground } = await import('@imgly/background-removal')
+    const blob = await removeBackground(src)
+    const foto = await leerFoto(new File([blob], 'sinfondo.png', { type: 'image/png' }))
+    aplicar(foto)
+    registrarHistorial(); autoguardar()
+    estado.textContent = 'Fondo quitado ✓'
+  } catch (e) {
+    console.error('quitar fondo:', e)
+    estado.textContent = 'No se pudo quitar el fondo'
+    alert('No se pudo quitar el fondo: ' + (e as Error).message)
+  } finally {
+    quitandoFondo = false
+    if (btn) { btn.disabled = false; btn.textContent = txt }
+  }
 }
 
 // ---------------------------------------------------------------

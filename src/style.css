@@ -477,6 +477,7 @@ body {
 #lienzo.arrastrando .resize-ancho,
 #lienzo.arrastrando .swatch-figura,
 #lienzo.arrastrando .btn-candado,
+#lienzo.arrastrando .btn-quitarfondo,
 #lienzo.arrastrando .mascara-wrap,
 #lienzo.arrastrando .mask-handle {
   opacity: 0;
@@ -557,6 +558,24 @@ body {
 }
 .btn-mascara:hover { border-color: var(--accent); }
 .mascara-pop { top: 26px; left: 0; }
+
+/* Botón "Quitar fondo" (abajo-izquierda de la imagen) */
+.btn-quitarfondo {
+  position: absolute;
+  z-index: 5;
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #131a26;
+  color: var(--text);
+  font: 600 11px/1 system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.btn-quitarfondo:hover { border-color: var(--accent); }
+.btn-quitarfondo:disabled { opacity: 0.7; cursor: progress; }
+.foto-tools .ft-fondo { cursor: pointer; }
 
 /* Handles de la máscara (mover / redimensionar el recorte) */
 .mask-handle {
