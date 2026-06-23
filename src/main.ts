@@ -4139,7 +4139,59 @@ async function ejecutarQuitarFondo(src: string, aplicar: (foto: Foto) => void, b
 // snap = copia para "Restaurar". Los ajustes (brillo/contraste/saturación) se
 // previsualizan con filtro CSS y se hornean al aplicar; los filtros y las ops
 // geométricas se hornean en cv (y snap) al instante.
-type PanelImg = 'magico' | 'borrar' | 'restaurar' | 'recortar' | 'ajustes' | 'filtros'
+type PanelImg = 'magico' | 'lazo' | 'borrar' | 'restaurar' | 'recortar' | 'ajustes' | 'filtros'
+
+// Relleno por contexto (content-aware) de los píxeles transparentes (alpha=0):
+// algoritmo pull-push (pirámide gaussiana con pesos). Reconstruye el fondo a
+// partir de lo que rodea el hueco. Rápido y sin servidor; ideal para fondos
+// relativamente uniformes y objetos chicos/medianos (no inventa contenido nuevo).
+function inpaintPullPush(d: Uint8ClampedArray, w: number, h: number): void {
+  interface Nivel { w: number; h: number; r: Float32Array; g: Float32Array; b: Float32Array; wt: Float32Array }
+  const L0: Nivel = { w, h, r: new Float32Array(w * h), g: new Float32Array(w * h), b: new Float32Array(w * h), wt: new Float32Array(w * h) }
+  for (let i = 0; i < w * h; i++) if (d[i * 4 + 3] > 0) { L0.r[i] = d[i * 4]; L0.g[i] = d[i * 4 + 1]; L0.b[i] = d[i * 4 + 2]; L0.wt[i] = 1 }
+  const niveles: Nivel[] = [L0]
+  // Pull: bajar resolución promediando por peso, hasta 1×1.
+  while (niveles[niveles.length - 1].w > 1 || niveles[niveles.length - 1].h > 1) {
+    const p = niveles[niveles.length - 1]
+    const nw = Math.max(1, Math.ceil(p.w / 2)), nh = Math.max(1, Math.ceil(p.h / 2))
+    const n: Nivel = { w: nw, h: nh, r: new Float32Array(nw * nh), g: new Float32Array(nw * nh), b: new Float32Array(nw * nh), wt: new Float32Array(nw * nh) }
+    for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
+      let r = 0, g = 0, b = 0, ws = 0, cnt = 0
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+        const sx = x * 2 + dx, sy = y * 2 + dy
+        if (sx >= p.w || sy >= p.h) continue
+        const si = sy * p.w + sx, wv = p.wt[si]; cnt++
+        r += p.r[si] * wv; g += p.g[si] * wv; b += p.b[si] * wv; ws += wv
+      }
+      const ni = y * nw + x
+      if (ws > 0) { n.r[ni] = r / ws; n.g[ni] = g / ws; n.b[ni] = b / ws; n.wt[ni] = Math.min(1, ws / cnt) }
+    }
+    niveles.push(n)
+  }
+  // Push: subir resolución rellenando los huecos con interpolación bilineal.
+  const muestra = (L: Nivel, fx: number, fy: number, ch: Float32Array): number => {
+    const gx = Math.min(L.w - 1, Math.max(0, fx * 0.5)), gy = Math.min(L.h - 1, Math.max(0, fy * 0.5))
+    const x0 = Math.floor(gx), y0 = Math.floor(gy), x1 = Math.min(L.w - 1, x0 + 1), y1 = Math.min(L.h - 1, y0 + 1)
+    const tx = gx - x0, ty = gy - y0
+    const a = ch[y0 * L.w + x0], b2 = ch[y0 * L.w + x1], c = ch[y1 * L.w + x0], e = ch[y1 * L.w + x1]
+    return (a * (1 - tx) + b2 * tx) * (1 - ty) + (c * (1 - tx) + e * tx) * ty
+  }
+  for (let l = niveles.length - 2; l >= 0; l--) {
+    const cur = niveles[l], coarse = niveles[l + 1]
+    for (let y = 0; y < cur.h; y++) for (let x = 0; x < cur.w; x++) {
+      const i = y * cur.w + x, keep = cur.wt[i]
+      if (keep >= 0.999) continue
+      cur.r[i] = cur.r[i] * keep + muestra(coarse, x, y, coarse.r) * (1 - keep)
+      cur.g[i] = cur.g[i] * keep + muestra(coarse, x, y, coarse.g) * (1 - keep)
+      cur.b[i] = cur.b[i] * keep + muestra(coarse, x, y, coarse.b) * (1 - keep)
+      cur.wt[i] = 1
+    }
+  }
+  for (let i = 0; i < w * h; i++) if (d[i * 4 + 3] === 0) {
+    d[i * 4] = L0.r[i]; d[i * 4 + 1] = L0.g[i]; d[i * 4 + 2] = L0.b[i]; d[i * 4 + 3] = 255
+  }
+}
+
 function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   const overlay = document.createElement('div')
   overlay.className = 'imged-overlay'
@@ -4151,12 +4203,14 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
       </div>
       <div class="imged-tools"></div>
       <div class="imged-opts"></div>
-      <div class="imged-stage"><canvas class="imged-cv"></canvas><div class="imged-sel" hidden></div></div>
+      <div class="imged-stage"><canvas class="imged-cv"></canvas><canvas class="imged-lazo"></canvas><div class="imged-sel" hidden></div></div>
     </div>`
   document.body.appendChild(overlay)
   const q = <T extends Element>(s: string) => overlay.querySelector<T>(s)!
   const cv = q<HTMLCanvasElement>('.imged-cv')
   const ctx = cv.getContext('2d', { willReadFrequently: true })!
+  const lazoCv = q<HTMLCanvasElement>('.imged-lazo')
+  const lctx = lazoCv.getContext('2d')!
   const sel = q<HTMLDivElement>('.imged-sel')
   const stage = q<HTMLDivElement>('.imged-stage')
   const opts = q<HTMLDivElement>('.imged-opts')
@@ -4167,12 +4221,32 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   const adj = { b: 1, c: 1, s: 1 }
   let panel: PanelImg = 'magico'
   let brush = 40, tol = 30
+  let lazoRellena = false, lazoInvierte = false
   let cargada = false
 
   const render = () => { cv.style.filter = `brightness(${adj.b}) contrast(${adj.c}) saturate(${adj.s})` }
+  // Posiciona el canvas del lazo exactamente sobre cv (misma escala/offset).
+  const posLazo = () => {
+    const r = cv.getBoundingClientRect(), sr = stage.getBoundingClientRect()
+    if (lazoCv.width !== cv.width || lazoCv.height !== cv.height) { lazoCv.width = cv.width; lazoCv.height = cv.height }
+    lazoCv.style.left = (r.left - sr.left) + 'px'; lazoCv.style.top = (r.top - sr.top) + 'px'
+    lazoCv.style.width = r.width + 'px'; lazoCv.style.height = r.height + 'px'
+  }
   const ajustarStage = () => {
     const k = Math.min(stage.clientWidth / cv.width, stage.clientHeight / cv.height)
     cv.style.width = cv.width * k + 'px'; cv.style.height = cv.height * k + 'px'
+    posLazo()
+  }
+  // Rellena por contexto los píxeles transparentes (alpha=0). Devuelve false si
+  // no había nada borrado.
+  const rellenarTransparente = (): boolean => {
+    const data = ctx.getImageData(0, 0, cv.width, cv.height)
+    let hay = false
+    for (let i = 3; i < data.data.length; i += 4) if (data.data[i] === 0) { hay = true; break }
+    if (!hay) return false
+    inpaintPullPush(data.data, cv.width, cv.height)
+    ctx.putImageData(data, 0, 0)
+    return true
   }
   // Reemplaza el contenido de cv y snap por canvases nuevos (ops geométricas).
   const reemplazar = (nuevoCv: HTMLCanvasElement, nuevoSnap: HTMLCanvasElement) => {
@@ -4238,12 +4312,38 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
       }
     }
   }
-  let pintando = false, ult: { x: number; y: number } | null = null
+  // ---- Lazo: selección libre ----
+  let lazoPts: { x: number; y: number }[] = []
+  const dibujarLazoPreview = () => {
+    lctx.clearRect(0, 0, lazoCv.width, lazoCv.height)
+    if (lazoPts.length < 2) return
+    lctx.beginPath(); lctx.moveTo(lazoPts[0].x, lazoPts[0].y)
+    for (let i = 1; i < lazoPts.length; i++) lctx.lineTo(lazoPts[i].x, lazoPts[i].y)
+    lctx.closePath()
+    lctx.fillStyle = 'rgba(56,189,248,0.15)'; lctx.fill()
+    lctx.lineWidth = Math.max(1.5, cv.width / 500); lctx.strokeStyle = '#38bdf8'; lctx.setLineDash([7, 5]); lctx.stroke()
+  }
+  const aplicarLazo = () => {
+    if (lazoPts.length >= 3) {
+      ctx.save(); ctx.globalCompositeOperation = 'destination-out'
+      ctx.beginPath(); ctx.moveTo(lazoPts[0].x, lazoPts[0].y)
+      for (let i = 1; i < lazoPts.length; i++) ctx.lineTo(lazoPts[i].x, lazoPts[i].y)
+      ctx.closePath()
+      if (lazoInvierte) { ctx.rect(0, 0, cv.width, cv.height); ctx.fill('evenodd') } // borra afuera
+      else ctx.fill()
+      ctx.restore()
+      if (lazoRellena && !lazoInvierte) rellenarTransparente()
+    }
+    lazoPts = []; lctx.clearRect(0, 0, lazoCv.width, lazoCv.height)
+  }
+
+  let pintando = false, lazando = false, ult: { x: number; y: number } | null = null
   let cropIni: { x: number; y: number } | null = null, cropRect: { x: number; y: number; w: number; h: number } | null = null
   cv.addEventListener('pointerdown', (e) => {
     if (!cargada) return
     const p = aPx(e)
     if (panel === 'magico') { borradorMagico(p.x, p.y); return }
+    if (panel === 'lazo') { lazando = true; lazoPts = [p]; cv.setPointerCapture(e.pointerId); return }
     if (panel === 'recortar') { cropIni = p; cropRect = null; cv.setPointerCapture(e.pointerId); return }
     if (panel === 'borrar' || panel === 'restaurar') {
       pintando = true; ult = p; trazo(p.x, p.y, p.x, p.y, panel); cv.setPointerCapture(e.pointerId)
@@ -4252,13 +4352,17 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   cv.addEventListener('pointermove', (e) => {
     if (!cargada) return
     const p = aPx(e)
+    if (lazando && panel === 'lazo') { lazoPts.push(p); dibujarLazoPreview(); return }
     if (cropIni && panel === 'recortar') {
       cropRect = { x: Math.min(cropIni.x, p.x), y: Math.min(cropIni.y, p.y), w: Math.abs(p.x - cropIni.x), h: Math.abs(p.y - cropIni.y) }
       dibujarSel(); return
     }
     if (pintando && ult) { trazo(ult.x, ult.y, p.x, p.y, panel as 'borrar' | 'restaurar'); ult = p }
   })
-  const finPuntero = () => { pintando = false; ult = null; cropIni = null }
+  const finPuntero = () => {
+    if (lazando) { lazando = false; aplicarLazo() }
+    pintando = false; ult = null; cropIni = null
+  }
   cv.addEventListener('pointerup', finPuntero)
   cv.addEventListener('pointercancel', finPuntero)
 
@@ -4311,10 +4415,13 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
 
   // ---- UI: barra de herramientas + opciones contextuales ----
   const setPanel = (p: PanelImg) => { panel = p; cropRect = null; cropIni = null; sel.hidden = true; pintarBarra(); pintarOpts() }
-  const tools: [PanelImg | 'voltearH' | 'voltearV' | 'rotar', string, string][] = [
+  type Accion = 'rellenar' | 'voltearH' | 'voltearV' | 'rotar'
+  const tools: [PanelImg | Accion, string, string][] = [
     ['magico', '✨ Borrador mágico', 'Clic para borrar una zona de color similar'],
+    ['lazo', '🔗 Lazo', 'Dibujá una selección libre para borrar lo de adentro'],
     ['borrar', '🧽 Borrador', 'Pincel para borrar a mano'],
     ['restaurar', '↩ Restaurar', 'Pincel para traer de vuelta lo borrado'],
+    ['rellenar', '🪄 Rellenar', 'Rellenar por contexto lo borrado (con el entorno)'],
     ['recortar', '⃞ Recortar', 'Arrastrá para elegir el área'],
     ['ajustes', '🎚 Ajustes', 'Brillo, contraste, saturación'],
     ['filtros', '🎨 Filtros', 'B&N, sepia, vintage…'],
@@ -4322,16 +4429,19 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     ['voltearV', '⇅', 'Voltear vertical'],
     ['rotar', '⟳', 'Rotar 90°'],
   ]
+  const acciones: Accion[] = ['rellenar', 'voltearH', 'voltearV', 'rotar']
   const pintarBarra = () => {
     toolsBar.innerHTML = ''
     for (const [id, label, tip] of tools) {
       const b = document.createElement('button')
-      b.className = 'imged-tbtn' + (id === panel ? ' activo' : ''); b.textContent = label; b.title = tip
+      const esAccion = (acciones as string[]).includes(id)
+      b.className = 'imged-tbtn' + (!esAccion && id === panel ? ' activo' : ''); b.textContent = label; b.title = tip
       b.addEventListener('click', () => {
-        if (id === 'voltearH') voltear('h')
+        if (id === 'rellenar') { if (!rellenarTransparente()) estadoEd.textContent = 'No hay nada borrado para rellenar' }
+        else if (id === 'voltearH') voltear('h')
         else if (id === 'voltearV') voltear('v')
         else if (id === 'rotar') rotar()
-        else setPanel(id)
+        else setPanel(id as PanelImg)
       })
       toolsBar.appendChild(b)
     }
@@ -4348,6 +4458,17 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     if (panel === 'magico') {
       opts.appendChild(slider('Tolerancia', 1, 100, 1, tol, (v) => { tol = v }))
       const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Tip: clic en el fondo. Más tolerancia = borra colores más distintos.'
+      opts.appendChild(h)
+    } else if (panel === 'lazo') {
+      const chk = (label: string, val: boolean, on: (v: boolean) => void): HTMLLabelElement => {
+        const l = document.createElement('label'); l.className = 'imged-chk'
+        const i = document.createElement('input'); i.type = 'checkbox'; i.checked = val
+        i.addEventListener('change', () => on(i.checked))
+        l.append(i, document.createTextNode(' ' + label)); return l
+      }
+      opts.appendChild(chk('Rellenar por contexto al borrar', lazoRellena, (v) => { lazoRellena = v }))
+      opts.appendChild(chk('Invertir (dejar solo la selección)', lazoInvierte, (v) => { lazoInvierte = v }))
+      const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Dibujá alrededor de lo que querés borrar y soltá.'
       opts.appendChild(h)
     } else if (panel === 'borrar' || panel === 'restaurar') {
       opts.appendChild(slider('Tamaño', 5, 200, 1, brush, (v) => { brush = v }))
