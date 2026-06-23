@@ -3002,17 +3002,32 @@ function dibujarSelGraf(): void {
 
   const multi = grafSeleccion.length > 1
   const cs = getComputedStyle(grafSeleccion[0])
-  const fill = document.createElement('label'); fill.title = 'Relleno'; fill.className = 'graf-color'
-  const fi = document.createElement('input'); fi.type = 'color'
-  fi.value = cs.fill && cs.fill !== 'none' ? aHex(cs.fill) : '#ffffff'
-  fi.addEventListener('input', () => { for (const el of grafSeleccion) el.style.fill = fi.value; registrarHistorial(); autoguardar() })
-  fill.appendChild(fi)
-
-  const stroke = document.createElement('label'); stroke.title = 'Contorno'; stroke.className = 'graf-color graf-stroke'
-  const si = document.createElement('input'); si.type = 'color'
-  si.value = cs.stroke && cs.stroke !== 'none' ? aHex(cs.stroke) : '#000000'
-  si.addEventListener('input', () => { for (const el of grafSeleccion) el.style.stroke = si.value; registrarHistorial(); autoguardar() })
-  stroke.appendChild(si)
+  // Swatch con color + botón "∅" para vaciarlo (sin relleno / sin contorno).
+  const swatch = (titulo: string, esStroke: boolean, cur: string, def: string, set: (v: string) => void): HTMLLabelElement => {
+    const vacio = !cur || cur === 'none' || cur === 'rgba(0, 0, 0, 0)' || cur === 'transparent'
+    const lab = document.createElement('label'); lab.title = titulo
+    lab.className = 'graf-color' + (esStroke ? ' graf-stroke' : '') + (vacio ? ' vacio' : '')
+    const inp = document.createElement('input'); inp.type = 'color'
+    inp.value = !vacio ? aHex(cur) : def
+    inp.addEventListener('input', () => {
+      lab.classList.remove('vacio')
+      set(inp.value)
+      registrarHistorial(); autoguardar()
+    })
+    const x = document.createElement('button'); x.className = 'graf-vaciar'; x.textContent = '∅'
+    x.title = esStroke ? 'Sin contorno' : 'Relleno transparente'
+    x.addEventListener('pointerdown', (e) => e.stopPropagation())
+    x.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation()
+      lab.classList.add('vacio')
+      set('none')
+      registrarHistorial(); autoguardar()
+    })
+    lab.append(inp, x)
+    return lab
+  }
+  const fill = swatch('Relleno', false, cs.fill, '#ffffff', (v) => { for (const el of grafSeleccion) el.style.fill = v })
+  const stroke = swatch('Contorno', true, cs.stroke, '#000000', (v) => { for (const el of grafSeleccion) el.style.stroke = v })
   tools.append(fill, stroke)
 
   // Opacidad (0 = transparente, 1 = sólido). Aplica a toda la selección.
@@ -3249,10 +3264,12 @@ function crearSwatch(r: Rect, el: SVGElement, prop: 'fill' | 'stroke', idx: numb
   Object.assign(wrap.style, { left: r.left - 2 + idx * 84 + 'px', top: r.top - 30 + 'px' })
   const actual = el.getAttribute(prop) || ''
   const sinColor = !actual || actual === 'none'
+  if (sinColor) wrap.classList.add('vacio')
   const inp = document.createElement('input')
   inp.type = 'color'
   inp.value = sinColor ? (prop === 'fill' ? '#38bdf8' : '#06121c') : aHex(actual)
   inp.addEventListener('input', () => {
+    wrap.classList.remove('vacio')
     el.setAttribute(prop, inp.value)
     // El contorno necesita un ancho para verse; si no lo tiene, darle uno.
     if (prop === 'stroke' && !el.getAttribute('stroke-width')) el.setAttribute('stroke-width', '4')
@@ -3262,8 +3279,20 @@ function crearSwatch(r: Rect, el: SVGElement, prop: 'fill' | 'stroke', idx: numb
   const cap = document.createElement('span')
   cap.className = 'swatch-cap'
   cap.textContent = prop === 'fill' ? 'Relleno' : 'Contorno'
+  // Botón para vaciar: relleno transparente / sin contorno.
+  const x = document.createElement('button')
+  x.className = 'swatch-vaciar'; x.textContent = '∅'
+  x.title = prop === 'fill' ? 'Relleno transparente' : 'Sin contorno'
+  x.addEventListener('pointerdown', (e) => e.stopPropagation())
+  x.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation()
+    wrap.classList.add('vacio')
+    el.setAttribute(prop, 'none')
+    registrarHistorial()
+  })
   wrap.appendChild(inp)
   wrap.appendChild(cap)
+  wrap.appendChild(x)
   return wrap
 }
 

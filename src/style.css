@@ -716,6 +716,7 @@ body {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
 }
+.graf-color { position: relative; display: inline-flex; }
 .graf-color input[type='color'] {
   width: 24px;
   height: 24px;
@@ -724,6 +725,28 @@ body {
   border-radius: 5px;
   background: #0b1018;
   cursor: pointer;
+}
+/* Botón para vaciar el swatch (sin relleno / sin contorno). */
+.graf-vaciar {
+  position: absolute;
+  top: -6px; right: -6px;
+  width: 15px; height: 15px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: #0b1018;
+  color: var(--text);
+  font-size: 10px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.graf-vaciar:hover { border-color: var(--accent); color: var(--accent); }
+/* Estado "ninguno": el swatch muestra blanco con diagonal roja. */
+.graf-color.vacio input[type='color']::-webkit-color-swatch {
+  background: linear-gradient(to top right,
+    #fff calc(50% - 1px), #e0245e calc(50% - 1px),
+    #e0245e calc(50% + 1px), #fff calc(50% + 1px));
+  border: 1px solid var(--border);
 }
 .graf-del {
   width: 24px;
@@ -876,6 +899,25 @@ body {
   color: #cfe6f5;
   white-space: nowrap;
   user-select: none;
+}
+.swatch-vaciar {
+  flex: 0 0 auto;
+  width: 16px; height: 16px;
+  padding: 0;
+  border: 1px solid #06121c;
+  border-radius: 50%;
+  background: #131a26;
+  color: #cfe6f5;
+  font-size: 11px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.swatch-vaciar:hover { color: var(--accent); border-color: var(--accent); }
+/* Estado "ninguno": el swatch muestra blanco con diagonal roja. */
+.swatch-figura.vacio input[type='color']::-webkit-color-swatch {
+  background: linear-gradient(to top right,
+    #fff calc(50% - 1px), #e0245e calc(50% - 1px),
+    #e0245e calc(50% + 1px), #fff calc(50% + 1px));
 }
 
 /* La foto queda DEBAJO de los textos y con realce más sutil. */
