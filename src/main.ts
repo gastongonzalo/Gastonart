@@ -1538,14 +1538,20 @@ function habilitarDragMascara(h: HTMLElement, img: SVGElement, modo: 'mover' | '
 }
 
 // ============ Pluma (Bézier con puntos de ancla) ============
-interface Ancla { x: number; y: number; hx: number; hy: number }
+// Manijas independientes estilo Illustrator: hi = manija de ENTRADA (segmento que
+// llega), ho = manija de SALIDA (próximo segmento). Punto liso => hi == -ho.
+// Punto de esquina => manijas independientes (o sin manija).
+interface Ancla { x: number; y: number; hix: number; hiy: number; hox: number; hoy: number }
 let plumaActiva = false
 let plumaAnclas: Ancla[] = []
 let plumaPath: SVGPathElement | null = null
 let plumaPreview: SVGPathElement | null = null
+let plumaManijas: SVGPathElement | null = null // líneas finas ancla↔manija
 let plumaCursor: { x: number; y: number } | null = null
 let plumaCapa: HTMLDivElement | null = null
 const COLOR_PLUMA = '#141930'
+const tieneIn = (a: Ancla) => a.hix !== 0 || a.hiy !== 0
+const tieneOut = (a: Ancla) => a.hox !== 0 || a.hoy !== 0
 
 function screenToUser(clientX: number, clientY: number): { x: number; y: number } {
   const o = svgEl!.getBoundingClientRect()
@@ -1553,17 +1559,22 @@ function screenToUser(clientX: number, clientY: number): { x: number; y: number 
   return { x: (clientX - o.left) / k, y: (clientY - o.top) / k }
 }
 
+// Un tramo entre dos anclas: curva si alguna tiene manija en ese lado, si no recta.
+function tramoD(p: Ancla, c: Ancla): string {
+  if (tieneOut(p) || tieneIn(c)) {
+    return ` C ${p.x + p.hox} ${p.y + p.hoy} ${c.x + c.hix} ${c.y + c.hiy} ${c.x} ${c.y}`
+  }
+  return ` L ${c.x} ${c.y}`
+}
+
 // Construye el atributo d de un path Bézier a partir de las anclas.
 function dPluma(anclas: Ancla[], cerrado: boolean): string {
   if (!anclas.length) return ''
   let d = `M ${anclas[0].x} ${anclas[0].y}`
-  for (let i = 1; i < anclas.length; i++) {
-    const p = anclas[i - 1], c = anclas[i]
-    if (p.hx || p.hy || c.hx || c.hy) {
-      d += ` C ${p.x + p.hx} ${p.y + p.hy} ${c.x - c.hx} ${c.y - c.hy} ${c.x} ${c.y}`
-    } else d += ` L ${c.x} ${c.y}`
+  for (let i = 1; i < anclas.length; i++) d += tramoD(anclas[i - 1], anclas[i])
+  if (cerrado && anclas.length >= 2) {
+    d += tramoD(anclas[anclas.length - 1], anclas[0]) + ' Z'
   }
-  if (cerrado) d += ' Z'
   return d
 }
 
@@ -1579,23 +1590,41 @@ function dibujarPluma(): void {
     svgEl.appendChild(plumaPath)
   }
   plumaPath.setAttribute('d', dPluma(plumaAnclas, false))
+  // Líneas finas ancla↔manija (en el mismo espacio del SVG).
+  if (!plumaManijas) {
+    plumaManijas = document.createElementNS(SVGNS, 'path')
+    plumaManijas.setAttribute('fill', 'none')
+    plumaManijas.setAttribute('stroke', COLOR_PLUMA)
+    plumaManijas.setAttribute('stroke-width', '1')
+    plumaManijas.setAttribute('opacity', '0.6')
+    plumaManijas.setAttribute('pointer-events', 'none')
+    svgEl.appendChild(plumaManijas)
+  }
+  let dl = ''
+  for (const a of plumaAnclas) {
+    if (tieneIn(a)) dl += ` M ${a.x} ${a.y} L ${a.x + a.hix} ${a.y + a.hiy}`
+    if (tieneOut(a)) dl += ` M ${a.x} ${a.y} L ${a.x + a.hox} ${a.y + a.hoy}`
+  }
+  plumaManijas.setAttribute('d', dl.trim())
   lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
   const base = lienzo.getBoundingClientRect()
   const o = svgEl.getBoundingClientRect()
   const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
   const aPx = (x: number, y: number) => ({ left: o.left - base.left + x * k, top: o.top - base.top + y * k })
+  const ptManija = (x: number, y: number) => {
+    const h = aPx(x, y)
+    const dot = document.createElement('div'); dot.className = 'pluma-manija'
+    dot.style.left = h.left + 'px'; dot.style.top = h.top + 'px'
+    lienzo.appendChild(dot)
+  }
   plumaAnclas.forEach((a, i) => {
     const s = aPx(a.x, a.y)
     const pt = document.createElement('div')
     pt.className = 'pluma-pt' + (i === 0 ? ' primero' : '')
     pt.style.left = s.left + 'px'; pt.style.top = s.top + 'px'
     lienzo.appendChild(pt)
-    if (a.hx || a.hy) for (const sg of [1, -1]) {
-      const h = aPx(a.x + sg * a.hx, a.y + sg * a.hy)
-      const dot = document.createElement('div'); dot.className = 'pluma-manija'
-      dot.style.left = h.left + 'px'; dot.style.top = h.top + 'px'
-      lienzo.appendChild(dot)
-    }
+    if (tieneIn(a)) ptManija(a.x + a.hix, a.y + a.hiy)
+    if (tieneOut(a)) ptManija(a.x + a.hox, a.y + a.hoy)
   })
 }
 
@@ -1616,7 +1645,7 @@ function dibujarPreviewPluma(): void {
   }
   const last = plumaAnclas[plumaAnclas.length - 1]
   let d = `M ${last.x} ${last.y}`
-  if (last.hx || last.hy) d += ` C ${last.x + last.hx} ${last.y + last.hy} ${plumaCursor.x} ${plumaCursor.y} ${plumaCursor.x} ${plumaCursor.y}`
+  if (tieneOut(last)) d += ` C ${last.x + last.hox} ${last.y + last.hoy} ${plumaCursor.x} ${plumaCursor.y} ${plumaCursor.x} ${plumaCursor.y}`
   else d += ` L ${plumaCursor.x} ${plumaCursor.y}`
   plumaPreview.setAttribute('d', d)
 }
@@ -1651,6 +1680,7 @@ function desactivarPluma(): void {
   plumaCapa?.remove(); plumaCapa = null
   plumaPath?.remove(); plumaPath = null
   plumaPreview?.remove(); plumaPreview = null
+  plumaManijas?.remove(); plumaManijas = null
   plumaCursor = null
   lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
   document.removeEventListener('keydown', plumaKey)
@@ -1671,14 +1701,18 @@ function plumaPointerDown(e: PointerEvent): void {
     const a0 = plumaAnclas[0]
     if (Math.hypot((pt.x - a0.x) * k, (pt.y - a0.y) * k) < 11) { finalizarPluma(true); return }
   }
-  const ancla: Ancla = { x: pt.x, y: pt.y, hx: 0, hy: 0 }
+  const ancla: Ancla = { x: pt.x, y: pt.y, hix: 0, hiy: 0, hox: 0, hoy: 0 }
   plumaAnclas.push(ancla)
   dibujarPluma()
   plumaCursor = { x: pt.x, y: pt.y } // reiniciar el preview al nuevo punto
   dibujarPreviewPluma()
   const onMove = (ev: PointerEvent) => {
     const p = screenToUser(ev.clientX, ev.clientY)
-    ancla.hx = p.x - ancla.x; ancla.hy = p.y - ancla.y
+    // Manija de SALIDA = hacia donde se arrastra (define el próximo trazo).
+    ancla.hox = p.x - ancla.x; ancla.hoy = p.y - ancla.y
+    // Sin Alt: punto liso (entrada espejada). Con Alt: se rompe — la entrada
+    // (lo ya dibujado) queda fija y solo cambia la salida (como Illustrator).
+    if (!ev.altKey) { ancla.hix = -ancla.hox; ancla.hiy = -ancla.hoy }
     dibujarPluma()
   }
   const onUp = () => plumaCapa!.removeEventListener('pointermove', onMove)
@@ -1693,7 +1727,7 @@ function finalizarPluma(cerrado: boolean): void {
   // Normalizar coords al origen (para que el scale del overlay no lo desplace).
   let minX = Infinity, minY = Infinity
   for (const a of plumaAnclas) { minX = Math.min(minX, a.x); minY = Math.min(minY, a.y) }
-  const norm = plumaAnclas.map((a) => ({ x: a.x - minX, y: a.y - minY, hx: a.hx, hy: a.hy }))
+  const norm = plumaAnclas.map((a) => ({ x: a.x - minX, y: a.y - minY, hix: a.hix, hiy: a.hiy, hox: a.hox, hoy: a.hoy }))
   const p = document.createElementNS(SVGNS, 'path')
   p.setAttribute('d', dPluma(norm, cerrado))
   p.setAttribute('fill', 'none')
