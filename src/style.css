@@ -627,6 +627,13 @@ body {
 }
 .imged-cv { display: block; touch-action: none; cursor: crosshair; }
 .imged-lazo { position: absolute; pointer-events: none; }
+/* Cursor circular del pincel (tamaño = el del pincel) */
+.imged-cursor {
+  position: absolute; pointer-events: none; z-index: 6;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid #fff; border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.55);
+}
 .imged-sel {
   position: absolute; pointer-events: none;
   border: 1.5px dashed var(--accent);
