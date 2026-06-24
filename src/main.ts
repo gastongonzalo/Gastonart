@@ -3136,6 +3136,33 @@ function dibujarSelGraf(): void {
     tools.appendChild(ep)
   }
 
+  // Imagen agregada: editar / quitar fondo / máscara (tools ricas dentro de la selección).
+  if (!multi && grafSeleccion[0].tagName.toLowerCase() === 'image' && grafSeleccion[0].getAttribute('data-agregado') === 'imagen') {
+    const im = grafSeleccion[0]
+    const getHref = () => im.getAttribute('href') || im.getAttributeNS(XLINK, 'href') || ''
+    const setFoto = (f: Foto) => {
+      im.setAttribute('href', f.dataUrl); im.setAttributeNS(XLINK, 'xlink:href', f.dataUrl)
+      const W = parseFloat(im.getAttribute('width') || '0')
+      if (W) im.setAttribute('height', String(W * f.h / f.w))
+      registrarHistorial(); autoguardar(); dibujarSelGraf()
+    }
+    const ed = document.createElement('button'); ed.className = 'graf-btn'; ed.textContent = '✎ Editar'; ed.title = 'Editar la imagen (borrador, ajustes, filtros, recorte…)'
+    ed.addEventListener('click', (e) => { e.stopPropagation(); abrirEditorImagen(getHref(), setFoto) })
+    const qf = document.createElement('button'); qf.className = 'graf-btn'; qf.textContent = 'Quitar fondo'; qf.title = 'Quitar el fondo de la imagen (IA, en tu navegador)'
+    qf.addEventListener('click', (e) => { e.stopPropagation(); void ejecutarQuitarFondo(getHref(), setFoto, qf) })
+    const mw = document.createElement('div'); mw.className = 'graf-mascara'
+    const mb = document.createElement('button'); mb.className = 'graf-btn'; mb.textContent = '✂ Máscara'; mb.title = 'Recortar la imagen con una forma'
+    const mp = document.createElement('div'); mp.className = 'menu-pop mascara-pop'; mp.hidden = true
+    for (const [tipo, label] of [['ninguna', '⊘'], ['circulo', '●'], ['elipse', '⬭'], ['redondeado', '▢'], ['triangulo', '▲'], ['hexagono', '⬡'], ['estrella', '★']] as [string, string][]) {
+      const b = document.createElement('button'); b.textContent = label; b.title = tipo
+      b.addEventListener('click', (e) => { e.stopPropagation(); aplicarMascara(im, tipo); mp.hidden = true; dibujarSelGraf() })
+      mp.appendChild(b)
+    }
+    mb.addEventListener('click', (e) => { e.stopPropagation(); mp.hidden = !mp.hidden })
+    mw.append(mb, mp)
+    tools.append(ed, qf, mw)
+  }
+
   // Secundarios (capas, alinear, buscatrazos) en un menú "Más" para no saturar.
   const mas = document.createElement('button'); mas.className = 'graf-btn'; mas.textContent = '⋯ Más'; mas.title = 'Capas, alinear, buscatrazos'
   mas.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelMas() })

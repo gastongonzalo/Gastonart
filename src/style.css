@@ -572,6 +572,9 @@ body.modo-plantilla .toolbar-izq { display: none; }
 }
 .btn-mascara:hover { border-color: var(--accent); }
 .mascara-pop { top: 26px; left: 0; }
+/* Máscara dentro de la barra de selección (imagen agregada en completa) */
+.graf-mascara { position: relative; display: inline-flex; }
+.graf-mascara .mascara-pop { top: 30px; }
 
 /* Botón "Quitar fondo" (abajo-izquierda de la imagen) */
 .btn-quitarfondo {
