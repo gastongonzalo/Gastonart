@@ -5444,6 +5444,7 @@ function nuevaPlacaEnBlanco(w: number, h: number, fondo = '#ffffff'): void {
   svgActual = svgEnBlanco(w, h, fondo)
   plantillaActual = `enblanco-${w}x${h}`
   valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
+  modoEdicion = 'completa' // lienzo en blanco: edición completa para armar desde cero
   void montarPlantilla().then(() => { estado.textContent = `Lienzo ${w}×${h} px` })
 }
 
@@ -5475,6 +5476,7 @@ function usarPlantilla(ruta: string): void {
   svgActual = plantillas[ruta]
   if ([...selPlantilla.options].some((o) => o.value === ruta)) selPlantilla.value = ruta
   valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
+  modoEdicion = 'plantilla' // elegir una plantilla → arranca en modo plantilla (a prueba de toques)
   void montarPlantilla()
 }
 
