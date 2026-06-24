@@ -801,11 +801,11 @@ body.modo-plantilla .toolbar-izq { display: none; }
 
 /* Modo Gráficos: seleccionar/editar vectores e imágenes de la plantilla */
 .mini.activo-grafico { background: var(--accent); color: #06121c; border-color: var(--accent); }
-/* En completa los overlays normales se apagan, MENOS la mini-barra de foto
-   (.foto-tools), que se necesita para cambiar/ajustar la imagen del hueco. */
+/* En completa los overlays normales se apagan, MENOS lo que es de la selección de
+   vectores: la mini-barra de foto (.foto-tools) y los tiradores (.resize-handle),
+   que deben poder clickearse para cambiar la imagen y redimensionar. */
 .modo-grafico .hit,
 .modo-grafico .btn-eliminar,
-.modo-grafico .resize-handle,
 .modo-grafico .btn-candado,
 .modo-grafico .resize-caja,
 .modo-grafico .swatch-figura,
