@@ -178,6 +178,20 @@ body {
 }
 .tb-marca { display: flex; align-items: center; gap: 16px; }
 .tb-marca strong { font-size: 18px; letter-spacing: 0.02em; }
+/* Switch de modo de edición (Completa / Plantilla) */
+.modo-switch {
+  display: inline-flex; gap: 2px; padding: 2px;
+  background: #0b1018; border: 1px solid var(--border); border-radius: 8px;
+}
+.modo-switch button {
+  padding: 4px 12px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--dim);
+  font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.modo-switch button:hover { color: var(--text); }
+.modo-switch button.activo { background: var(--accent); color: #06121c; }
+/* En Modo plantilla se oculta la barra lateral de inserción/edición. */
+body.modo-plantilla .toolbar-izq { display: none; }
 .tb-acciones { display: flex; align-items: center; gap: 8px; }
 .tb-div { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 .topbar label {

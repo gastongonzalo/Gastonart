@@ -339,6 +339,10 @@ app.innerHTML = `
         </select>
       </label>
       <button id="btn-tamano" class="mini" title="Cambiar el tamaño de la mesa de trabajo">📐 Tamaño</button>
+      <div class="modo-switch" role="group" title="Modo de edición">
+        <button data-modo="completa" class="activo" title="Edición completa: todo disponible">✎ Completa</button>
+        <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">🗂 Plantilla</button>
+      </div>
     </div>
     <span class="estado" id="estado"></span>
     <div class="tb-acciones">
@@ -744,6 +748,17 @@ document.querySelector('#btn-grafico')!.addEventListener('click', (e) => {
   if (modoGrafico) desactivarGrafico()
   else activarGrafico()
 })
+// Switch de modo de edición (Completa / Plantilla)
+for (const b of document.querySelectorAll<HTMLButtonElement>('.modo-switch button')) {
+  b.addEventListener('click', () => {
+    const m = b.dataset.modo as ModoEdicion
+    if (m === modoEdicion) return
+    cerrarEditor()
+    modoEdicion = m
+    aplicarModo()
+    autoguardar()
+  })
+}
 // Cerrar los paneles flotantes al hacer clic fuera de ellos (si no, el input de
 // búsqueda queda con foco y su cursor parpadea arriba a la izquierda). Se excluye
 // cada panel y su botón disparador para no cerrarlos en el mismo clic que los abre.
@@ -2005,6 +2020,11 @@ const TAGS_GRAFICO = new Set(['rect', 'circle', 'ellipse', 'path', 'polygon', 'p
 let modoGrafico = false
 let grafSeleccion: SVGElement[] = []
 
+// Modo de edición de alto nivel: 'completa' = todo; 'plantilla' = restringido
+// (solo editar texto + reemplazar/reencuadrar fotos). Se persiste por mesa.
+type ModoEdicion = 'completa' | 'plantilla'
+let modoEdicion: ModoEdicion = 'completa'
+
 // ¿El elemento (o un ancestro cercano) es un gráfico seleccionable?
 // Excluye el fondo (rect que cubre toda la placa) y lo que esté en <defs>.
 // Si el gráfico vive dentro de un grupo recortado (clip-path), devuelve ESE
@@ -2091,6 +2111,17 @@ function desactivarGrafico(): void {
   grafSeleccion = []
   limpiarGraf()
   construirOverlays() // reconstruir overlays normales (handles/hits) tras el modo gráfico
+}
+
+// Punto central que sincroniza la UI según `modoEdicion`. (Fase 1: 'completa' =
+// editor actual tal cual; 'plantilla' = restringido. La fusión total llega luego.)
+function aplicarModo(): void {
+  document.body.classList.toggle('modo-plantilla', modoEdicion === 'plantilla')
+  document.querySelectorAll<HTMLElement>('.modo-switch button').forEach((b) => {
+    b.classList.toggle('activo', b.dataset.modo === modoEdicion)
+  })
+  if (modoEdicion === 'plantilla' && modoGrafico) desactivarGrafico()
+  else construirOverlays()
 }
 
 function grafKey(e: KeyboardEvent): void {
@@ -3418,6 +3449,9 @@ function construirOverlays(): void {
   lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
   zoomSlider = null
   const base = lienzo.getBoundingClientRect()
+  // En "Modo plantilla" solo se permite editar texto y reemplazar/reencuadrar fotos
+  // de hueco: nada de mover/escalar/borrar/estilar/agregar.
+  const enPlantilla = modoEdicion === 'plantilla'
 
   // Fotos primero (quedan DEBAJO de los textos). Una por cada hueco de la plantilla.
   for (const img of Array.from(svgEl.querySelectorAll('[data-foto]'))) {
@@ -3426,6 +3460,8 @@ function construirOverlays(): void {
     // reencuadra). El reencuadre se hace con el botón "Reencuadrar" en modo Gráficos.
     const rec = img.closest('[data-recorte]') as SVGElement | null
     if (rec) {
+      if (enPlantilla) continue // en plantilla no se manipulan recortes
+
       const rr = rectUnion([rec], base)
       if (!rr) continue
       const hit = crearHit(rr, 'recorte', () => {})
@@ -3459,7 +3495,7 @@ function construirOverlays(): void {
   for (const c of camposActuales) {
     const el = svgEl.querySelector(`[data-campo="${c.nombre}"][data-anchor]`)
     const agregado = el?.getAttribute('data-agregado') === 'texto'
-    const libre = !bloqueado[c.nombre] // desbloqueado → movible/redimensionable
+    const libre = !enPlantilla && !bloqueado[c.nombre] // desbloqueado → movible/redimensionable
     let r = rectUnion(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (!r || r.height < 10) r = rectsIniciales[c.nombre] ?? r
     if (!r) continue
@@ -3471,9 +3507,10 @@ function construirOverlays(): void {
     const rCaja = libre ? (cajaScreen(c.nombre, base) ?? r) : r
 
     const hit = crearHit(rCaja, c.nombre, () => abrirEditor(c.nombre))
-    hit.title = libre ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
+    hit.title = enPlantilla ? `Clic para cambiar el texto: ${c.nombre}` : libre ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
     lienzo.appendChild(hit)
-    const ctrls: HTMLElement[] = [crearBotonCandado(rCaja, c.nombre)]
+    // En plantilla: solo el hit para editar el texto (sin candado/tiradores/eliminar).
+    const ctrls: HTMLElement[] = enPlantilla ? [] : [crearBotonCandado(rCaja, c.nombre)]
     if (libre) {
       hit.classList.add('hit-agregado')
       habilitarArrastreTexto(hit, c.nombre)
@@ -3483,13 +3520,13 @@ function construirOverlays(): void {
         crearTiradorCaja(rCaja, c.nombre, 'xy'),
       )
     }
-    if (agregado) ctrls.push(crearBotonEliminar(rCaja, () => eliminarCampo(c.nombre)))
+    if (agregado && !enPlantilla) ctrls.push(crearBotonEliminar(rCaja, () => eliminarCampo(c.nombre)))
     for (const c2 of ctrls) lienzo.appendChild(c2)
     revelarAlHover(hit, ctrls)
   }
 
   // Imágenes agregadas (movibles, redimensionables, eliminables).
-  for (const im of Array.from(svgEl.querySelectorAll<SVGElement>('image[data-agregado="imagen"]'))) {
+  if (!enPlantilla) for (const im of Array.from(svgEl.querySelectorAll<SVGElement>('image[data-agregado="imagen"]'))) {
     const r = rectUnion([im], base)
     if (!r) continue
     const hit = crearHit(r, 'imagen', () => {})
@@ -3517,7 +3554,7 @@ function construirOverlays(): void {
   }
 
   // Figuras e íconos agregados (mover, escalar, color, eliminar).
-  for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="figura"], [data-agregado="icono"]'))) {
+  if (!enPlantilla) for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="figura"], [data-agregado="icono"]'))) {
     const r = rectUnion([el], base)
     if (!r) continue
     const hit = crearHit(r, 'figura', () => {})
@@ -3769,7 +3806,8 @@ function construirFotoTools(id: string, r: Rect): void {
   opac.addEventListener('input', () => { imgFoto?.setAttribute('opacity', opac.value) })
   opac.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   zoomSlider = slider
-  if (fotos[id]) {
+  // "Editar" y "Quitar fondo" son edición destructiva → solo en Modo completa.
+  if (fotos[id] && modoEdicion !== 'plantilla') {
     const reaplicar = (foto: Foto) => {
       fotos[id] = foto
       const fr = framesFoto[id], enc = encuadreDe(id)
@@ -4945,6 +4983,7 @@ interface Proyecto {
   encuadre?: Encuadre
   contador: number
   svg: string
+  modoEdicion?: ModoEdicion // 'completa' | 'plantilla' (opcional: saves viejos → completa)
 }
 
 function snapshotProyecto(): Proyecto {
@@ -4955,6 +4994,7 @@ function snapshotProyecto(): Proyecto {
     fotos, encuadres,
     contador: contadorAgregados,
     svg: svgEl ? new XMLSerializer().serializeToString(svgEl) : '',
+    modoEdicion,
   }
 }
 
@@ -4977,6 +5017,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
     encuadres = p.encuadre ? { '0': p.encuadre } : {}
   }
   contadorAgregados = p.contador ?? 0
+  modoEdicion = p.modoEdicion ?? 'completa'
 
   svgActual = p.svg
   lienzo.innerHTML = p.svg
@@ -5002,7 +5043,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   if (modoGrafico && svgEl) svgEl.addEventListener('pointerdown', grafPointerDown)
 
   suprimirHistorial = true
-  construirOverlays()
+  aplicarModo() // fija modo (body class + switch) y reconstruye overlays
   suprimirHistorial = false
 }
 
