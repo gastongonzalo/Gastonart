@@ -453,7 +453,6 @@ app.innerHTML = `
       </span>
       <button id="btn-add-icono" class="herr" title="Agregar ícono / forma / vector"><span class="herr-ic">★</span><span>Ícono</span></button>
       <button id="btn-pluma" class="herr" title="Pluma (puntos de ancla)"><span class="herr-ic">✒</span><span>Pluma</span></button>
-      <button id="btn-grafico" class="herr" title="Seleccionar y editar vectores/imágenes de la plantilla"><span class="herr-ic">✦</span><span>Gráficos</span></button>
     </nav>
     <div id="escenario">
       <div id="lienzo"></div>
@@ -739,14 +738,9 @@ document.querySelector('#pt-aplicar')!.addEventListener('click', () => {
 panelTamano.addEventListener('click', (e) => e.stopPropagation())
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
-  if (modoGrafico) desactivarGrafico()
+  grafSeleccion = []; limpiarGraf() // la pluma pone su propia capa por encima
   if (plumaActiva) desactivarPluma()
   else activarPluma()
-})
-document.querySelector('#btn-grafico')!.addEventListener('click', (e) => {
-  e.stopPropagation()
-  if (modoGrafico) desactivarGrafico()
-  else activarGrafico()
 })
 // Switch de modo de edición (Completa / Plantilla)
 for (const b of document.querySelectorAll<HTMLButtonElement>('.modo-switch button')) {
@@ -883,7 +877,7 @@ async function revisarFuentes(): Promise<void> {
 // ---------------------------------------------------------------
 async function montarPlantilla(): Promise<void> {
   cerrarEditor()
-  if (modoGrafico) desactivarGrafico()
+  grafSeleccion = []; limpiarGraf()
   const prep = prepararEditor(svgActual)
   camposActuales = prep.campos
   metaActual = prep.meta
@@ -921,7 +915,7 @@ async function montarPlantilla(): Promise<void> {
   }
 
   suprimirHistorial = true
-  construirOverlays()
+  aplicarModo() // engancha la capa de selección al nuevo svg + construye overlays
   suprimirHistorial = false
   reiniciarHistorial() // nueva placa = historial nuevo
   estado.textContent = `${camposActuales.length} campo(s) · ${hayImagen(svgActual) ? 'foto editable' : 'sin foto'} · pasá el mouse y hacé clic`
@@ -2090,44 +2084,40 @@ function esFondo(rect: SVGRectElement): boolean {
   return x <= 1 && y <= 1 && w >= vb.width * 0.98 && h >= vb.height * 0.98
 }
 
-function activarGrafico(): void {
-  if (!svgEl) return
-  cerrarEditor()
-  if (plumaActiva) desactivarPluma()
-  modoGrafico = true
-  document.querySelector('#btn-grafico')!.classList.add('activo-grafico')
-  lienzo.classList.add('modo-grafico')
-  svgEl.addEventListener('pointerdown', grafPointerDown)
-  document.addEventListener('keydown', grafKey)
-  estado.textContent = 'Modo gráficos: clic en un vector/imagen para editarlo'
-}
-
-function desactivarGrafico(): void {
-  modoGrafico = false
-  document.querySelector('#btn-grafico')?.classList.remove('activo-grafico')
-  lienzo.classList.remove('modo-grafico')
-  svgEl?.removeEventListener('pointerdown', grafPointerDown)
-  document.removeEventListener('keydown', grafKey)
-  grafSeleccion = []
-  limpiarGraf()
-  construirOverlays() // reconstruir overlays normales (handles/hits) tras el modo gráfico
-}
-
-// Punto central que sincroniza la UI según `modoEdicion`. (Fase 1: 'completa' =
-// editor actual tal cual; 'plantilla' = restringido. La fusión total llega luego.)
+// Punto central que sincroniza la UI según `modoEdicion`.
+//  - 'completa': UNA sola superficie. La clase .modo-grafico apaga los overlays
+//    normales y el svg captura todos los clics (se puede seleccionar cualquier
+//    vector, incluso sobre la foto de fondo). La edición de texto y el manejo de
+//    fotos se injertan en grafPointerDown.
+//  - 'plantilla': overlays normales filtrados (solo texto + foto), sin selección
+//    de vectores.
 function aplicarModo(): void {
   document.body.classList.toggle('modo-plantilla', modoEdicion === 'plantilla')
   document.querySelectorAll<HTMLElement>('.modo-switch button').forEach((b) => {
     b.classList.toggle('activo', b.dataset.modo === modoEdicion)
   })
-  if (modoEdicion === 'plantilla' && modoGrafico) desactivarGrafico()
-  else construirOverlays()
+  // Re-set idempotente de la capa de selección (el svg pudo haber cambiado).
+  svgEl?.removeEventListener('pointerdown', grafPointerDown)
+  document.removeEventListener('keydown', grafKey)
+  grafSeleccion = []
+  limpiarGraf()
+  if (modoEdicion === 'completa') {
+    modoGrafico = true
+    lienzo.classList.add('modo-grafico')
+    if (svgEl) svgEl.addEventListener('pointerdown', grafPointerDown)
+    document.addEventListener('keydown', grafKey)
+  } else {
+    modoGrafico = false
+    lienzo.classList.remove('modo-grafico')
+  }
+  construirOverlays()
 }
 
 function grafKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     if (reframeG) { salirReencuadre(); return }
-    if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() } else desactivarGrafico()
+    if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() }
+    // En completa la selección está siempre activa: Escape solo deselecciona.
   } else if ((e.key === 'Delete' || e.key === 'Backspace') && grafSeleccion.length) {
     e.preventDefault(); borrarGraf()
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
@@ -2166,6 +2156,20 @@ function grafPointerDown(e: PointerEvent): void {
   if (!svgEl) return
   if (editandoPuntos()) return // editando puntos: lo maneja la capa del editor
   if (reframeG) { iniciarPanReencuadre(e); return } // en reencuadre, arrastrar = mover la foto
+  const tgt = e.target as Element
+  // Texto (campo de plantilla o agregado): clic abre el editor inline.
+  const campoEl = tgt.closest?.('[data-campo]')
+  if (campoEl) { e.preventDefault(); abrirEditor(campoEl.getAttribute('data-campo')!); return }
+  // Foto de hueco suelto (no recorte): si está vacío, subir foto. (El reencuadre y
+  // la mini-barra Cambiar/Zoom/Opac se injertan en el incremento siguiente.)
+  const fotoEl = tgt.closest?.('[data-foto]') as SVGElement | null
+  if (fotoEl && !fotoEl.closest('[data-recorte]')) {
+    e.preventDefault()
+    const fid = fotoEl.getAttribute('data-foto')!
+    if (!fotos[fid]) { fotoActiva = fid; inFoto.click() }
+    grafSeleccion = []; limpiarGraf()
+    return
+  }
   const el = graficoSeleccionable(e.target as Element)
   const aditivo = e.ctrlKey || e.metaKey
   if (!el) {
@@ -2296,7 +2300,6 @@ function duplicarSeleccion(): void { if (grafSeleccion.length) clonarYPegar(graf
 // Clona las fuentes, las pega con un pequeño offset y las deja seleccionadas.
 function clonarYPegar(fuentes: SVGElement[]): void {
   if (!svgEl || !fuentes.length) return
-  if (!modoGrafico) activarGrafico()
   const nuevos: SVGElement[] = []
   for (const fuente of fuentes) {
     const nodo = fuente.cloneNode(true) as SVGElement
@@ -3448,6 +3451,9 @@ function construirOverlays(): void {
   if (!svgEl) return
   lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
   zoomSlider = null
+  // En "Modo completa" no hay overlays HTML por elemento: todo se maneja desde la
+  // capa de selección (grafPointerDown / dibujarSelGraf) sobre el svg.
+  if (modoEdicion === 'completa') { registrarHistorial(); autoguardar(); return }
   const base = lienzo.getBoundingClientRect()
   // En "Modo plantilla" solo se permite editar texto y reemplazar/reencuadrar fotos
   // de hueco: nada de mover/escalar/borrar/estilar/agregar.
@@ -5035,15 +5041,11 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
     const r = rectUnion(svgEl!.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (r) rectsIniciales[c.nombre] = r
   }
-  // innerHTML reemplazó el nodo <svg>: si el modo gráficos estaba activo, se
-  // perdió su listener de selección. Re-engancharlo al nuevo svg y limpiar la
-  // selección vieja (apuntaba a un nodo ya descartado).
   grafSeleccion = []
   limpiarGraf()
-  if (modoGrafico && svgEl) svgEl.addEventListener('pointerdown', grafPointerDown)
 
   suprimirHistorial = true
-  aplicarModo() // fija modo (body class + switch) y reconstruye overlays
+  aplicarModo() // re-engancha la capa de selección al nuevo svg + fija modo + overlays
   suprimirHistorial = false
 }
 
