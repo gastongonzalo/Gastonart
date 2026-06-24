@@ -4139,7 +4139,7 @@ async function ejecutarQuitarFondo(src: string, aplicar: (foto: Foto) => void, b
 // snap = copia para "Restaurar". Los ajustes (brillo/contraste/saturación) se
 // previsualizan con filtro CSS y se hornean al aplicar; los filtros y las ops
 // geométricas se hornean en cv (y snap) al instante.
-type PanelImg = 'magico' | 'lazo' | 'borrar' | 'restaurar' | 'recortar' | 'ajustes' | 'filtros'
+type PanelImg = 'magico' | 'lazo' | 'borrar' | 'restaurar' | 'rellenar' | 'recortar' | 'ajustes' | 'filtros'
 
 // Relleno por contexto (content-aware) de los píxeles transparentes (alpha=0):
 // algoritmo pull-push (pirámide gaussiana con pesos). Reconstruye el fondo a
@@ -4196,18 +4196,35 @@ function inpaintPullPush(d: Uint8ClampedArray, w: number, h: number): void {
 // con onnxruntime-web. Reconstruye con TEXTURA (mejor que pull-push) y sigue 100%
 // en el navegador. Import diferido + sesión cacheada; la 1.ª vez baja el modelo.
 let miganSesion: Promise<{ ort: typeof import('onnxruntime-web'); sesion: import('onnxruntime-web').InferenceSession }> | null = null
-function cargarMigan() {
+// onProgreso recibe (etapa, frac) — frac 0..1 solo durante la descarga del modelo.
+function cargarMigan(onProgreso?: (etapa: string, frac?: number) => void) {
   if (!miganSesion) miganSesion = (async () => {
+    onProgreso?.('Cargando motor…')
     const ort = await import('onnxruntime-web')
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/'
     ort.env.wasm.numThreads = 1
     const url = 'https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx'
-    const sesion = await ort.InferenceSession.create(url, { executionProviders: ['webgpu', 'wasm'] })
+    // Descarga con progreso (stream) para mostrar una barra real.
+    const resp = await fetch(url)
+    if (!resp.ok || !resp.body) throw new Error('No se pudo descargar el modelo (' + resp.status + ')')
+    const total = +(resp.headers.get('content-length') || 0)
+    const reader = resp.body.getReader()
+    const chunks: Uint8Array[] = []; let recibido = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value); recibido += value.length
+      onProgreso?.('Descargando modelo', total ? recibido / total : undefined)
+    }
+    const buf = new Uint8Array(recibido); let off = 0
+    for (const c of chunks) { buf.set(c, off); off += c.length }
+    onProgreso?.('Iniciando…')
+    const sesion = await ort.InferenceSession.create(buf, { executionProviders: ['webgpu', 'wasm'] })
     return { ort, sesion }
   })()
   return miganSesion
 }
-async function rellenarConIA(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D): Promise<'ok' | 'vacio' | 'error'> {
+async function rellenarConIA(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D, onEstado?: (etapa: string, frac?: number) => void): Promise<'ok' | 'vacio' | 'error'> {
   const w = cv.width, h = cv.height
   const data = ctx.getImageData(0, 0, w, h), d = data.data
   let minx = w, miny = h, maxx = -1, maxy = -1
@@ -4231,7 +4248,8 @@ async function rellenarConIA(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2
       imgArr[p] = crop[p * 4]; imgArr[M * M + p] = crop[p * 4 + 1]; imgArr[2 * M * M + p] = crop[p * 4 + 2]
       maskArr[p] = crop[p * 4 + 3] === 0 ? 0 : 255 // 255 conservar, 0 rellenar
     }
-    const { ort, sesion } = await cargarMigan()
+    const { ort, sesion } = await cargarMigan(onEstado)
+    onEstado?.('Procesando…')
     const feeds: Record<string, import('onnxruntime-web').Tensor> = {}
     feeds[sesion.inputNames[0]] = new ort.Tensor('uint8', imgArr, [1, 3, M, M])
     feeds[sesion.inputNames[1]] = new ort.Tensor('uint8', maskArr, [1, 1, M, M])
@@ -4294,6 +4312,7 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   let panel: PanelImg = 'magico'
   let brush = 40, tol = 30
   let lazoRellena = false, lazoInvierte = false
+  let procesandoIA = false
   let cargada = false
 
   const render = () => { cv.style.filter = `brightness(${adj.b}) contrast(${adj.c}) saturate(${adj.s})` }
@@ -4487,40 +4506,34 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
 
   // ---- UI: barra de herramientas + opciones contextuales ----
   const setPanel = (p: PanelImg) => { panel = p; cropRect = null; cropIni = null; sel.hidden = true; pintarBarra(); pintarOpts() }
-  type Accion = 'rellenar' | 'rellenarIA' | 'voltearH' | 'voltearV' | 'rotar'
-  const tools: [PanelImg | Accion, string, string][] = [
-    ['magico', '✨ Borrador mágico', 'Clic para borrar una zona de color similar'],
+  type Accion = 'voltearH' | 'voltearV' | 'rotar'
+  // Barra agrupada por familia (un '|' es un separador visual).
+  const grupos: ([PanelImg | Accion, string, string] | '|')[] = [
+    ['magico', '✨ Mágico', 'Borrador mágico: clic para borrar una zona de color similar'],
     ['lazo', '🔗 Lazo', 'Dibujá una selección libre para borrar lo de adentro'],
     ['borrar', '🧽 Borrador', 'Pincel para borrar a mano'],
     ['restaurar', '↩ Restaurar', 'Pincel para traer de vuelta lo borrado'],
-    ['rellenar', '🪄 Rellenar', 'Rellenar por contexto lo borrado (rápido, con el entorno)'],
-    ['rellenarIA', '✨ Rellenar IA', 'Relleno generativo con IA local (mejor textura; baja el modelo la 1.ª vez)'],
+    '|',
+    ['rellenar', '🪄 Rellenar', 'Rellenar lo borrado (rápido o con IA)'],
+    '|',
     ['recortar', '⃞ Recortar', 'Arrastrá para elegir el área'],
-    ['ajustes', '🎚 Ajustes', 'Brillo, contraste, saturación'],
-    ['filtros', '🎨 Filtros', 'B&N, sepia, vintage…'],
     ['voltearH', '⇆', 'Voltear horizontal'],
     ['voltearV', '⇅', 'Voltear vertical'],
     ['rotar', '⟳', 'Rotar 90°'],
+    '|',
+    ['ajustes', '🎚 Ajustes', 'Brillo, contraste, saturación'],
+    ['filtros', '🎨 Filtros', 'B&N, sepia, vintage…'],
   ]
-  const acciones: Accion[] = ['rellenar', 'rellenarIA', 'voltearH', 'voltearV', 'rotar']
-  let procesandoIA = false
+  const acciones: string[] = ['voltearH', 'voltearV', 'rotar']
   const pintarBarra = () => {
     toolsBar.innerHTML = ''
-    for (const [id, label, tip] of tools) {
+    for (const g of grupos) {
+      if (g === '|') { const s = document.createElement('span'); s.className = 'imged-sep'; toolsBar.appendChild(s); continue }
+      const [id, label, tip] = g
       const b = document.createElement('button')
-      const esAccion = (acciones as string[]).includes(id)
-      b.className = 'imged-tbtn' + (!esAccion && id === panel ? ' activo' : ''); b.textContent = label; b.title = tip
-      b.addEventListener('click', async () => {
-        if (id === 'rellenar') { if (!rellenarTransparente()) estadoEd.textContent = 'No hay nada borrado para rellenar' }
-        else if (id === 'rellenarIA') {
-          if (procesandoIA) return
-          procesandoIA = true; b.disabled = true; const t0 = b.textContent
-          estadoEd.textContent = 'Rellenando con IA… (la 1.ª vez descarga el modelo, puede tardar)'
-          const r = await rellenarConIA(cv, ctx)
-          estadoEd.textContent = r === 'ok' ? 'Relleno con IA listo ✓' : r === 'vacio' ? 'No hay nada borrado para rellenar' : 'No se pudo rellenar con IA (ver consola)'
-          procesandoIA = false; b.disabled = false; b.textContent = t0 ?? '✨ Rellenar IA'
-        }
-        else if (id === 'voltearH') voltear('h')
+      b.className = 'imged-tbtn' + (!acciones.includes(id) && id === panel ? ' activo' : ''); b.textContent = label; b.title = tip
+      b.addEventListener('click', () => {
+        if (id === 'voltearH') voltear('h')
         else if (id === 'voltearV') voltear('v')
         else if (id === 'rotar') rotar()
         else setPanel(id as PanelImg)
@@ -4552,6 +4565,36 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
       opts.appendChild(chk('Invertir (dejar solo la selección)', lazoInvierte, (v) => { lazoInvierte = v }))
       const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Dibujá alrededor de lo que querés borrar y soltá.'
       opts.appendChild(h)
+    } else if (panel === 'rellenar') {
+      // Barra de progreso (compartida entre Rápido e IA).
+      const prog = document.createElement('div'); prog.className = 'imged-prog'
+      const bar = document.createElement('div'); bar.className = 'imged-prog-bar'
+      const fill = document.createElement('div'); fill.className = 'imged-prog-fill'
+      bar.appendChild(fill)
+      const ptxt = document.createElement('span'); ptxt.className = 'imged-prog-txt'
+      prog.append(bar, ptxt)
+      const setProg = (texto: string, frac?: number) => {
+        ptxt.textContent = texto
+        prog.classList.toggle('activo', !!texto)
+        if (frac == null) { bar.classList.add('indet'); fill.style.width = '100%' }
+        else { bar.classList.remove('indet'); fill.style.width = Math.round(frac * 100) + '%' }
+      }
+      const rapido = document.createElement('button'); rapido.className = 'imged-tbtn'; rapido.textContent = '⚡ Rápido'
+      rapido.title = 'Instantáneo, ideal para fondos lisos o degradados'
+      rapido.addEventListener('click', () => { setProg(rellenarTransparente() ? 'Listo ✓' : 'No hay nada borrado para rellenar'); })
+      const ia = document.createElement('button'); ia.className = 'imged-tbtn imged-tbtn-ia'; ia.textContent = '✨ Con IA'
+      ia.title = 'Relleno generativo con IA local (mejor textura; baja el modelo la 1.ª vez)'
+      ia.addEventListener('click', async () => {
+        if (procesandoIA) return
+        procesandoIA = true; ia.disabled = true; rapido.disabled = true
+        setProg('Preparando…')
+        const r = await rellenarConIA(cv, ctx, (etapa, frac) => setProg(frac != null ? `${etapa} ${Math.round(frac * 100)}%` : etapa, frac))
+        setProg(r === 'ok' ? 'Listo ✓' : r === 'vacio' ? 'No hay nada borrado para rellenar' : 'No se pudo rellenar (ver consola)', r === 'ok' ? 1 : undefined)
+        if (r !== 'ok') bar.classList.remove('indet')
+        procesandoIA = false; ia.disabled = false; rapido.disabled = false
+      })
+      const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Primero borrá algo; después “Rápido” (al toque) o “Con IA” (reconstruye textura).'
+      opts.append(rapido, ia, h, prog)
     } else if (panel === 'borrar' || panel === 'restaurar') {
       opts.appendChild(slider('Tamaño', 5, 200, 1, brush, (v) => { brush = v }))
     } else if (panel === 'recortar') {
