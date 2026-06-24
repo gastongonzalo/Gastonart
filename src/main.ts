@@ -4140,6 +4140,8 @@ async function ejecutarQuitarFondo(src: string, aplicar: (foto: Foto) => void, b
 // previsualizan con filtro CSS y se hornean al aplicar; los filtros y las ops
 // geométricas se hornean en cv (y snap) al instante.
 type PanelImg = 'magico' | 'lazo' | 'borrar' | 'restaurar' | 'rellenar' | 'recortar' | 'ajustes' | 'filtros'
+  | 'clonar' | 'difuminar' | 'aclarar' | 'oscurecer' | 'desenfocar'
+const RETOQUE: PanelImg[] = ['clonar', 'difuminar', 'aclarar', 'oscurecer', 'desenfocar']
 
 // Relleno por contexto (content-aware) de los píxeles transparentes (alpha=0):
 // algoritmo pull-push (pirámide gaussiana con pesos). Reconstruye el fondo a
@@ -4300,6 +4302,12 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   let lazoModo: 'no' | 'rapido' | 'ia' = 'no', lazoInvierte = false
   let procesandoIA = false
   let cargada = false
+  let fuerza = 0.5 // intensidad de los pinceles de retoque (0..1)
+  // Estado del clonador y del difuminar (dedo).
+  let clonOrigen: { x: number; y: number } | null = null
+  let clonOffset: { dx: number; dy: number } | null = null
+  let cloneSnap: HTMLCanvasElement | null = null
+  let smPrev: ImageData | null = null, smPrevX = 0, smPrevY = 0
 
   const render = () => { cv.style.filter = `brightness(${adj.b}) contrast(${adj.c}) saturate(${adj.s})` }
   // Posiciona el canvas del lazo exactamente sobre cv (misma escala/offset).
@@ -4389,6 +4397,53 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
       }
     }
   }
+  // ---- Pinceles de retoque (clonar, difuminar, aclarar, oscurecer, desenfocar) ----
+  const dabRetoque = (x: number, y: number) => {
+    const R = brush / 2
+    if (panel === 'clonar') {
+      if (!clonOffset || !cloneSnap) return
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, R, 0, 2 * Math.PI); ctx.clip()
+      ctx.drawImage(cloneSnap, clonOffset.dx, clonOffset.dy); ctx.restore()
+      return
+    }
+    const x0 = Math.max(0, Math.floor(x - R - 1)), y0 = Math.max(0, Math.floor(y - R - 1))
+    const x1 = Math.min(cv.width, Math.ceil(x + R + 1)), y1 = Math.min(cv.height, Math.ceil(y + R + 1))
+    const w = x1 - x0, h = y1 - y0
+    if (w <= 0 || h <= 0) return
+    const img = ctx.getImageData(x0, y0, w, h), d = img.data
+    const src = panel === 'desenfocar' ? new Uint8ClampedArray(d) : null
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+      const dist = Math.hypot(x0 + xx - x, y0 + yy - y); if (dist > R) continue
+      const fall = (1 - dist / R) * fuerza
+      const i = (yy * w + xx) * 4
+      if (d[i + 3] === 0) continue
+      if (panel === 'aclarar') { for (let c = 0; c < 3; c++) d[i + c] += (255 - d[i + c]) * fall }
+      else if (panel === 'oscurecer') { for (let c = 0; c < 3; c++) d[i + c] *= (1 - fall) }
+      else if (panel === 'desenfocar') {
+        for (let c = 0; c < 3; c++) {
+          let s = 0, n = 0
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const nx = xx + dx, ny = yy + dy; if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue
+            s += src![(ny * w + nx) * 4 + c]; n++
+          }
+          d[i + c] = d[i + c] * (1 - fall) + (s / n) * fall
+        }
+      } else if (panel === 'difuminar' && smPrev) {
+        const sx = xx + (x0 - smPrevX), sy = yy + (y0 - smPrevY)
+        if (sx >= 0 && sy >= 0 && sx < smPrev.width && sy < smPrev.height) {
+          const j = (sy * smPrev.width + sx) * 4
+          for (let c = 0; c < 3; c++) d[i + c] = d[i + c] * (1 - fall) + smPrev.data[j + c] * fall
+        }
+      }
+    }
+    ctx.putImageData(img, x0, y0)
+    if (panel === 'difuminar') { smPrev = ctx.getImageData(x0, y0, w, h); smPrevX = x0; smPrevY = y0 }
+  }
+  const trazoRetoque = (x0: number, y0: number, x1: number, y1: number) => {
+    const pasos = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (brush / 4)))
+    for (let s = 0; s <= pasos; s++) dabRetoque(x0 + (x1 - x0) * s / pasos, y0 + (y1 - y0) * s / pasos)
+  }
+
   // ---- Lazo: selección libre ----
   let lazoPts: { x: number; y: number }[] = []
   const dibujarLazoPreview = () => {
@@ -4432,6 +4487,16 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     if (panel === 'magico') { borradorMagico(p.x, p.y); return }
     if (panel === 'lazo') { lazando = true; lazoPts = [p]; cv.setPointerCapture(e.pointerId); return }
     if (panel === 'recortar') { cropIni = p; cropRect = null; cv.setPointerCapture(e.pointerId); return }
+    if (RETOQUE.includes(panel)) {
+      if (panel === 'clonar' && e.altKey) { clonOrigen = { x: p.x, y: p.y }; clonOffset = null; estadoEd.textContent = 'Origen de clonado fijado ✓'; return }
+      if (panel === 'clonar') {
+        if (!clonOrigen) { estadoEd.textContent = 'Primero Alt+clic para fijar el origen'; return }
+        clonOffset = { dx: p.x - clonOrigen.x, dy: p.y - clonOrigen.y }
+        cloneSnap = nuevoCanvas(cv.width, cv.height); cloneSnap.getContext('2d')!.drawImage(cv, 0, 0)
+      }
+      if (panel === 'difuminar') smPrev = null
+      pintando = true; ult = p; dabRetoque(p.x, p.y); cv.setPointerCapture(e.pointerId); return
+    }
     if (panel === 'borrar' || panel === 'restaurar') {
       pintando = true; ult = p; trazo(p.x, p.y, p.x, p.y, panel); cv.setPointerCapture(e.pointerId)
     }
@@ -4444,7 +4509,11 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
       cropRect = { x: Math.min(cropIni.x, p.x), y: Math.min(cropIni.y, p.y), w: Math.abs(p.x - cropIni.x), h: Math.abs(p.y - cropIni.y) }
       dibujarSel(); return
     }
-    if (pintando && ult) { trazo(ult.x, ult.y, p.x, p.y, panel as 'borrar' | 'restaurar'); ult = p }
+    if (pintando && ult) {
+      if (RETOQUE.includes(panel)) trazoRetoque(ult.x, ult.y, p.x, p.y)
+      else trazo(ult.x, ult.y, p.x, p.y, panel as 'borrar' | 'restaurar')
+      ult = p
+    }
   })
   const finPuntero = () => {
     if (lazando) { lazando = false; void aplicarLazo() }
@@ -4511,6 +4580,12 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     ['restaurar', '↩ Restaurar', 'Pincel para traer de vuelta lo borrado'],
     '|',
     ['rellenar', '🪄 Rellenar', 'Rellenar lo borrado (rápido o con IA)'],
+    '|',
+    ['clonar', '🔁 Clonar', 'Clonador: Alt+clic fija el origen, luego pintás'],
+    ['difuminar', '👆 Difuminar', 'Dedo: arrastra/mezcla el color'],
+    ['aclarar', '🔆 Aclarar', 'Aclara (dodge) donde pintás'],
+    ['oscurecer', '🌑 Oscurecer', 'Oscurece (burn) donde pintás'],
+    ['desenfocar', '💧 Desenfocar', 'Suaviza/desenfoca donde pintás'],
     '|',
     ['recortar', '⃞ Recortar', 'Arrastrá para elegir el área'],
     ['voltearH', '⇆', 'Voltear horizontal'],
@@ -4600,6 +4675,14 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
       opts.append(rapido, ia, h, prog)
     } else if (panel === 'borrar' || panel === 'restaurar') {
       opts.appendChild(slider('Tamaño', 5, 200, 1, brush, (v) => { brush = v }))
+    } else if (RETOQUE.includes(panel)) {
+      opts.appendChild(slider('Tamaño', 5, 200, 1, brush, (v) => { brush = v }))
+      if (panel !== 'clonar') opts.appendChild(slider('Intensidad', 0.05, 1, 0.01, fuerza, (v) => { fuerza = v }))
+      const h = document.createElement('span'); h.className = 'imged-hint'
+      h.textContent = panel === 'clonar' ? 'Alt+clic para fijar el origen, después pintá para clonar.'
+        : panel === 'difuminar' ? 'Arrastrá para arrastrar/mezclar el color (efecto dedo).'
+          : 'Pintá sobre la imagen.'
+      opts.appendChild(h)
     } else if (panel === 'recortar') {
       const ap = document.createElement('button'); ap.className = 'imged-tbtn'; ap.textContent = 'Aplicar recorte'
       ap.addEventListener('click', aplicarRecorte)
