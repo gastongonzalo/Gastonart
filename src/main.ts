@@ -4192,37 +4192,29 @@ function inpaintPullPush(d: Uint8ClampedArray, w: number, h: number): void {
   }
 }
 
-// Relleno generativo con IA local: modelo MI-GAN (migan_pipeline_v2.onnx) corrido
-// con onnxruntime-web. Reconstruye con TEXTURA (mejor que pull-push) y sigue 100%
-// en el navegador. Import diferido + sesión cacheada; la 1.ª vez baja el modelo.
-let miganSesion: Promise<{ ort: typeof import('onnxruntime-web'); sesion: import('onnxruntime-web').InferenceSession }> | null = null
-// onProgreso recibe (etapa, frac) — frac 0..1 solo durante la descarga del modelo.
-function cargarMigan(onProgreso?: (etapa: string, frac?: number) => void) {
-  if (!miganSesion) miganSesion = (async () => {
-    onProgreso?.('Cargando motor…')
-    const ort = await import('onnxruntime-web')
-    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/'
-    ort.env.wasm.numThreads = 1
-    const url = 'https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx'
-    // Descarga con progreso (stream) para mostrar una barra real.
-    const resp = await fetch(url)
-    if (!resp.ok || !resp.body) throw new Error('No se pudo descargar el modelo (' + resp.status + ')')
-    const total = +(resp.headers.get('content-length') || 0)
-    const reader = resp.body.getReader()
-    const chunks: Uint8Array[] = []; let recibido = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value); recibido += value.length
-      onProgreso?.('Descargando modelo', total ? recibido / total : undefined)
+// Relleno generativo con IA local: modelo MI-GAN (migan_pipeline_v2.onnx). La
+// descarga y la inferencia corren en un Web Worker (inpaint-worker.ts) para no
+// congelar la UI. La sesión queda cacheada dentro del worker.
+let inpaintWorker: Worker | null = null
+function getInpaintWorker(): Worker {
+  if (!inpaintWorker) inpaintWorker = new Worker(new URL('./inpaint-worker.ts', import.meta.url), { type: 'module' })
+  return inpaintWorker
+}
+// Corre MI-GAN en el worker. onProgreso recibe (etapa, frac). Resuelve la salida.
+function correrInpaint(
+  img: Uint8Array, mask: Uint8Array, M: number, onProgreso?: (etapa: string, frac?: number) => void,
+): Promise<{ data: Uint8Array | Float32Array; dims: number[]; dtype: string }> {
+  return new Promise((resolve, reject) => {
+    const worker = getInpaintWorker()
+    const onMsg = (e: MessageEvent) => {
+      const m = e.data
+      if (m.type === 'progress') onProgreso?.(m.etapa, m.frac)
+      else if (m.type === 'result') { worker.removeEventListener('message', onMsg); resolve(m) }
+      else if (m.type === 'error') { worker.removeEventListener('message', onMsg); reject(new Error(m.message)) }
     }
-    const buf = new Uint8Array(recibido); let off = 0
-    for (const c of chunks) { buf.set(c, off); off += c.length }
-    onProgreso?.('Iniciando…')
-    const sesion = await ort.InferenceSession.create(buf, { executionProviders: ['webgpu', 'wasm'] })
-    return { ort, sesion }
-  })()
-  return miganSesion
+    worker.addEventListener('message', onMsg)
+    worker.postMessage({ type: 'inpaint', img, mask, M })
+  })
 }
 async function rellenarConIA(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2D, onEstado?: (etapa: string, frac?: number) => void): Promise<'ok' | 'vacio' | 'error'> {
   const w = cv.width, h = cv.height
@@ -4248,15 +4240,9 @@ async function rellenarConIA(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2
       imgArr[p] = crop[p * 4]; imgArr[M * M + p] = crop[p * 4 + 1]; imgArr[2 * M * M + p] = crop[p * 4 + 2]
       maskArr[p] = crop[p * 4 + 3] === 0 ? 0 : 255 // 255 conservar, 0 rellenar
     }
-    const { ort, sesion } = await cargarMigan(onEstado)
-    onEstado?.('Procesando…')
-    const feeds: Record<string, import('onnxruntime-web').Tensor> = {}
-    feeds[sesion.inputNames[0]] = new ort.Tensor('uint8', imgArr, [1, 3, M, M])
-    feeds[sesion.inputNames[1]] = new ort.Tensor('uint8', maskArr, [1, 1, M, M])
-    const out = await sesion.run(feeds)
-    const o = Object.values(out)[0]
-    const dims = o.dims as number[], od = o.data as Uint8Array | Float32Array
-    const esFloat = o.type === 'float32'
+    const o = await correrInpaint(imgArr, maskArr, M, onEstado)
+    const dims = o.dims, od = o.data
+    const esFloat = o.dtype === 'float32'
     const val = (k: number) => { const v = esFloat ? (od[k] as number) * 255 : od[k] as number; return v < 0 ? 0 : v > 255 ? 255 : v }
     const hwc = dims.length === 4 && dims[3] === 3
     const outImg = tctx.createImageData(M, M)
@@ -4311,7 +4297,7 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   const adj = { b: 1, c: 1, s: 1 }
   let panel: PanelImg = 'magico'
   let brush = 40, tol = 30
-  let lazoRellena = false, lazoInvierte = false
+  let lazoModo: 'no' | 'rapido' | 'ia' = 'no', lazoInvierte = false
   let procesandoIA = false
   let cargada = false
 
@@ -4414,18 +4400,28 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     lctx.fillStyle = 'rgba(56,189,248,0.15)'; lctx.fill()
     lctx.lineWidth = Math.max(1.5, cv.width / 500); lctx.strokeStyle = '#38bdf8'; lctx.setLineDash([7, 5]); lctx.stroke()
   }
-  const aplicarLazo = () => {
-    if (lazoPts.length >= 3) {
-      ctx.save(); ctx.globalCompositeOperation = 'destination-out'
-      ctx.beginPath(); ctx.moveTo(lazoPts[0].x, lazoPts[0].y)
-      for (let i = 1; i < lazoPts.length; i++) ctx.lineTo(lazoPts[i].x, lazoPts[i].y)
-      ctx.closePath()
-      if (lazoInvierte) { ctx.rect(0, 0, cv.width, cv.height); ctx.fill('evenodd') } // borra afuera
-      else ctx.fill()
-      ctx.restore()
-      if (lazoRellena && !lazoInvierte) rellenarTransparente()
-    }
+  const aplicarLazo = async () => {
+    const pts = lazoPts
     lazoPts = []; lctx.clearRect(0, 0, lazoCv.width, lazoCv.height)
+    if (pts.length < 3) return
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out'
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y)
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
+    ctx.closePath()
+    if (lazoInvierte) { ctx.rect(0, 0, cv.width, cv.height); ctx.fill('evenodd') } // borra afuera
+    else ctx.fill()
+    ctx.restore()
+    // Rellenar lo borrado según el modo elegido (solo si se borró adentro).
+    if (lazoModo !== 'no' && !lazoInvierte) {
+      if (lazoModo === 'rapido') rellenarTransparente()
+      else if (!procesandoIA) {
+        procesandoIA = true
+        estadoEd.textContent = 'Rellenando con IA…'
+        const r = await rellenarConIA(cv, ctx, (et, f) => { estadoEd.textContent = f != null ? `${et} ${Math.round(f * 100)}%` : et + '…' })
+        estadoEd.textContent = r === 'ok' ? 'Relleno con IA listo ✓' : r === 'error' ? 'No se pudo rellenar con IA' : ''
+        procesandoIA = false
+      }
+    }
   }
 
   let pintando = false, lazando = false, ult: { x: number; y: number } | null = null
@@ -4451,7 +4447,7 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     if (pintando && ult) { trazo(ult.x, ult.y, p.x, p.y, panel as 'borrar' | 'restaurar'); ult = p }
   })
   const finPuntero = () => {
-    if (lazando) { lazando = false; aplicarLazo() }
+    if (lazando) { lazando = false; void aplicarLazo() }
     pintando = false; ult = null; cropIni = null
   }
   cv.addEventListener('pointerup', finPuntero)
@@ -4561,7 +4557,14 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
         i.addEventListener('change', () => on(i.checked))
         l.append(i, document.createTextNode(' ' + label)); return l
       }
-      opts.appendChild(chk('Rellenar por contexto al borrar', lazoRellena, (v) => { lazoRellena = v }))
+      const lblR = document.createElement('label'); lblR.className = 'imged-chk'
+      const sel = document.createElement('select'); sel.className = 'imged-select'
+      for (const [v, t] of [['no', 'No rellenar'], ['rapido', 'Rellenar rápido'], ['ia', 'Rellenar con IA']] as [string, string][]) {
+        const op = document.createElement('option'); op.value = v; op.textContent = t; op.selected = v === lazoModo; sel.appendChild(op)
+      }
+      sel.addEventListener('change', () => { lazoModo = sel.value as 'no' | 'rapido' | 'ia' })
+      lblR.append(document.createTextNode('Al borrar: '), sel)
+      opts.appendChild(lblR)
       opts.appendChild(chk('Invertir (dejar solo la selección)', lazoInvierte, (v) => { lazoInvierte = v }))
       const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Dibujá alrededor de lo que querés borrar y soltá.'
       opts.appendChild(h)
