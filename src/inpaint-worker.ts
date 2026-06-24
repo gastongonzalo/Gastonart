@@ -2,15 +2,15 @@
 // FUERA del hilo principal, así la UI no se congela durante el procesamiento.
 import * as ort from 'onnxruntime-web'
 
-ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/'
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'
 ort.env.wasm.numThreads = 1
 
 const MODELO = 'https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx'
-let sesionP: Promise<ort.InferenceSession> | null = null
+let sesionP: Promise<any> | null = null
 
 const post = (m: unknown) => (self as unknown as Worker).postMessage(m)
 
-async function cargar(): Promise<ort.InferenceSession> {
+async function cargar(): Promise<any> {
   if (!sesionP) sesionP = (async () => {
     post({ type: 'progress', etapa: 'Descargando modelo' })
     const resp = await fetch(MODELO)
@@ -40,11 +40,11 @@ interface MsgInpaint { type: 'inpaint'; img: Uint8Array; mask: Uint8Array; M: nu
     const sesion = await cargar()
     post({ type: 'progress', etapa: 'Procesando' })
     const M = msg.M
-    const feeds: Record<string, ort.Tensor> = {}
+    const feeds: Record<string, any> = {}
     feeds[sesion.inputNames[0]] = new ort.Tensor('uint8', msg.img, [1, 3, M, M])
     feeds[sesion.inputNames[1]] = new ort.Tensor('uint8', msg.mask, [1, 1, M, M])
     const out = await sesion.run(feeds)
-    const o = Object.values(out)[0]
+    const o: any = Object.values(out)[0]
     post({ type: 'result', data: o.data, dims: o.dims, dtype: o.type })
   } catch (err) {
     post({ type: 'error', message: (err as Error)?.message || String(err) })
