@@ -2160,14 +2160,15 @@ function grafPointerDown(e: PointerEvent): void {
   // Texto (campo de plantilla o agregado): clic abre el editor inline.
   const campoEl = tgt.closest?.('[data-campo]')
   if (campoEl) { e.preventDefault(); abrirEditor(campoEl.getAttribute('data-campo')!); return }
-  // Foto de hueco suelto (no recorte): si está vacío, subir foto. (El reencuadre y
-  // la mini-barra Cambiar/Zoom/Opac se injertan en el incremento siguiente.)
+  // Foto de hueco suelto (no recorte): vacío → subir; cargada → arrastrar reencuadra.
+  // (La mini-barra Cambiar/Zoom/Opac/Editar/Quitar fondo la arma construirOverlays.)
   const fotoEl = tgt.closest?.('[data-foto]') as SVGElement | null
   if (fotoEl && !fotoEl.closest('[data-recorte]')) {
     e.preventDefault()
     const fid = fotoEl.getAttribute('data-foto')!
-    if (!fotos[fid]) { fotoActiva = fid; inFoto.click() }
     grafSeleccion = []; limpiarGraf()
+    if (!fotos[fid]) { fotoActiva = fid; inFoto.click() }
+    else iniciarPanFoto(e, fid)
     return
   }
   const el = graficoSeleccionable(e.target as Element)
@@ -3451,9 +3452,20 @@ function construirOverlays(): void {
   if (!svgEl) return
   lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
   zoomSlider = null
-  // En "Modo completa" no hay overlays HTML por elemento: todo se maneja desde la
-  // capa de selección (grafPointerDown / dibujarSelGraf) sobre el svg.
-  if (modoEdicion === 'completa') { registrarHistorial(); autoguardar(); return }
+  // En "Modo completa" no hay overlays HTML por elemento (todo va por la capa de
+  // selección), EXCEPTO la mini-barra de foto de cada hueco: como un vector puede
+  // tapar la foto (p.ej. el degradado de la efeméride), sin esta barra no habría
+  // forma de cambiar/ajustar la imagen.
+  if (modoEdicion === 'completa') {
+    const baseC = lienzo.getBoundingClientRect()
+    for (const img of Array.from(svgEl.querySelectorAll('[data-foto]'))) {
+      if (img.closest('[data-recorte]')) continue
+      const id = img.getAttribute('data-foto')!
+      const r = rectFotoVisible(img, baseC)
+      if (r) construirFotoTools(id, r)
+    }
+    registrarHistorial(); autoguardar(); return
+  }
   const base = lienzo.getBoundingClientRect()
   // En "Modo plantilla" solo se permite editar texto y reemplazar/reencuadrar fotos
   // de hueco: nada de mover/escalar/borrar/estilar/agregar.
@@ -3747,6 +3759,27 @@ function crearHit(r: Rect, etiqueta: string, onClick: () => void): HTMLDivElemen
 }
 
 // Arrastrar para reencuadrar la foto + rueda para zoom (por hueco de foto).
+// Reencuadre por arrastre de una foto desde la capa de selección (modo completa),
+// cuando se hace pointerdown sobre el hueco directamente (sin un vector encima).
+function iniciarPanFoto(e: PointerEvent, id: string): void {
+  const foto = fotos[id], fr = framesFoto[id]
+  if (!foto || !fr || !svgEl) return
+  e.preventDefault()
+  try { svgEl.setPointerCapture(e.pointerId) } catch { /* igual arrastra */ }
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const enc = encuadreDe(id)
+  let sx = e.clientX, sy = e.clientY
+  const onMove = (ev: PointerEvent) => {
+    enc.ox += (ev.clientX - sx) / k; enc.oy += (ev.clientY - sy) / k
+    sx = ev.clientX; sy = ev.clientY
+    const c = aplicarFotoDom(svgEl!, id, foto, fr, enc); enc.ox = c.ox; enc.oy = c.oy
+  }
+  const onUp = () => { svgEl!.removeEventListener('pointermove', onMove); registrarHistorial(); autoguardar() }
+  svgEl.addEventListener('pointermove', onMove)
+  svgEl.addEventListener('pointerup', onUp, { once: true })
+  svgEl.addEventListener('pointercancel', onUp, { once: true })
+}
+
 function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
   hit.style.cursor = 'grab'
   hit.addEventListener('pointerdown', (e) => {
