@@ -2200,15 +2200,19 @@ function iniciarArrastreGraf(e: PointerEvent): void {
   const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
   const wraps = grafSeleccion.map((el) => {
     const g = wrapperGraf(el)
-    const tm = (g.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
-    return { g, tx0: tm ? +tm[1] : 0, ty0: tm ? +tm[2] : 0 }
+    const t = g.getAttribute('transform') ?? ''
+    const tm = t.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)\s*\)/)
+    // Preservar el resto del transform (p.ej. scale de un resize previo): si solo
+    // se reemplazaba el translate, se perdía el scale y el elemento "saltaba".
+    const resto = tm ? (t.slice(0, tm.index) + t.slice(tm.index! + tm[0].length)).trim() : t.trim()
+    return { g, tx0: tm ? +tm[1] : 0, ty0: tm ? +tm[2] : 0, resto }
   })
   let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0, movido = false
   const onMove = (ev: PointerEvent) => {
     accX += (ev.clientX - sx) / k; accY += (ev.clientY - sy) / k
     sx = ev.clientX; sy = ev.clientY
     if (Math.abs(accX) + Math.abs(accY) > 1) movido = true
-    for (const w of wraps) w.g.setAttribute('transform', `translate(${w.tx0 + accX} ${w.ty0 + accY})`)
+    for (const w of wraps) w.g.setAttribute('transform', `translate(${w.tx0 + accX} ${w.ty0 + accY}) ${w.resto}`.trim())
     dibujarSelGraf()
   }
   const onUp = () => {
