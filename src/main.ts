@@ -3456,34 +3456,21 @@ function construirOverlays(): void {
   if (!svgEl) return
   lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
   zoomSlider = null
-  // En "Modo completa" no hay overlays HTML por elemento (todo va por la capa de
-  // selección), EXCEPTO la mini-barra de foto de cada hueco: como un vector puede
-  // tapar la foto (p.ej. el degradado de la efeméride), sin esta barra no habría
-  // forma de cambiar/ajustar la imagen.
-  if (modoEdicion === 'completa') {
-    const baseC = lienzo.getBoundingClientRect()
-    for (const img of Array.from(svgEl.querySelectorAll('[data-foto]'))) {
-      if (img.closest('[data-recorte]')) continue
-      const id = img.getAttribute('data-foto')!
-      const r = rectFotoVisible(img, baseC)
-      if (r) construirFotoTools(id, r)
-    }
-    registrarHistorial(); autoguardar(); return
-  }
   const base = lienzo.getBoundingClientRect()
-  // En "Modo plantilla" solo se permite editar texto y reemplazar/reencuadrar fotos
-  // de hueco: nada de mover/escalar/borrar/estilar/agregar.
+  // 'plantilla' = restringido (texto + foto). 'completa' = todo: el texto, las
+  // fotos (solo la mini-barra; los vectores se seleccionan por la capa del svg) y
+  // NADA de overlays de elementos agregados (esos van por la selección de vectores).
   const enPlantilla = modoEdicion === 'plantilla'
+  const completa = modoEdicion === 'completa'
 
   // Fotos primero (quedan DEBAJO de los textos). Una por cada hueco de la plantilla.
   for (const img of Array.from(svgEl.querySelectorAll('[data-foto]'))) {
     const id = img.getAttribute('data-foto')!
-    // Foto YA recortada: en modo normal se mueve/elimina el RECORTE COMPLETO (no se
-    // reencuadra). El reencuadre se hace con el botón "Reencuadrar" en modo Gráficos.
+    // Foto YA recortada: el recorte se manipula por la capa de selección (completa)
+    // y no se toca en plantilla.
     const rec = img.closest('[data-recorte]') as SVGElement | null
     if (rec) {
-      if (enPlantilla) continue // en plantilla no se manipulan recortes
-
+      if (enPlantilla || completa) continue
       const rr = rectUnion([rec], base)
       if (!rr) continue
       const hit = crearHit(rr, 'recorte', () => {})
@@ -3503,6 +3490,9 @@ function construirOverlays(): void {
     }
     const r = rectFotoVisible(img, base)
     if (!r) continue
+    // En completa: solo la mini-barra (sin hit a sangre, así los vectores sobre la
+    // foto se pueden seleccionar). Subir/reencuadrar lo maneja grafPointerDown.
+    if (completa) { construirFotoTools(id, r); continue }
     const tieneFoto = !!fotos[id]
     const hit = crearHit(r, 'foto', () => { if (!fotos[id]) { fotoActiva = id; inFoto.click() } })
     hit.classList.add('hit-foto')
@@ -3548,7 +3538,8 @@ function construirOverlays(): void {
   }
 
   // Imágenes agregadas (movibles, redimensionables, eliminables).
-  if (!enPlantilla) for (const im of Array.from(svgEl.querySelectorAll<SVGElement>('image[data-agregado="imagen"]'))) {
+  // En completa van por la capa de selección de vectores, no por overlays HTML.
+  if (!enPlantilla && !completa) for (const im of Array.from(svgEl.querySelectorAll<SVGElement>('image[data-agregado="imagen"]'))) {
     const r = rectUnion([im], base)
     if (!r) continue
     const hit = crearHit(r, 'imagen', () => {})
@@ -3576,7 +3567,7 @@ function construirOverlays(): void {
   }
 
   // Figuras e íconos agregados (mover, escalar, color, eliminar).
-  if (!enPlantilla) for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="figura"], [data-agregado="icono"]'))) {
+  if (!enPlantilla && !completa) for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="figura"], [data-agregado="icono"]'))) {
     const r = rectUnion([el], base)
     if (!r) continue
     const hit = crearHit(r, 'figura', () => {})

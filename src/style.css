@@ -801,16 +801,9 @@ body.modo-plantilla .toolbar-izq { display: none; }
 
 /* Modo Gráficos: seleccionar/editar vectores e imágenes de la plantilla */
 .mini.activo-grafico { background: var(--accent); color: #06121c; border-color: var(--accent); }
-/* En completa los overlays normales se apagan, MENOS lo que es de la selección de
-   vectores: la mini-barra de foto (.foto-tools) y los tiradores (.resize-handle),
-   que deben poder clickearse para cambiar la imagen y redimensionar. */
-.modo-grafico .hit,
-.modo-grafico .btn-eliminar,
-.modo-grafico .btn-candado,
-.modo-grafico .resize-caja,
-.modo-grafico .swatch-figura,
-.modo-grafico .mascara-wrap,
-.modo-grafico .mask-handle { pointer-events: none; }
+/* En completa los overlays que se construyen (texto + mini-barra de foto) y los
+   tiradores de la selección deben poder clickearse. Los overlays de elementos
+   agregados no se construyen en completa, así que no hace falta apagar nada. */
 .modo-grafico svg { cursor: pointer; }
 /* En modo gráficos, arrastrar es para seleccionar/mover: nunca seleccionar texto. */
 #lienzo.modo-grafico, #lienzo.modo-grafico svg, #lienzo.modo-grafico text {
