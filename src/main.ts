@@ -5882,7 +5882,7 @@ async function importarPDF(file: File): Promise<void> {
     // (recortar al bbox aplastaría una esquina redondeada a recta).
     let clipPathD: string | null = null
     const pilaCP: (string | null)[] = []
-    let nClip = 0
+    let nClip = 0, nGrad = 0
     const bufTieneCurvas = (buf: any): boolean => {
       for (let k = 0; k < buf.length;) { const o = buf[k++]; if (o === 2 || o === 3) return true; k += [2, 2, 6, 4, 0][o] || 0 }
       return false
@@ -5909,6 +5909,26 @@ async function importarPDF(file: File): Promise<void> {
       else if (fn === OPS.setStrokeRGBColor) { if (typeof a[0] === 'string') stroke = a[0] }
       else if (fn === OPS.setLineWidth) { lw = a[0] }
       else if (fn === OPS.showText) { colSeq.push(fill) } // color del texto, en orden
+      else if (fn === OPS.shadingFill) {
+        // Degradé (p.ej. el badge detrás de un logo). Se reconstruye como
+        // <linearGradient>/<radialGradient> SVG sobre la forma del recorte activo.
+        let sh: any = null
+        try { sh = page.objs.get(a[0]) } catch { sh = null }
+        const stops = sh && sh[3]
+        if (Array.isArray(stops) && stops.length) {
+          const tm = Util.transform(vp.transform, m)
+          const ap = (px: number, py: number) => [tm[0] * px + tm[2] * py + tm[4], tm[1] * px + tm[3] * py + tm[5]]
+          const p0 = ap((sh[4] && sh[4][0]) || 0, (sh[4] && sh[4][1]) || 0)
+          const p1 = ap((sh[5] && sh[5][0]) || 1, (sh[5] && sh[5][1]) || 0)
+          const id = `pdfgrad${nGrad++}`
+          const stopsXml = stops.map((s: any) => `<stop offset="${r2(s[0])}" stop-color="${s[1]}"/>`).join('')
+          const grad = `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${r2(p0[0])}" y1="${r2(p0[1])}" x2="${r2(p1[0])}" y2="${r2(p1[1])}">${stopsXml}</linearGradient>`
+          const forma = clipPathD
+            ? `<path d="${clipPathD}" fill="url(#${id})"/>`
+            : `<rect x="${r2(clip[0])}" y="${r2(clip[1])}" width="${r2(clip[2] - clip[0])}" height="${r2(clip[3] - clip[1])}" fill="url(#${id})"/>`
+          piezasGraf.push(grad + forma)
+        }
+      }
       else if (fn === OPS.clip || fn === OPS.eoClip) {
         if (prevEsPath && ultimoPathBbox) { clip = intersecar(clip, ultimoPathBbox); if (ultimoPathD) clipPathD = ultimoPathD } // (B)
         else clipPendiente = true // (A)
