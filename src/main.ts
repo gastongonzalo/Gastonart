@@ -2050,9 +2050,11 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
     return rec ?? hallado
   }
   // Subir a la unidad de selección: un grupo nuestro (data-grupo) tiene prioridad;
-  // si no, el grupo recortado (clip-path) más externo. Así los grupos y los logos
-  // recortados se manejan como una sola pieza.
+  // luego el elemento AGREGADO (p.ej. un ícono es un <g data-agregado="icono"> con
+  // varios paths → se selecciona el grupo, no un path suelto, y se mueve/escala
+  // proporcionado); si no, el grupo recortado (clip-path) más externo.
   let grupo: SVGElement | null = null
+  let agregado: SVGElement | null = null
   let recortado: SVGElement | null = null
   let a: Element | null = hallado
   // Área de la placa para no tratar como "pieza" a un grupo recortado que cubre
@@ -2062,6 +2064,7 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
   const areaPlaca = Math.max(1, pr.width * pr.height)
   while (a && a !== svgEl) {
     if (a.getAttribute && a.getAttribute('data-grupo') === '1') grupo = a as SVGElement
+    else if (a.getAttribute && a.getAttribute('data-agregado') != null) agregado = a as SVGElement
     else if (!(a.getAttribute && a.getAttribute('data-graf-wrap') === '1')) {
       const cp = getComputedStyle(a).clipPath
       if (cp && cp !== 'none') {
@@ -2071,7 +2074,7 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
     }
     a = a.parentElement
   }
-  return grupo ?? recortado ?? hallado
+  return grupo ?? agregado ?? recortado ?? hallado
 }
 
 function esFondo(rect: SVGRectElement): boolean {
