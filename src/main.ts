@@ -469,7 +469,7 @@ app.innerHTML = `
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
   <input type="file" id="in-font" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden>
-  <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml" hidden>
+  <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml,.pdf,application/pdf" hidden>
 
   <div id="panel-export" hidden>
     <div class="pe-head">
@@ -5770,7 +5770,7 @@ function mostrarInicio(): void {
           <h3>Usar plantilla</h3>
           <div class="ini-plantillas">${opcionesPlantilla}</div>
           <h3 style="margin-top:18px">Cargar plantilla SVG</h3>
-          <button id="ini-cargar-svg" class="ini-btn-acc">Elegir archivo .svg…</button>
+          <button id="ini-cargar-svg" class="ini-btn-acc">Elegir archivo .svg o .pdf…</button>
         </section>
       </div>
     </div>`
@@ -5800,13 +5800,52 @@ function mostrarInicio(): void {
   })
 }
 
+// Importar un PDF como plantilla: renderiza la 1.ª página a imagen (pdf.js) y la
+// usa como fondo a sangre de un SVG. Es "crudo" (imagen plana, no vectores
+// editables) — sirve para construir texto/formas encima.
+async function importarPDF(file: File): Promise<void> {
+  estado.textContent = 'Abriendo PDF…'
+  let canvas: HTMLCanvasElement | null = null
+  try {
+    const pdfjs = await import('pdfjs-dist')
+    pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
+    const page = await pdf.getPage(1)
+    const escala = 2 // renderizar al doble para que no quede pixelado
+    const vp = page.getViewport({ scale: escala })
+    canvas = document.createElement('canvas')
+    canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height)
+    // El canvas debe estar EN el DOM: un canvas desconectado puede no pintarse.
+    canvas.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none'
+    document.body.appendChild(canvas)
+    const tarea = page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp })
+    // Salvaguarda: si el render se cuelga, abortar a los 30s con un error claro.
+    await Promise.race([
+      tarea.promise,
+      new Promise((_, rej) => setTimeout(() => { tarea.cancel(); rej(new Error('timeout de render')) }, 30000)),
+    ])
+    const dataUrl = canvas.toDataURL('image/png')
+    const w = Math.round(vp.width / escala), h = Math.round(vp.height / escala)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${w} ${h}"><image x="0" y="0" width="${w}" height="${h}" href="${dataUrl}" xlink:href="${dataUrl}"/></svg>`
+    usarSvgImportado(svg, file.name.replace(/\.pdf$/i, ''))
+    estado.textContent = 'PDF importado (como imagen). Agregá texto/formas encima.'
+  } catch (err) {
+    estado.textContent = '❌ No se pudo abrir el PDF'
+    console.error('importar PDF:', err)
+  } finally {
+    canvas?.remove()
+  }
+}
+
 const inSvgPlantilla = document.querySelector<HTMLInputElement>('#in-svg-plantilla')!
 inSvgPlantilla.addEventListener('change', async () => {
   const file = inSvgPlantilla.files?.[0]
   if (file) {
     cerrarInicio()
-    try { usarSvgImportado(await file.text(), file.name) }
-    catch (e) { estado.textContent = '❌ ' + (e instanceof Error ? e.message : String(e)) }
+    try {
+      if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') await importarPDF(file)
+      else usarSvgImportado(await file.text(), file.name)
+    } catch (e) { estado.textContent = '❌ ' + (e instanceof Error ? e.message : String(e)) }
   }
   inSvgPlantilla.value = ''
 })
