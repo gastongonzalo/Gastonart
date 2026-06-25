@@ -3973,7 +3973,10 @@ function lineasDeNodos(nodos: NodeListOf<Element> | Element[]): string[] {
 }
 
 function textoActualCampo(nodos: NodeListOf<Element> | Element[]): string {
-  return lineasDeNodos(nodos).join('\n').replace(/\s+$/g, '')
+  // data-corrido (p.ej. párrafos importados de un PDF) = texto que fluye: las
+  // líneas se unen con espacio para que al editar reacomode solo según el ancho.
+  const corrido = Array.from(nodos).some((n) => (n as Element).getAttribute?.('data-corrido') != null)
+  return lineasDeNodos(nodos).join(corrido ? ' ' : '\n').replace(/\s+$/g, '')
 }
 
 function abrirEditor(nombre: string): void {
@@ -5993,22 +5996,43 @@ async function importarPDF(file: File): Promise<void> {
       } catch { /* fuente no resuelta: usar fallback */ }
       return (cacheFuente[fontName] = { fam, weight, italic, fb })
     }
-    const piezasTxt: string[] = []
-    let ci = 0 // índice para emparejar cada texto con su color (showText en orden)
+    // 1) Cada item de pdf.js suele ser UNA línea. Las juntamos en objetos línea.
+    type Linea = { x: number; y: number; fs: number; fontName: string; col: string; str: string }
+    const lineas: Linea[] = []
+    let ci = 0 // índice para emparejar cada línea con su color (showText en orden)
     for (const it of tc.items as any[]) {
       if (!it.str || !it.str.trim()) continue
       const tm = Util.transform(vp.transform, it.transform)
-      const x = tm[4], y = tm[5]
       const fs = Math.hypot(tm[2], tm[3]) // tamaño de fuente en unidades del viewport
+      const col = colSeq[ci++] || '#111'
       if (fs < 1) continue
-      const f = fuenteDe(it.fontName)
-      const col = colSeq[ci++] || '#111' // color real del texto (extraído del op-list)
+      lineas.push({ x: tm[4], y: tm[5], fs, fontName: it.fontName, col, str: it.str })
+    }
+    // 2) Agrupar líneas consecutivas del MISMO párrafo (misma fuente/tamaño/color,
+    //    misma x de inicio y separadas ~1 interlínea) en un solo bloque de texto.
+    type Parrafo = { x: number; y0: number; yPrev: number; lh: number | null; fs: number; fontName: string; col: string; lineas: string[] }
+    const parrafos: Parrafo[] = []
+    for (const ln of lineas) {
+      const g = parrafos[parrafos.length - 1]
+      const gap = g ? ln.y - g.yPrev : 0
+      const sigue = g && ln.fontName === g.fontName && Math.abs(ln.fs - g.fs) < 0.15 * g.fs &&
+        ln.col === g.col && Math.abs(ln.x - g.x) < Math.max(3, 0.4 * g.fs) &&
+        gap > 0.4 * g.fs && gap < 2.4 * g.fs
+      if (sigue) { if (g!.lh == null) g!.lh = gap; g!.lineas.push(ln.str); g!.yPrev = ln.y }
+      else parrafos.push({ x: ln.x, y0: ln.y, yPrev: ln.y, lh: null, fs: ln.fs, fontName: ln.fontName, col: ln.col, lineas: [ln.str] })
+    }
+    // 3) Emitir cada párrafo como UN <text> multilínea (data-corrido → al editar
+    //    fluye de corrido, no como líneas sueltas).
+    const piezasTxt: string[] = []
+    for (const p of parrafos) {
+      const f = fuenteDe(p.fontName)
+      const lh = p.lh || p.fs * 1.2
       const estilo = `font-family:'${escAttr(f.fam)}', ${escAttr(f.fb)};font-weight:${f.weight};` +
-        (f.italic ? 'font-style:italic;' : '') + `font-size:${r2(fs)}px;fill:${col}`
-      piezasTxt.push(
-        `<text transform="translate(${r2(x)} ${r2(y)})" style="${estilo}">` +
-        `<tspan x="0" y="0">${escHtml(it.str)}</tspan></text>`,
-      )
+        (f.italic ? 'font-style:italic;' : '') + `font-size:${r2(p.fs)}px;fill:${p.col}`
+      const tspans = p.lineas.map((s, i) => i === 0
+        ? `<tspan x="0" y="0">${escHtml(s)}</tspan>`
+        : `<tspan x="0" dy="${r2(lh)}">${escHtml(s)}</tspan>`).join('')
+      piezasTxt.push(`<text data-corrido="1" transform="translate(${r2(p.x)} ${r2(p.y0)})" style="${estilo}">${tspans}</text>`)
     }
 
     if (!piezasTxt.length && !piezasGraf.length) throw new Error('PDF sin contenido extraíble')
