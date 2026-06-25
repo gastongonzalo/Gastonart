@@ -1923,10 +1923,59 @@ function editHit(clientX: number, clientY: number): { i: number; tipo: 'a' | 'in
   return m ? { i: m.i, tipo: m.tipo } : null
 }
 
+// Inserta un ancla nueva sobre el trazo en el punto más cercano al clic (estilo
+// "agregar punto" de Illustrator). Divide el tramo (recta o Bézier, con De
+// Casteljau) conservando la forma. Devuelve true si insertó.
+function insertarPuntoEditor(clientX: number, clientY: number): boolean {
+  const base = lienzo.getBoundingClientRect()
+  const px = clientX - base.left, py = clientY - base.top
+  const n = editAnclas.length
+  if (n < 2) return false
+  const segs: [number, number][] = []
+  for (let i = 0; i < n - 1; i++) segs.push([i, i + 1])
+  if (editCerrado) segs.push([n - 1, 0])
+  let best: { i0: number; t: number } | null = null, bestD = 14
+  for (const [i0, i1] of segs) {
+    const A0 = editAnclas[i0], A1 = editAnclas[i1]
+    const cubic = tieneOut(A0) || tieneIn(A1)
+    const c1x = A0.x + A0.hox, c1y = A0.y + A0.hoy, c2x = A1.x + A1.hix, c2y = A1.y + A1.hiy
+    const N = 24
+    for (let s = 0; s <= N; s++) {
+      const t = s / N, u = 1 - t
+      const lx = cubic ? u * u * u * A0.x + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * A1.x : A0.x + (A1.x - A0.x) * t
+      const ly = cubic ? u * u * u * A0.y + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * A1.y : A0.y + (A1.y - A0.y) * t
+      const p = localAPx(lx, ly), d = Math.hypot(p.left - px, p.top - py)
+      if (d < bestD) { bestD = d; best = { i0, t } }
+    }
+  }
+  if (!best) return false
+  const { i0, t } = best
+  const A0 = editAnclas[i0], A1 = editAnclas[(i0 + 1) % n]
+  let nueva: Ancla
+  if (tieneOut(A0) || tieneIn(A1)) {
+    const c1x = A0.x + A0.hox, c1y = A0.y + A0.hoy, c2x = A1.x + A1.hix, c2y = A1.y + A1.hiy
+    const L = (ax: number, ay: number, bx: number, by: number) => ({ x: ax + (bx - ax) * t, y: ay + (by - ay) * t })
+    const A = L(A0.x, A0.y, c1x, c1y), B = L(c1x, c1y, c2x, c2y), C = L(c2x, c2y, A1.x, A1.y)
+    const D = L(A.x, A.y, B.x, B.y), E = L(B.x, B.y, C.x, C.y), F = L(D.x, D.y, E.x, E.y)
+    A0.hox = A.x - A0.x; A0.hoy = A.y - A0.y
+    A1.hix = C.x - A1.x; A1.hiy = C.y - A1.y
+    nueva = { x: F.x, y: F.y, hix: D.x - F.x, hiy: D.y - F.y, hox: E.x - F.x, hoy: E.y - F.y }
+  } else {
+    nueva = { x: A0.x + (A1.x - A0.x) * t, y: A0.y + (A1.y - A0.y) * t, hix: 0, hiy: 0, hox: 0, hoy: 0 }
+  }
+  editAnclas.splice(i0 + 1, 0, nueva)
+  return true
+}
+
 function editPointerDown(e: PointerEvent): void {
   if (!editCapa) return
   const hit = editHit(e.clientX, e.clientY)
-  if (!hit) { salirEditarPuntos(); return } // clic en vacío: terminar
+  if (!hit) {
+    // Sobre el trazo: agrega un punto. En vacío real: termina.
+    if (insertarPuntoEditor(e.clientX, e.clientY)) { e.preventDefault(); dibujarEditor() }
+    else salirEditarPuntos()
+    return
+  }
   e.preventDefault()
   const a = editAnclas[hit.i]
   // Alt + clic sobre un ANCLA (sin arrastrar) = eliminar el punto.
