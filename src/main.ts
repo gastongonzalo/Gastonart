@@ -5842,11 +5842,31 @@ async function importarPDF(file: File): Promise<void> {
     // visible y se recortan con un clip; sin aplicarlo, la imagen se desborda.
     const ol = await page.getOperatorList()
     const OPS = pdfjs.OPS as any
-    const piezasImg: string[] = []
+    const nombreOp: Record<number, string> = {}
+    for (const k in OPS) nombreOp[OPS[k]] = k
+    const piezasGraf: string[] = [] // vectores + imágenes, en orden de pintado (z)
+    const colSeq: string[] = [] // color de relleno de cada showText, en orden (para el texto)
     let m: number[] = [1, 0, 0, 1, 0, 0]
     let clip: number[] = [0, 0, W, H] // recorte activo en coords del viewport (x0,y0,x1,y1)
+    let fill = '#000000', stroke = '#000000', lw = 1 // estado de color/grosor
     const pilaM: number[][] = []
     const pilaC: number[][] = []
+    // DrawOPS de pdf.js: 0 moveTo, 1 lineTo, 2 curveTo(6), 3 quadTo(4), 4 close.
+    const pathADStr = (buf: any): string => {
+      const tm = Util.transform(vp.transform, m)
+      const ap = (x: number, y: number) => r2(tm[0] * x + tm[2] * y + tm[4]) + ' ' + r2(tm[1] * x + tm[3] * y + tm[5])
+      let d = ''
+      for (let k = 0; k < buf.length;) {
+        const o = buf[k++]
+        if (o === 0) d += 'M' + ap(buf[k++], buf[k++]) + ' '
+        else if (o === 1) d += 'L' + ap(buf[k++], buf[k++]) + ' '
+        else if (o === 2) d += 'C' + ap(buf[k++], buf[k++]) + ' ' + ap(buf[k++], buf[k++]) + ' ' + ap(buf[k++], buf[k++]) + ' '
+        else if (o === 3) d += 'Q' + ap(buf[k++], buf[k++]) + ' ' + ap(buf[k++], buf[k++]) + ' '
+        else if (o === 4) d += 'Z '
+        else break
+      }
+      return d.trim()
+    }
     // El clip de un path se puede emitir en dos órdenes según quién generó el PDF:
     //   A) clip, constructPath(rect)  — Illustrator/InDesign
     //   B) constructPath(rect), clip  — jsPDF y otros
@@ -5871,6 +5891,10 @@ async function importarPDF(file: File): Promise<void> {
       if (fn === OPS.save) { pilaM.push(m.slice()); pilaC.push(clip.slice()) }
       else if (fn === OPS.restore) { m = pilaM.pop() || m; clip = pilaC.pop() || clip }
       else if (fn === OPS.transform) m = Util.transform(m, a)
+      else if (fn === OPS.setFillRGBColor) { if (typeof a[0] === 'string') fill = a[0] }
+      else if (fn === OPS.setStrokeRGBColor) { if (typeof a[0] === 'string') stroke = a[0] }
+      else if (fn === OPS.setLineWidth) { lw = a[0] }
+      else if (fn === OPS.showText) { colSeq.push(fill) } // color del texto, en orden
       else if (fn === OPS.clip || fn === OPS.eoClip) {
         if (prevEsPath && ultimoPathBbox) clip = intersecar(clip, ultimoPathBbox) // (B)
         else clipPendiente = true // (A)
@@ -5878,6 +5902,23 @@ async function importarPDF(file: File): Promise<void> {
       else if (fn === OPS.constructPath) {
         ultimoPathBbox = minMaxOk(a[2]) ? bboxDeMinMax(a[2]) : null
         if (clipPendiente && ultimoPathBbox) { clip = intersecar(clip, ultimoPathBbox); clipPendiente = false } // (A)
+        // Emitir el trazo como <path> si la operación lo pinta (fill/stroke).
+        const nom = nombreOp[a[0]] || ''
+        const haceFill = /fill/i.test(nom), haceStroke = /stroke/i.test(nom)
+        if ((haceFill || haceStroke) && Array.isArray(a[1])) {
+          const d = a[1].map((b: any) => (b && b.length ? pathADStr(b) : '')).filter(Boolean).join(' ')
+          if (d) {
+            const tm = Util.transform(vp.transform, m)
+            const esc = Math.sqrt(Math.abs(tm[0] * tm[3] - tm[1] * tm[2])) || 1
+            const attrs = [
+              `d="${d}"`,
+              `fill="${haceFill ? fill : 'none'}"`,
+              /eo/i.test(nom) && haceFill ? 'fill-rule="evenodd"' : '',
+              haceStroke ? `stroke="${stroke}" stroke-width="${r2(lw * esc)}"` : '',
+            ].filter(Boolean).join(' ')
+            piezasGraf.push(`<path ${attrs}/>`)
+          }
+        }
       }
       else if (fn === OPS.paintImageXObject || fn === OPS.paintImageMaskXObject) {
         const nombre = a[0]
@@ -5903,13 +5944,14 @@ async function importarPDF(file: File): Promise<void> {
         rec.width = Math.max(1, Math.round(sw)); rec.height = Math.max(1, Math.round(sh))
         rec.getContext('2d')!.drawImage(fuente, sx, sy, sw, sh, 0, 0, rec.width, rec.height)
         const dataUrl = rec.toDataURL('image/png')
-        piezasImg.push(`<image x="${r2(vis[0])}" y="${r2(vis[1])}" width="${r2(vw)}" height="${r2(vh)}" preserveAspectRatio="none" href="${dataUrl}" xlink:href="${dataUrl}"/>`)
+        piezasGraf.push(`<image x="${r2(vis[0])}" y="${r2(vis[1])}" width="${r2(vw)}" height="${r2(vh)}" preserveAspectRatio="none" href="${dataUrl}" xlink:href="${dataUrl}"/>`)
       }
     }
 
     // --- Texto: cada item → un <text> editable (estructura de agregarTexto) ---
     const tc = await page.getTextContent()
     const piezasTxt: string[] = []
+    let ci = 0 // índice para emparejar cada texto con su color (showText en orden)
     for (const it of tc.items as any[]) {
       if (!it.str || !it.str.trim()) continue
       const tm = Util.transform(vp.transform, it.transform)
@@ -5917,20 +5959,23 @@ async function importarPDF(file: File): Promise<void> {
       const fs = Math.hypot(tm[2], tm[3]) // tamaño de fuente en unidades del viewport
       if (fs < 1) continue
       const ff = (tc.styles?.[it.fontName]?.fontFamily) || 'sans-serif'
+      const col = colSeq[ci++] || '#111' // color real del texto (extraído del op-list)
       piezasTxt.push(
-        `<text transform="translate(${r2(x)} ${r2(y)})" style="font-family:${escAttr(ff)};font-size:${r2(fs)}px;fill:#111">` +
+        `<text transform="translate(${r2(x)} ${r2(y)})" style="font-family:${escAttr(ff)};font-size:${r2(fs)}px;fill:${col}">` +
         `<tspan x="0" y="0">${escHtml(it.str)}</tspan></text>`,
       )
     }
 
-    if (!piezasTxt.length && !piezasImg.length) throw new Error('PDF sin texto ni imágenes extraíbles')
+    if (!piezasTxt.length && !piezasGraf.length) throw new Error('PDF sin contenido extraíble')
 
+    // Vectores + imágenes primero (fondo/decoración), texto editable ENCIMA.
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${W} ${H}">` +
       `<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>` +
-      piezasImg.join('') + piezasTxt.join('') + `</svg>`
+      piezasGraf.join('') + piezasTxt.join('') + `</svg>`
     modoEdicion = 'completa' // PDF importado: edición completa
     usarSvgImportado(svg, file.name.replace(/\.pdf$/i, ''))
-    estado.textContent = `PDF importado: ${piezasTxt.length} texto(s) editable(s), ${piezasImg.length} imagen(es). Tocá un texto para editarlo.`
+    const nImg = piezasGraf.filter((p) => p.startsWith('<image')).length
+    estado.textContent = `PDF importado: ${piezasTxt.length} texto(s) editable(s), ${nImg} imagen(es), ${piezasGraf.length - nImg} vector(es). Tocá un texto para editarlo.`
   } catch (err) {
     estado.textContent = '❌ No se pudo abrir el PDF'
     console.error('importar PDF:', err)
