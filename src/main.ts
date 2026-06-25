@@ -5800,10 +5800,9 @@ function mostrarInicio(): void {
   })
 }
 
-// Convierte el bitmap/datos de una imagen de pdf.js a un dataURL PNG. El bitmap
-// ya viene en la orientación correcta (fila 0 = arriba); se coloca tal cual en
-// el bbox calculado, sin voltear.
-function imagenPdfADataUrl(obj: any): string | null {
+// Pasa el bitmap/datos de una imagen de pdf.js a un <canvas> en su orientación
+// correcta (fila 0 = arriba, sin voltear). Devuelve null si no hay datos.
+function imagenPdfACanvas(obj: any): HTMLCanvasElement | null {
   const w = obj.width, h = obj.height
   if (!w || !h) return null
   const c = document.createElement('canvas'); c.width = w; c.height = h
@@ -5819,7 +5818,7 @@ function imagenPdfADataUrl(obj: any): string | null {
     else { for (let i = 0, j = 0; i < src.length; i++, j += 4) { out[j] = out[j + 1] = out[j + 2] = src[i]; out[j + 3] = 255 } }
     ctx.putImageData(new ImageData(out, w, h), 0, 0)
   } else return null
-  return c.toDataURL('image/png')
+  return c
 }
 
 // Importar un PDF como plantilla EDITABLE: extrae el texto (campos editables) y
@@ -5838,30 +5837,73 @@ async function importarPDF(file: File): Promise<void> {
     const W = Math.round(vp.width), H = Math.round(vp.height)
     const Util = pdfjs.Util as any
 
-    // --- Imágenes: recorrer la lista de operadores rastreando la matriz (CTM) ---
+    // --- Imágenes: recorrer la lista de operadores rastreando matriz (CTM) y
+    // RECORTE (clip). En el PDF las fotos suelen ser más grandes que su área
+    // visible y se recortan con un clip; sin aplicarlo, la imagen se desborda.
     const ol = await page.getOperatorList()
     const OPS = pdfjs.OPS as any
     const piezasImg: string[] = []
     let m: number[] = [1, 0, 0, 1, 0, 0]
-    const pila: number[][] = []
+    let clip: number[] = [0, 0, W, H] // recorte activo en coords del viewport (x0,y0,x1,y1)
+    const pilaM: number[][] = []
+    const pilaC: number[][] = []
+    // El clip de un path se puede emitir en dos órdenes según quién generó el PDF:
+    //   A) clip, constructPath(rect)  — Illustrator/InDesign
+    //   B) constructPath(rect), clip  — jsPDF y otros
+    let clipPendiente = false       // (A) vimos `clip`, falta el path
+    let ultimoPathBbox: number[] | null = null // bbox del último constructPath
+    let ultimoEsPath = false        // ¿la op anterior fue constructPath? (para B)
+    // mm puede ser Array o Float32Array (no usar Array.isArray, falla con typed).
+    const minMaxOk = (mm: any): boolean => !!mm && mm.length === 4 && Number.isFinite(mm[0]) && Number.isFinite(mm[2])
+    const bboxDeMinMax = (mm: number[]): number[] => {
+      const tm = Util.transform(vp.transform, m)
+      const ap = (px: number, py: number) => [tm[0] * px + tm[2] * py + tm[4], tm[1] * px + tm[3] * py + tm[5]]
+      const c = [ap(mm[0], mm[1]), ap(mm[2], mm[1]), ap(mm[2], mm[3]), ap(mm[0], mm[3])]
+      const xs = c.map((p) => p[0]), ys = c.map((p) => p[1])
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+    }
+    const intersecar = (a: number[], b: number[]): number[] =>
+      [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.min(a[2], b[2]), Math.min(a[3], b[3])]
     for (let i = 0; i < ol.fnArray.length; i++) {
       const fn = ol.fnArray[i], a = ol.argsArray[i] as any
-      if (fn === OPS.save) pila.push(m.slice())
-      else if (fn === OPS.restore) m = pila.pop() || m
+      const prevEsPath = ultimoEsPath
+      ultimoEsPath = (fn === OPS.constructPath)
+      if (fn === OPS.save) { pilaM.push(m.slice()); pilaC.push(clip.slice()) }
+      else if (fn === OPS.restore) { m = pilaM.pop() || m; clip = pilaC.pop() || clip }
       else if (fn === OPS.transform) m = Util.transform(m, a)
+      else if (fn === OPS.clip || fn === OPS.eoClip) {
+        if (prevEsPath && ultimoPathBbox) clip = intersecar(clip, ultimoPathBbox) // (B)
+        else clipPendiente = true // (A)
+      }
+      else if (fn === OPS.constructPath) {
+        ultimoPathBbox = minMaxOk(a[2]) ? bboxDeMinMax(a[2]) : null
+        if (clipPendiente && ultimoPathBbox) { clip = intersecar(clip, ultimoPathBbox); clipPendiente = false } // (A)
+      }
       else if (fn === OPS.paintImageXObject || fn === OPS.paintImageMaskXObject) {
         const nombre = a[0]
         const obj = await new Promise<any>((res) => { try { page.objs.get(nombre, res) } catch { res(null) } }).catch(() => null)
-        const dataUrl = obj ? imagenPdfADataUrl(obj) : null
-        if (!dataUrl) continue
-        // El cuadrado unidad [0,1]² mapeado por (vp ∘ CTM) → bbox de la imagen.
+        const fuente = obj ? imagenPdfACanvas(obj) : null
+        if (!fuente) continue
+        // bbox de la imagen completa (cuadrado unidad [0,1]² por vp∘CTM).
         const tm = Util.transform(vp.transform, m)
         const ap = (px: number, py: number) => [tm[0] * px + tm[2] * py + tm[4], tm[1] * px + tm[3] * py + tm[5]]
         const pts = [ap(0, 0), ap(1, 0), ap(1, 1), ap(0, 1)]
         const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1])
-        const x = Math.min(...xs), y = Math.min(...ys)
-        const w = Math.max(...xs) - x, h = Math.max(...ys) - y
-        piezasImg.push(`<image x="${r2(x)}" y="${r2(y)}" width="${r2(w)}" height="${r2(h)}" preserveAspectRatio="none" href="${dataUrl}" xlink:href="${dataUrl}"/>`)
+        const ib = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+        // Área visible = imagen ∩ clip. Si queda vacía, la imagen está oculta.
+        const vis = intersecar(ib, clip)
+        const vw = vis[2] - vis[0], vh = vis[3] - vis[1]
+        if (vw < 1 || vh < 1) continue
+        // Recortar el bitmap a la fracción visible del bbox completo.
+        const fx0 = (vis[0] - ib[0]) / (ib[2] - ib[0]), fy0 = (vis[1] - ib[1]) / (ib[3] - ib[1])
+        const fx1 = (vis[2] - ib[0]) / (ib[2] - ib[0]), fy1 = (vis[3] - ib[1]) / (ib[3] - ib[1])
+        const sx = fx0 * fuente.width, sy = fy0 * fuente.height
+        const sw = (fx1 - fx0) * fuente.width, sh = (fy1 - fy0) * fuente.height
+        const rec = document.createElement('canvas')
+        rec.width = Math.max(1, Math.round(sw)); rec.height = Math.max(1, Math.round(sh))
+        rec.getContext('2d')!.drawImage(fuente, sx, sy, sw, sh, 0, 0, rec.width, rec.height)
+        const dataUrl = rec.toDataURL('image/png')
+        piezasImg.push(`<image x="${r2(vis[0])}" y="${r2(vis[1])}" width="${r2(vw)}" height="${r2(vh)}" preserveAspectRatio="none" href="${dataUrl}" xlink:href="${dataUrl}"/>`)
       }
     }
 
