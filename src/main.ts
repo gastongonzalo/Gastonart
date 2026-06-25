@@ -5851,6 +5851,7 @@ async function importarPDF(file: File): Promise<void> {
     let fill = '#000000', stroke = '#000000', lw = 1 // estado de color/grosor
     const pilaM: number[][] = []
     const pilaC: number[][] = []
+    const pilaE: Array<[string, string, number]> = [] // estado de color/grosor (q/Q lo guarda)
     // DrawOPS de pdf.js: 0 moveTo, 1 lineTo, 2 curveTo(6), 3 quadTo(4), 4 close.
     const pathADStr = (buf: any): string => {
       const tm = Util.transform(vp.transform, m)
@@ -5888,8 +5889,8 @@ async function importarPDF(file: File): Promise<void> {
       const fn = ol.fnArray[i], a = ol.argsArray[i] as any
       const prevEsPath = ultimoEsPath
       ultimoEsPath = (fn === OPS.constructPath)
-      if (fn === OPS.save) { pilaM.push(m.slice()); pilaC.push(clip.slice()) }
-      else if (fn === OPS.restore) { m = pilaM.pop() || m; clip = pilaC.pop() || clip }
+      if (fn === OPS.save) { pilaM.push(m.slice()); pilaC.push(clip.slice()); pilaE.push([fill, stroke, lw]) }
+      else if (fn === OPS.restore) { m = pilaM.pop() || m; clip = pilaC.pop() || clip; const e = pilaE.pop(); if (e) { fill = e[0]; stroke = e[1]; lw = e[2] } }
       else if (fn === OPS.transform) m = Util.transform(m, a)
       else if (fn === OPS.setFillRGBColor) { if (typeof a[0] === 'string') fill = a[0] }
       else if (fn === OPS.setStrokeRGBColor) { if (typeof a[0] === 'string') stroke = a[0] }
@@ -5950,6 +5951,32 @@ async function importarPDF(file: File): Promise<void> {
 
     // --- Texto: cada item → un <text> editable (estructura de agregarTexto) ---
     const tc = await page.getTextContent()
+    // getTextContent solo da "sans-serif"; el nombre REAL (p.ej. Poppins-SemiBold)
+    // está en el objeto de fuente. Lo parseamos a familia + peso + cursiva.
+    const cacheFuente: Record<string, { fam: string; weight: number; italic: boolean; fb: string }> = {}
+    const fuenteDe = (fontName: string) => {
+      if (cacheFuente[fontName]) return cacheFuente[fontName]
+      const fb = (tc.styles?.[fontName]?.fontFamily) || 'sans-serif' // fallback genérico
+      let fam = fb, weight = 400, italic = false
+      try {
+        let nm: string = (page.commonObjs.get(fontName) as any)?.name || ''
+        if (nm.includes('+')) nm = nm.split('+')[1] // sacar el prefijo de subset (CXIVHZ+)
+        if (nm) {
+          const suf = (nm.split('-')[1] || nm).toLowerCase()
+          if (/thin/.test(suf)) weight = 100
+          else if (/extralight|ultralight/.test(suf)) weight = 200
+          else if (/light/.test(suf)) weight = 300
+          else if (/medium/.test(suf)) weight = 500
+          else if (/semibold|demibold/.test(suf)) weight = 600
+          else if (/extrabold|ultrabold/.test(suf)) weight = 800
+          else if (/black|heavy/.test(suf)) weight = 900
+          else if (/bold/.test(suf)) weight = 700
+          italic = /italic|oblique/.test(nm.toLowerCase())
+          fam = nm.split('-')[0].replace(/([a-z])([A-Z])/g, '$1 $2') // "PoppinsSemiBold"→"Poppins"
+        }
+      } catch { /* fuente no resuelta: usar fallback */ }
+      return (cacheFuente[fontName] = { fam, weight, italic, fb })
+    }
     const piezasTxt: string[] = []
     let ci = 0 // índice para emparejar cada texto con su color (showText en orden)
     for (const it of tc.items as any[]) {
@@ -5958,10 +5985,12 @@ async function importarPDF(file: File): Promise<void> {
       const x = tm[4], y = tm[5]
       const fs = Math.hypot(tm[2], tm[3]) // tamaño de fuente en unidades del viewport
       if (fs < 1) continue
-      const ff = (tc.styles?.[it.fontName]?.fontFamily) || 'sans-serif'
+      const f = fuenteDe(it.fontName)
       const col = colSeq[ci++] || '#111' // color real del texto (extraído del op-list)
+      const estilo = `font-family:'${escAttr(f.fam)}', ${escAttr(f.fb)};font-weight:${f.weight};` +
+        (f.italic ? 'font-style:italic;' : '') + `font-size:${r2(fs)}px;fill:${col}`
       piezasTxt.push(
-        `<text transform="translate(${r2(x)} ${r2(y)})" style="font-family:${escAttr(ff)};font-size:${r2(fs)}px;fill:${col}">` +
+        `<text transform="translate(${r2(x)} ${r2(y)})" style="${estilo}">` +
         `<tspan x="0" y="0">${escHtml(it.str)}</tspan></text>`,
       )
     }
