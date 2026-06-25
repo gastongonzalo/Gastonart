@@ -5800,43 +5800,98 @@ function mostrarInicio(): void {
   })
 }
 
-// Importar un PDF como plantilla: renderiza la 1.ª página a imagen (pdf.js) y la
-// usa como fondo a sangre de un SVG. Es "crudo" (imagen plana, no vectores
-// editables) — sirve para construir texto/formas encima.
+// Convierte el bitmap/datos de una imagen de pdf.js a un dataURL PNG. El bitmap
+// ya viene en la orientación correcta (fila 0 = arriba); se coloca tal cual en
+// el bbox calculado, sin voltear.
+function imagenPdfADataUrl(obj: any): string | null {
+  const w = obj.width, h = obj.height
+  if (!w || !h) return null
+  const c = document.createElement('canvas'); c.width = w; c.height = h
+  const ctx = c.getContext('2d')!
+  if (obj.bitmap) {
+    ctx.drawImage(obj.bitmap, 0, 0, w, h)
+  } else if (obj.data) {
+    // obj.kind: 1=GRAY_1BPP, 2=RGB_24BPP, 3=RGBA_32BPP. Convertir a RGBA.
+    const src = obj.data as Uint8ClampedArray
+    const out = new Uint8ClampedArray(w * h * 4)
+    if (obj.kind === 3) { out.set(src) }
+    else if (obj.kind === 2) { for (let i = 0, j = 0; i < src.length; i += 3, j += 4) { out[j] = src[i]; out[j + 1] = src[i + 1]; out[j + 2] = src[i + 2]; out[j + 3] = 255 } }
+    else { for (let i = 0, j = 0; i < src.length; i++, j += 4) { out[j] = out[j + 1] = out[j + 2] = src[i]; out[j + 3] = 255 } }
+    ctx.putImageData(new ImageData(out, w, h), 0, 0)
+  } else return null
+  return c.toDataURL('image/png')
+}
+
+// Importar un PDF como plantilla EDITABLE: extrae el texto (campos editables) y
+// las imágenes (huecos reemplazables) y reconstruye un SVG. NO usa el render a
+// canvas (que se cuelga en pestañas ocultas y no da nada editable). Limitación:
+// los gráficos vectoriales puros del PDF (fondos de color, formas, líneas) NO se
+// extraen y se pierden.
 async function importarPDF(file: File): Promise<void> {
   estado.textContent = 'Abriendo PDF…'
-  let canvas: HTMLCanvasElement | null = null
   try {
     const pdfjs = await import('pdfjs-dist')
     pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
     const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
     const page = await pdf.getPage(1)
-    const escala = 2 // renderizar al doble para que no quede pixelado
-    const vp = page.getViewport({ scale: escala })
-    canvas = document.createElement('canvas')
-    canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height)
-    // El canvas debe estar EN el DOM: un canvas desconectado puede no pintarse.
-    canvas.style.cssText = 'position:fixed;left:-99999px;top:0;pointer-events:none'
-    document.body.appendChild(canvas)
-    const tarea = page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp })
-    // Salvaguarda: si el render se cuelga, abortar a los 30s con un error claro.
-    await Promise.race([
-      tarea.promise,
-      new Promise((_, rej) => setTimeout(() => { tarea.cancel(); rej(new Error('timeout de render')) }, 30000)),
-    ])
-    const dataUrl = canvas.toDataURL('image/png')
-    const w = Math.round(vp.width / escala), h = Math.round(vp.height / escala)
-    // data-fondo + pointer-events:none → fondo fijo, NO hueco de foto reemplazable.
-    // Así el PDF queda como backdrop y se construye texto/formas ENCIMA.
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${w} ${h}"><image data-fondo="1" pointer-events="none" x="0" y="0" width="${w}" height="${h}" href="${dataUrl}" xlink:href="${dataUrl}"/></svg>`
-    modoEdicion = 'completa' // PDF importado: editar libremente encima del fondo
+    const vp = page.getViewport({ scale: 1 })
+    const W = Math.round(vp.width), H = Math.round(vp.height)
+    const Util = pdfjs.Util as any
+
+    // --- Imágenes: recorrer la lista de operadores rastreando la matriz (CTM) ---
+    const ol = await page.getOperatorList()
+    const OPS = pdfjs.OPS as any
+    const piezasImg: string[] = []
+    let m: number[] = [1, 0, 0, 1, 0, 0]
+    const pila: number[][] = []
+    for (let i = 0; i < ol.fnArray.length; i++) {
+      const fn = ol.fnArray[i], a = ol.argsArray[i] as any
+      if (fn === OPS.save) pila.push(m.slice())
+      else if (fn === OPS.restore) m = pila.pop() || m
+      else if (fn === OPS.transform) m = Util.transform(m, a)
+      else if (fn === OPS.paintImageXObject || fn === OPS.paintImageMaskXObject) {
+        const nombre = a[0]
+        const obj = await new Promise<any>((res) => { try { page.objs.get(nombre, res) } catch { res(null) } }).catch(() => null)
+        const dataUrl = obj ? imagenPdfADataUrl(obj) : null
+        if (!dataUrl) continue
+        // El cuadrado unidad [0,1]² mapeado por (vp ∘ CTM) → bbox de la imagen.
+        const tm = Util.transform(vp.transform, m)
+        const ap = (px: number, py: number) => [tm[0] * px + tm[2] * py + tm[4], tm[1] * px + tm[3] * py + tm[5]]
+        const pts = [ap(0, 0), ap(1, 0), ap(1, 1), ap(0, 1)]
+        const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1])
+        const x = Math.min(...xs), y = Math.min(...ys)
+        const w = Math.max(...xs) - x, h = Math.max(...ys) - y
+        piezasImg.push(`<image x="${r2(x)}" y="${r2(y)}" width="${r2(w)}" height="${r2(h)}" preserveAspectRatio="none" href="${dataUrl}" xlink:href="${dataUrl}"/>`)
+      }
+    }
+
+    // --- Texto: cada item → un <text> editable (estructura de agregarTexto) ---
+    const tc = await page.getTextContent()
+    const piezasTxt: string[] = []
+    for (const it of tc.items as any[]) {
+      if (!it.str || !it.str.trim()) continue
+      const tm = Util.transform(vp.transform, it.transform)
+      const x = tm[4], y = tm[5]
+      const fs = Math.hypot(tm[2], tm[3]) // tamaño de fuente en unidades del viewport
+      if (fs < 1) continue
+      const ff = (tc.styles?.[it.fontName]?.fontFamily) || 'sans-serif'
+      piezasTxt.push(
+        `<text transform="translate(${r2(x)} ${r2(y)})" style="font-family:${escAttr(ff)};font-size:${r2(fs)}px;fill:#111">` +
+        `<tspan x="0" y="0">${escHtml(it.str)}</tspan></text>`,
+      )
+    }
+
+    if (!piezasTxt.length && !piezasImg.length) throw new Error('PDF sin texto ni imágenes extraíbles')
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${W} ${H}">` +
+      `<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>` +
+      piezasImg.join('') + piezasTxt.join('') + `</svg>`
+    modoEdicion = 'completa' // PDF importado: edición completa
     usarSvgImportado(svg, file.name.replace(/\.pdf$/i, ''))
-    estado.textContent = 'PDF importado como fondo. Agregá texto/formas encima.'
+    estado.textContent = `PDF importado: ${piezasTxt.length} texto(s) editable(s), ${piezasImg.length} imagen(es). Tocá un texto para editarlo.`
   } catch (err) {
     estado.textContent = '❌ No se pudo abrir el PDF'
     console.error('importar PDF:', err)
-  } finally {
-    canvas?.remove()
   }
 }
 
@@ -5891,6 +5946,16 @@ window.addEventListener('resize', () => {
 
 function escAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+}
+
+// Escapa el CONTENIDO de un elemento (texto entre tags).
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// Redondea a 2 decimales para coords/atributos del SVG (evita ruido de floats).
+function r2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
 // ---------------------------------------------------------------

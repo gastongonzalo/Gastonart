@@ -18,7 +18,7 @@
     "@resvg/resvg-wasm": "^2.6.2",
     "jspdf": "^4.2.1",
     "onnxruntime-web": "1.21.0",
-    "pdfjs-dist": "^4.10.38",
+    "pdfjs-dist": "^6.0.227",
     "polygon-clipping": "^0.15.7",
     "svg2pdf.js": "^2.7.0"
   }
