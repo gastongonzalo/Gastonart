@@ -5873,7 +5873,17 @@ async function importarPDF(file: File): Promise<void> {
     //   B) constructPath(rect), clip  — jsPDF y otros
     let clipPendiente = false       // (A) vimos `clip`, falta el path
     let ultimoPathBbox: number[] | null = null // bbox del último constructPath
+    let ultimoPathD: string | null = null // `d` (device) del último path SI tiene curvas
     let ultimoEsPath = false        // ¿la op anterior fue constructPath? (para B)
+    // Clip con forma NO rectangular (curva): se aplica como <clipPath> a la imagen
+    // (recortar al bbox aplastaría una esquina redondeada a recta).
+    let clipPathD: string | null = null
+    const pilaCP: (string | null)[] = []
+    let nClip = 0
+    const bufTieneCurvas = (buf: any): boolean => {
+      for (let k = 0; k < buf.length;) { const o = buf[k++]; if (o === 2 || o === 3) return true; k += [2, 2, 6, 4, 0][o] || 0 }
+      return false
+    }
     // mm puede ser Array o Float32Array (no usar Array.isArray, falla con typed).
     const minMaxOk = (mm: any): boolean => !!mm && mm.length === 4 && Number.isFinite(mm[0]) && Number.isFinite(mm[2])
     const bboxDeMinMax = (mm: number[]): number[] => {
@@ -5889,20 +5899,23 @@ async function importarPDF(file: File): Promise<void> {
       const fn = ol.fnArray[i], a = ol.argsArray[i] as any
       const prevEsPath = ultimoEsPath
       ultimoEsPath = (fn === OPS.constructPath)
-      if (fn === OPS.save) { pilaM.push(m.slice()); pilaC.push(clip.slice()); pilaE.push([fill, stroke, lw]) }
-      else if (fn === OPS.restore) { m = pilaM.pop() || m; clip = pilaC.pop() || clip; const e = pilaE.pop(); if (e) { fill = e[0]; stroke = e[1]; lw = e[2] } }
+      if (fn === OPS.save) { pilaM.push(m.slice()); pilaC.push(clip.slice()); pilaE.push([fill, stroke, lw]); pilaCP.push(clipPathD) }
+      else if (fn === OPS.restore) { m = pilaM.pop() || m; clip = pilaC.pop() || clip; const e = pilaE.pop(); if (e) { fill = e[0]; stroke = e[1]; lw = e[2] }; if (pilaCP.length) clipPathD = pilaCP.pop()! }
       else if (fn === OPS.transform) m = Util.transform(m, a)
       else if (fn === OPS.setFillRGBColor) { if (typeof a[0] === 'string') fill = a[0] }
       else if (fn === OPS.setStrokeRGBColor) { if (typeof a[0] === 'string') stroke = a[0] }
       else if (fn === OPS.setLineWidth) { lw = a[0] }
       else if (fn === OPS.showText) { colSeq.push(fill) } // color del texto, en orden
       else if (fn === OPS.clip || fn === OPS.eoClip) {
-        if (prevEsPath && ultimoPathBbox) clip = intersecar(clip, ultimoPathBbox) // (B)
+        if (prevEsPath && ultimoPathBbox) { clip = intersecar(clip, ultimoPathBbox); if (ultimoPathD) clipPathD = ultimoPathD } // (B)
         else clipPendiente = true // (A)
       }
       else if (fn === OPS.constructPath) {
         ultimoPathBbox = minMaxOk(a[2]) ? bboxDeMinMax(a[2]) : null
-        if (clipPendiente && ultimoPathBbox) { clip = intersecar(clip, ultimoPathBbox); clipPendiente = false } // (A)
+        // `d` del path solo si tiene curvas (para clips redondeados); evita decodificar de más.
+        const buf0 = Array.isArray(a[1]) && a[1][0]
+        ultimoPathD = (buf0 && buf0.length && bufTieneCurvas(buf0)) ? a[1].map((b: any) => (b && b.length ? pathADStr(b) : '')).filter(Boolean).join(' ') : null
+        if (clipPendiente && ultimoPathBbox) { clip = intersecar(clip, ultimoPathBbox); if (ultimoPathD) clipPathD = ultimoPathD; clipPendiente = false } // (A)
         // Emitir el trazo como <path> si la operación lo pinta (fill/stroke).
         const nom = nombreOp[a[0]] || ''
         const haceFill = /fill/i.test(nom), haceStroke = /stroke/i.test(nom)
@@ -5945,7 +5958,10 @@ async function importarPDF(file: File): Promise<void> {
         rec.width = Math.max(1, Math.round(sw)); rec.height = Math.max(1, Math.round(sh))
         rec.getContext('2d')!.drawImage(fuente, sx, sy, sw, sh, 0, 0, rec.width, rec.height)
         const dataUrl = rec.toDataURL('image/png')
-        piezasGraf.push(`<image x="${r2(vis[0])}" y="${r2(vis[1])}" width="${r2(vw)}" height="${r2(vh)}" preserveAspectRatio="none" href="${dataUrl}" xlink:href="${dataUrl}"/>`)
+        // Si el recorte tiene forma curva, aplicarlo como <clipPath> (coords device).
+        let clipAttr = '', clipDef = ''
+        if (clipPathD) { const id = `pdfclip${nClip++}`; clipDef = `<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><path d="${clipPathD}"/></clipPath>`; clipAttr = ` clip-path="url(#${id})"` }
+        piezasGraf.push(`${clipDef}<image x="${r2(vis[0])}" y="${r2(vis[1])}" width="${r2(vw)}" height="${r2(vh)}" preserveAspectRatio="none"${clipAttr} href="${dataUrl}" xlink:href="${dataUrl}"/>`)
       }
     }
 
