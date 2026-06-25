@@ -473,9 +473,11 @@ app.innerHTML = `
 
   <div id="panel-export" hidden>
     <div class="pe-head">
-      <span>PNG exportado (resvg)</span>
+      <span>Exportar</span>
       <label class="pe-transp" title="Oculta el fondo a sangre de la placa para que el PNG quede transparente"><input type="checkbox" id="pe-transparente"> Fondo transparente</label>
-      <a id="pe-descargar" download>Descargar</a>
+      <a id="pe-descargar" class="pe-dl" download>⬇ PNG</a>
+      <button id="pe-svg" class="pe-dl mini" title="Descargar SVG (vectorial, reabre en Illustrator/Figma)">⬇ SVG</button>
+      <button id="pe-pdf" class="pe-dl mini" title="Descargar PDF vectorial">⬇ PDF</button>
       <button id="pe-cerrar" class="mini">Cerrar</button>
     </div>
     <img id="pe-img" alt="Vista previa del PNG exportado">
@@ -5010,6 +5012,74 @@ async function exportarPNG(): Promise<void> {
   }
 }
 btnExport.addEventListener('click', () => void exportarPNG())
+
+// Serializa el SVG vivo (opcionalmente sin el fondo a sangre) para exportar.
+function svgParaExportar(transp: boolean): string {
+  if (!svgEl) return ''
+  const ocultados: SVGElement[] = []
+  if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
+  let s = new XMLSerializer().serializeToString(svgEl)
+  for (const el of ocultados) el.style.display = ''
+  if (!/\sxmlns=/.test(s)) s = s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
+  return s
+}
+function descargar(blob: Blob, nombre: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+function descargarSVG(): void {
+  if (!svgEl) return
+  cerrarEditor()
+  const s = svgParaExportar(peTransparente.checked)
+  descargar(new Blob([s], { type: 'image/svg+xml;charset=utf-8' }), `${nombreCorto(plantillaActual)}.svg`)
+  estado.textContent = 'SVG descargado.'
+}
+// PDF con jsPDF (import diferido). Intenta VECTORIAL con svg2pdf.js (texto/vectores
+// reeditables); si falla —típico cuando hay una foto embebida grande, que svg2pdf
+// no procesa— cae a PDF "imagen" (PNG de resvg embebido), que siempre funciona.
+async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
+  if (!svgEl) return
+  cerrarEditor()
+  const txt = btn?.textContent
+  if (btn) { btn.disabled = true; btn.textContent = '…' }
+  estado.textContent = 'Generando PDF…'
+  const transp = peTransparente.checked
+  const ocultados: SVGElement[] = []
+  if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
+  const vb = svgEl.viewBox.baseVal
+  const w = vb.width || 1080, h = vb.height || 1350
+  const nombre = `${nombreCorto(plantillaActual)}.pdf`
+  try {
+    const { jsPDF } = await import('jspdf')
+    const nuevoPdf = () => new jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'pt', format: [w, h] })
+    try {
+      const { svg2pdf } = await import('svg2pdf.js')
+      const pdf = nuevoPdf()
+      await svg2pdf(svgEl, pdf, { x: 0, y: 0, width: w, height: h })
+      pdf.save(nombre)
+      estado.textContent = 'PDF exportado (vectorial).'
+    } catch (eVec) {
+      console.warn('PDF vectorial falló (probable foto embebida); uso PDF imagen:', eVec)
+      const s = new XMLSerializer().serializeToString(svgEl)
+      const ancho = Math.round(Math.min(2480, Math.max(1080, w)))
+      const png = await renderResvg(s, facesPack.map((f) => f.bytes), ancho)
+      const dataUrl = await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.onerror = rej; fr.readAsDataURL(png) })
+      const pdf = nuevoPdf()
+      pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
+      pdf.save(nombre)
+      estado.textContent = 'PDF exportado (imagen).'
+    }
+  } catch (err) {
+    estado.textContent = '❌ No se pudo generar el PDF'
+    console.error('exportar PDF:', err)
+  } finally {
+    for (const el of ocultados) el.style.display = ''
+    if (btn) { btn.disabled = false; btn.textContent = txt ?? '⬇ PDF' }
+  }
+}
+document.querySelector('#pe-svg')!.addEventListener('click', descargarSVG)
+document.querySelector('#pe-pdf')!.addEventListener('click', (e) => void exportarPDF(e.currentTarget as HTMLButtonElement))
 // Re-render al cambiar el modo transparente (si el panel ya está abierto).
 peTransparente.addEventListener('change', () => { if (!panelExport.hidden) void exportarPNG() })
 

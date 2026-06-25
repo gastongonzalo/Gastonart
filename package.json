@@ -16,7 +16,9 @@
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
     "@resvg/resvg-wasm": "^2.6.2",
+    "jspdf": "^4.2.1",
     "onnxruntime-web": "1.21.0",
-    "polygon-clipping": "^0.15.7"
+    "polygon-clipping": "^0.15.7",
+    "svg2pdf.js": "^2.7.0"
   }
 }

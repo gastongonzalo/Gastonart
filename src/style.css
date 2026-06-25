@@ -1226,6 +1226,19 @@ body.modo-plantilla .toolbar-izq { display: none; }
   font-weight: 600;
   font-size: 13px;
 }
+.pe-dl {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: #0b1018;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  text-decoration: none;
+}
+.pe-dl:hover { border-color: var(--accent); }
+.pe-dl:disabled { opacity: 0.6; cursor: progress; }
 #pe-img {
   width: 100%;
   height: auto;
