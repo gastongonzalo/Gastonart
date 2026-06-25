@@ -5826,9 +5826,12 @@ async function importarPDF(file: File): Promise<void> {
     ])
     const dataUrl = canvas.toDataURL('image/png')
     const w = Math.round(vp.width / escala), h = Math.round(vp.height / escala)
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${w} ${h}"><image x="0" y="0" width="${w}" height="${h}" href="${dataUrl}" xlink:href="${dataUrl}"/></svg>`
+    // data-fondo + pointer-events:none → fondo fijo, NO hueco de foto reemplazable.
+    // Así el PDF queda como backdrop y se construye texto/formas ENCIMA.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${w} ${h}"><image data-fondo="1" pointer-events="none" x="0" y="0" width="${w}" height="${h}" href="${dataUrl}" xlink:href="${dataUrl}"/></svg>`
+    modoEdicion = 'completa' // PDF importado: editar libremente encima del fondo
     usarSvgImportado(svg, file.name.replace(/\.pdf$/i, ''))
-    estado.textContent = 'PDF importado (como imagen). Agregá texto/formas encima.'
+    estado.textContent = 'PDF importado como fondo. Agregá texto/formas encima.'
   } catch (err) {
     estado.textContent = '❌ No se pudo abrir el PDF'
     console.error('importar PDF:', err)

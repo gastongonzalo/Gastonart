@@ -97,7 +97,8 @@ export function listarCamposTexto(svg: string): CampoTexto[] {
 }
 
 export function hayImagen(svg: string): boolean {
-  return !!parsear(svg).querySelector('image')
+  // Las imágenes data-fondo (PDF importado de fondo) no cuentan como foto editable.
+  return !!parsear(svg).querySelector('image:not([data-fondo])')
 }
 
 export interface MetaCampo {
@@ -139,8 +140,10 @@ export function prepararEditor(svg: string): {
   }
 
   // Cada <image> de la plantilla es un hueco de foto editable (data-foto="0","1",…).
+  // Excepción: las marcadas data-fondo (p.ej. una página de PDF importada como
+  // fondo a sangre) NO son huecos reemplazables; quedan como backdrop fijo.
   const frames: Record<string, FrameFoto> = {}
-  Array.from(doc.querySelectorAll('image')).forEach((img, i) => {
+  Array.from(doc.querySelectorAll('image')).filter((img) => !img.hasAttribute('data-fondo')).forEach((img, i) => {
     const id = String(i)
     img.setAttribute('data-foto', id)
     const W = parseFloat(img.getAttribute('width') ?? '0')
