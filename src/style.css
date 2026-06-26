@@ -745,7 +745,13 @@ body.modo-plantilla .toolbar-izq { display: none; }
 }
 .imged-slider { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); }
 .imged-slider input[type='range'] { width: 130px; }
-.imged-hint { font-size: 11px; color: var(--dim); }
+.imged-slider > span:first-child { min-width: 78px; }
+.imged-hint { font-size: 11px; color: var(--dim); flex-basis: 100%; }
+/* Corrección de color: fila de auto + editor de curvas. */
+.imged-auto-row { display: flex; gap: 6px; flex-basis: 100%; flex-wrap: wrap; }
+.imged-curvas { display: flex; flex-direction: column; gap: 4px; flex-basis: 100%; }
+.imged-curvas-tit { font-size: 12px; font-weight: 600; color: var(--text); }
+.imged-curva-cv { border: 1px solid var(--border); border-radius: 6px; touch-action: none; cursor: crosshair; align-self: flex-start; }
 .imged-stage {
   flex: 1; position: relative; overflow: hidden;
   display: flex; align-items: center; justify-content: center;

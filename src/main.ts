@@ -4508,6 +4508,186 @@ async function rellenarConIA(cv: HTMLCanvasElement, ctx: CanvasRenderingContext2
   }
 }
 
+// ---------------------------------------------------------------
+//  Corrección de color (editor de imágenes): LUTs, curvas, auto
+// ---------------------------------------------------------------
+// Estado de color NO destructivo del panel "Ajustes". Valores centrados en 0
+// (neutro); la curva son puntos (x,y) en 0..255 con extremos fijos en x.
+type AdjColor = { b: number; c: number; s: number; h: number; temp: number; curva: [number, number][] }
+function adjNeutro(): AdjColor { return { b: 0, c: 0, s: 0, h: 0, temp: 0, curva: [[0, 0], [255, 255]] } }
+function adjEsNeutro(a: AdjColor): boolean {
+  return a.b === 0 && a.c === 0 && a.s === 0 && a.h === 0 && a.temp === 0 &&
+    a.curva.length === 2 && a.curva[0][1] === 0 && a.curva[1][1] === 255
+}
+
+// Interpola una curva monótona y suave (Fritsch–Carlson) por los puntos (0..255)
+// → LUT de 256 entradas. Sin overshoot: ideal para una herramienta de curvas.
+function curvaLUT(puntos: [number, number][]): Uint8ClampedArray {
+  const pts = [...puntos].sort((a, b) => a[0] - b[0])
+  const n = pts.length, lut = new Uint8ClampedArray(256)
+  if (n < 2) { for (let i = 0; i < 256; i++) lut[i] = i; return lut }
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1])
+  const dx: number[] = [], m: number[] = []
+  for (let i = 0; i < n - 1; i++) { dx[i] = Math.max(1e-6, xs[i + 1] - xs[i]); m[i] = (ys[i + 1] - ys[i]) / dx[i] }
+  const t: number[] = []; t[0] = m[0]; t[n - 1] = m[n - 2]
+  for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2
+  for (let i = 0; i < n - 1; i++) {
+    if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue }
+    const a = t[i] / m[i], b = t[i + 1] / m[i], h = Math.hypot(a, b)
+    if (h > 3) { const s = 3 / h; t[i] = s * a * m[i]; t[i + 1] = s * b * m[i] }
+  }
+  let seg = 0
+  for (let x = 0; x < 256; x++) {
+    if (x <= xs[0]) { lut[x] = ys[0]; continue }
+    if (x >= xs[n - 1]) { lut[x] = ys[n - 1]; continue }
+    while (seg < n - 2 && x > xs[seg + 1]) seg++
+    const h = dx[seg], u = (x - xs[seg]) / h
+    const h00 = 2 * u ** 3 - 3 * u ** 2 + 1, h10 = u ** 3 - 2 * u ** 2 + u
+    const h01 = -2 * u ** 3 + 3 * u ** 2, h11 = u ** 3 - u ** 2
+    lut[x] = h00 * ys[seg] + h10 * h * t[seg] + h01 * ys[seg + 1] + h11 * h * t[seg + 1]
+  }
+  return lut
+}
+
+// LUTs por canal: contraste + brillo + curva tonal + temperatura (cálido/frío).
+function construirLUTsColor(a: AdjColor): [Uint8ClampedArray, Uint8ClampedArray, Uint8ClampedArray] {
+  const curva = curvaLUT(a.curva)
+  const cF = Math.tan((Math.max(-0.99, Math.min(0.99, a.c)) + 1) * Math.PI / 4)
+  const tR = a.temp * 28, tB = -a.temp * 28
+  const lr = new Uint8ClampedArray(256), lg = new Uint8ClampedArray(256), lb = new Uint8ClampedArray(256)
+  for (let i = 0; i < 256; i++) {
+    let v = (i / 255 - 0.5) * cF + 0.5 + a.b
+    const base = curva[Math.max(0, Math.min(255, Math.round(v * 255)))]
+    lr[i] = base + tR; lg[i] = base; lb[i] = base + tB
+  }
+  return [lr, lg, lb]
+}
+
+// Matriz 3x3 de rotación de tono (hue), preservando luminancia aprox.
+function matrizHue(deg: number): number[] {
+  const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a)
+  return [
+    0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928,
+    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140, 0.072 - c * 0.072 - s * 0.283,
+    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072,
+  ]
+}
+
+// Aplica todo el pipeline de color a los píxeles (in place): LUTs → tono → saturación.
+function procesarPixelesColor(d: Uint8ClampedArray, a: AdjColor): void {
+  const [lr, lg, lb] = construirLUTsColor(a)
+  const satMul = 1 + a.s, hm = a.h ? matrizHue(a.h) : null
+  for (let i = 0; i < d.length; i += 4) {
+    let r = lr[d[i]], g = lg[d[i + 1]], b = lb[d[i + 2]]
+    if (hm) {
+      const nr = r * hm[0] + g * hm[1] + b * hm[2]
+      const ng = r * hm[3] + g * hm[4] + b * hm[5]
+      const nb = r * hm[6] + g * hm[7] + b * hm[8]
+      r = nr; g = ng; b = nb
+    }
+    if (satMul !== 1) {
+      const L = 0.2126 * r + 0.7152 * g + 0.0722 * b
+      r = L + (r - L) * satMul; g = L + (g - L) * satMul; b = L + (b - L) * satMul
+    }
+    d[i] = r; d[i + 1] = g; d[i + 2] = b // Uint8ClampedArray clampea solo
+  }
+}
+
+// Auto-niveles: estira cada canal (porCanal=true → balance de blancos) o la
+// luminancia (porCanal=false → contraste sin virar el color) entre percentiles.
+function autoNivelesLUT(d: Uint8ClampedArray, porCanal: boolean): Uint8ClampedArray[] {
+  const hist = [new Float64Array(256), new Float64Array(256), new Float64Array(256)]
+  let total = 0
+  for (let i = 0; i < d.length; i += 4) {
+    if (porCanal) { hist[0][d[i]]++; hist[1][d[i + 1]]++; hist[2][d[i + 2]]++ }
+    else hist[0][Math.round(0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2])]++
+    total++
+  }
+  const luts: Uint8ClampedArray[] = [], corte = total * 0.005
+  for (let ch = 0; ch < (porCanal ? 3 : 1); ch++) {
+    const h = hist[ch]
+    let lo = 0, hi = 255, acc = 0
+    for (let i = 0; i < 256; i++) { acc += h[i]; if (acc > corte) { lo = i; break } }
+    acc = 0
+    for (let i = 255; i >= 0; i--) { acc += h[i]; if (acc > corte) { hi = i; break } }
+    const lut = new Uint8ClampedArray(256), rango = Math.max(1, hi - lo)
+    for (let i = 0; i < 256; i++) lut[i] = ((i - lo) / rango) * 255
+    luts.push(lut)
+  }
+  return luts
+}
+
+// Auto-tono: gamma que lleva el brillo medio hacia el centro (0.5).
+function autoGammaLUT(d: Uint8ClampedArray): Uint8ClampedArray {
+  let sum = 0, n = 0
+  for (let i = 0; i < d.length; i += 4) { sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]; n++ }
+  const media = Math.max(0.02, Math.min(0.98, (sum / Math.max(1, n)) / 255))
+  const gamma = Math.log(0.5) / Math.log(media)
+  const lut = new Uint8ClampedArray(256)
+  for (let i = 0; i < 256; i++) lut[i] = Math.pow(i / 255, gamma) * 255
+  return lut
+}
+
+// Editor de curvas tonales: clic agrega punto, arrastrar curva, doble clic quita.
+function construirCurvas(adj: AdjColor, onCambio: () => void): HTMLElement {
+  const wrap = document.createElement('div'); wrap.className = 'imged-curvas'
+  const tit = document.createElement('span'); tit.className = 'imged-curvas-tit'; tit.textContent = 'Curvas'
+  const CW = 220, CH = 150
+  const cvc = document.createElement('canvas'); cvc.width = CW; cvc.height = CH; cvc.className = 'imged-curva-cv'
+  const cc = cvc.getContext('2d')!
+  const px = (x: number) => x / 255 * CW, py = (y: number) => CH - y / 255 * CH
+  const ux = (X: number) => Math.max(0, Math.min(255, X / CW * 255)), uy = (Y: number) => Math.max(0, Math.min(255, (CH - Y) / CH * 255))
+  const redibujar = () => {
+    cc.clearRect(0, 0, CW, CH)
+    cc.fillStyle = '#0d1620'; cc.fillRect(0, 0, CW, CH)
+    cc.strokeStyle = '#23323f'; cc.lineWidth = 1
+    for (let i = 1; i < 4; i++) { cc.beginPath(); cc.moveTo(CW * i / 4, 0); cc.lineTo(CW * i / 4, CH); cc.moveTo(0, CH * i / 4); cc.lineTo(CW, CH * i / 4); cc.stroke() }
+    cc.strokeStyle = '#2c3e4d'; cc.beginPath(); cc.moveTo(0, CH); cc.lineTo(CW, 0); cc.stroke()
+    const lut = curvaLUT(adj.curva)
+    cc.strokeStyle = '#56b6ff'; cc.lineWidth = 2; cc.beginPath()
+    for (let x = 0; x < 256; x++) { const X = x / 255 * CW, Y = CH - lut[x] / 255 * CH; x === 0 ? cc.moveTo(X, Y) : cc.lineTo(X, Y) }
+    cc.stroke()
+    cc.fillStyle = '#fff'
+    for (const [x, y] of adj.curva) { cc.beginPath(); cc.arc(px(x), py(y), 4, 0, Math.PI * 2); cc.fill() }
+  }
+  const idxCerca = (X: number, Y: number) => {
+    for (let i = 0; i < adj.curva.length; i++) if (Math.hypot(px(adj.curva[i][0]) - X, py(adj.curva[i][1]) - Y) < 11) return i
+    return -1
+  }
+  let drag = -1
+  cvc.addEventListener('pointerdown', (e) => {
+    const r = cvc.getBoundingClientRect(), X = e.clientX - r.left, Y = e.clientY - r.top
+    let i = idxCerca(X, Y)
+    if (i < 0) { // agregar un punto nuevo y quedar arrastrándolo
+      const nuevo: [number, number] = [Math.max(1, Math.min(254, ux(X))), uy(Y)]
+      adj.curva.push(nuevo); adj.curva.sort((a, b) => a[0] - b[0]); i = adj.curva.indexOf(nuevo)
+    }
+    drag = i; try { cvc.setPointerCapture(e.pointerId) } catch { /* */ }
+    redibujar(); onCambio()
+  })
+  cvc.addEventListener('pointermove', (e) => {
+    if (drag < 0) return
+    const r = cvc.getBoundingClientRect(), X = e.clientX - r.left, Y = e.clientY - r.top
+    const extremo = drag === 0 || drag === adj.curva.length - 1
+    const nx = extremo ? adj.curva[drag][0] : Math.max(1, Math.min(254, ux(X)))
+    const movido: [number, number] = [nx, uy(Y)]
+    adj.curva[drag] = movido
+    if (!extremo) { adj.curva.sort((a, b) => a[0] - b[0]); drag = adj.curva.indexOf(movido) }
+    redibujar(); onCambio()
+  })
+  const fin = () => { drag = -1 }
+  cvc.addEventListener('pointerup', fin); cvc.addEventListener('pointercancel', fin)
+  cvc.addEventListener('dblclick', (e) => {
+    const r = cvc.getBoundingClientRect(), i = idxCerca(e.clientX - r.left, e.clientY - r.top)
+    if (i > 0 && i < adj.curva.length - 1) { adj.curva.splice(i, 1); redibujar(); onCambio() }
+  })
+  const hint = document.createElement('span'); hint.className = 'imged-hint'
+  hint.textContent = 'Clic agrega punto · arrastrá para curvar · doble clic lo quita'
+  redibujar()
+  wrap.append(tit, cvc, hint)
+  return wrap
+}
+
 function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   const overlay = document.createElement('div')
   overlay.className = 'imged-overlay'
@@ -4544,7 +4724,8 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   // Historial de deshacer/rehacer: copias del canvas (cap para no inflar memoria).
   const historia: HTMLCanvasElement[] = []
   let histIdx = -1
-  const adj = { b: 1, c: 1, s: 1 }
+  const adj: AdjColor = adjNeutro()
+  let ajusteBase: HTMLCanvasElement | null = null // copia "limpia" mientras se ajusta color
   let panel: PanelImg = 'magico'
   let brush = 40, tol = 30
   let lazoModo: 'no' | 'rapido' | 'ia' = 'no', lazoInvierte = false
@@ -4557,7 +4738,41 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   let cloneSnap: HTMLCanvasElement | null = null
   let smPickup: HTMLCanvasElement | null = null
 
-  const render = () => { cv.style.filter = `brightness(${adj.b}) contrast(${adj.c}) saturate(${adj.s})` }
+  // El color del panel "Ajustes" se hornea por píxeles (no por filtro CSS), así
+  // que el render base no aplica ningún filtro CSS.
+  const render = () => { cv.style.filter = 'none' }
+  const copiarCv = (): HTMLCanvasElement => { const c = nuevoCanvas(cv.width, cv.height); c.getContext('2d')!.drawImage(cv, 0, 0); return c }
+  // Previsualiza los ajustes de color: redibuja la base y aplica el pipeline.
+  const renderAjustes = () => {
+    if (!ajusteBase) return
+    ctx.filter = 'none'; ctx.clearRect(0, 0, cv.width, cv.height); ctx.drawImage(ajusteBase, 0, 0)
+    if (!adjEsNeutro(adj)) {
+      const id = ctx.getImageData(0, 0, cv.width, cv.height)
+      procesarPixelesColor(id.data, adj)
+      ctx.putImageData(id, 0, 0)
+    }
+  }
+  // Al salir del panel de ajustes: si hubo cambios, los píxeles ya están en cv →
+  // se hornean en snap + historial y se vuelve a neutro.
+  const commitAjustes = () => {
+    if (!ajusteBase) return
+    if (!adjEsNeutro(adj)) {
+      sctx.clearRect(0, 0, snap.width, snap.height); sctx.drawImage(cv, 0, 0)
+      pushHist()
+    }
+    ajusteBase = null; Object.assign(adj, adjNeutro())
+  }
+  // Modo automático: calcula LUT(s) del preview actual, las hornea y resetea.
+  const bakeAuto = (calc: (d: Uint8ClampedArray) => Uint8ClampedArray[]) => {
+    if (!ajusteBase) return
+    const id = ctx.getImageData(0, 0, cv.width, cv.height), d = id.data
+    const luts = calc(d), [lr, lg, lb] = luts.length === 3 ? luts : [luts[0], luts[0], luts[0]]
+    for (let i = 0; i < d.length; i += 4) { d[i] = lr[d[i]]; d[i + 1] = lg[d[i + 1]]; d[i + 2] = lb[d[i + 2]] }
+    ctx.putImageData(id, 0, 0)
+    ajusteBase = copiarCv()
+    sctx.clearRect(0, 0, snap.width, snap.height); sctx.drawImage(cv, 0, 0)
+    Object.assign(adj, adjNeutro()); pushHist(); pintarOpts()
+  }
 
   // ---- Deshacer / Rehacer ----
   const refrescarUndo = () => { btnUndo.disabled = histIdx <= 0; btnRedo.disabled = histIdx >= historia.length - 1 }
@@ -4879,9 +5094,11 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
 
   // ---- UI: barra de herramientas + opciones contextuales ----
   const setPanel = (p: PanelImg) => {
+    if (panel === 'ajustes' && p !== 'ajustes') commitAjustes() // hornear color al salir
     panel = p; cropRect = null; cropIni = null; sel.hidden = true
     lctx.clearRect(0, 0, lazoCv.width, lazoCv.height) // limpiar marca de clonado / lazo
     if (!tieneCursor()) cursorEl.hidden = true
+    if (p === 'ajustes') { ajusteBase = copiarCv(); Object.assign(adj, adjNeutro()) } // capturar base limpia
     pintarBarra(); pintarOpts()
   }
   type Accion = 'voltearH' | 'voltearV' | 'rotar'
@@ -5003,9 +5220,30 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
       const h = document.createElement('span'); h.className = 'imged-hint'; h.textContent = 'Arrastrá sobre la imagen para elegir el área y luego “Aplicar recorte”.'
       opts.append(ap, h)
     } else if (panel === 'ajustes') {
-      opts.appendChild(slider('Brillo', 0.2, 2, 0.01, adj.b, (v) => { adj.b = v; render() }))
-      opts.appendChild(slider('Contraste', 0.2, 2, 0.01, adj.c, (v) => { adj.c = v; render() }))
-      opts.appendChild(slider('Saturación', 0, 2, 0.01, adj.s, (v) => { adj.s = v; render() }))
+      // Modos automáticos.
+      const autoRow = document.createElement('div'); autoRow.className = 'imged-auto-row'
+      const mkAuto = (label: string, tip: string, fn: () => void) => {
+        const b = document.createElement('button'); b.className = 'imged-tbtn'; b.textContent = label; b.title = tip
+        b.addEventListener('click', fn); return b
+      }
+      autoRow.append(
+        mkAuto('Auto contraste', 'Estira el rango tonal sin virar el color', () => bakeAuto((d) => autoNivelesLUT(d, false))),
+        mkAuto('Auto color', 'Equilibra el color (balance de blancos)', () => bakeAuto((d) => autoNivelesLUT(d, true))),
+        mkAuto('Auto tono', 'Lleva el brillo medio al centro', () => bakeAuto((d) => [autoGammaLUT(d)])),
+      )
+      opts.appendChild(autoRow)
+      // Sliders manuales (centrados en 0 = neutro).
+      opts.appendChild(slider('Brillo', -1, 1, 0.01, adj.b, (v) => { adj.b = v; renderAjustes() }))
+      opts.appendChild(slider('Contraste', -1, 1, 0.01, adj.c, (v) => { adj.c = v; renderAjustes() }))
+      opts.appendChild(slider('Saturación', -1, 1, 0.01, adj.s, (v) => { adj.s = v; renderAjustes() }))
+      opts.appendChild(slider('Tono', -180, 180, 1, adj.h, (v) => { adj.h = v; renderAjustes() }))
+      opts.appendChild(slider('Temperatura', -1, 1, 0.01, adj.temp, (v) => { adj.temp = v; renderAjustes() }))
+      // Curvas.
+      opts.appendChild(construirCurvas(adj, renderAjustes))
+      const reset = document.createElement('button'); reset.className = 'imged-tbtn'; reset.textContent = '↺ Restablecer'
+      reset.title = 'Volver todo a neutro'
+      reset.addEventListener('click', () => { Object.assign(adj, adjNeutro()); renderAjustes(); pintarOpts() })
+      opts.appendChild(reset)
     } else if (panel === 'filtros') {
       const filtros: [string, string][] = [
         ['Blanco y negro', 'grayscale(1)'], ['Sepia', 'sepia(1)'],
@@ -5036,9 +5274,9 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
   q<HTMLButtonElement>('.imged-cancelar').addEventListener('click', cerrar)
   q<HTMLButtonElement>('.imged-aplicar').addEventListener('click', () => {
     if (!cargada) { cerrar(); return }
-    // Hornear los ajustes (brillo/contraste/saturación) en un canvas de salida.
+    // El color ya está horneado en los píxeles de cv (preview destructivo del
+    // panel Ajustes), así que el canvas de salida es una copia directa.
     const out = nuevoCanvas(cv.width, cv.height), octx = out.getContext('2d')!
-    octx.filter = `brightness(${adj.b}) contrast(${adj.c}) saturate(${adj.s})`
     octx.drawImage(cv, 0, 0)
     const dataUrl = out.toDataURL('image/png')
     onAplicar({ dataUrl, w: out.width, h: out.height })
