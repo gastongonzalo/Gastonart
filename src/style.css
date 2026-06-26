@@ -420,7 +420,9 @@ body.modo-plantilla .toolbar-izq { display: none; }
 #panel-props #barra-texto .bt-label {
   flex: 1 1 100%; margin: 0; font-size: 13px; font-weight: 700; color: var(--text);
 }
-#panel-props #barra-texto .bt-sep { display: none; }
+/* Cada separador = divisor full-width → agrupa los controles por función en filas
+   (tipografía | tamaño | estilo+color | alineación | interlineado). */
+#panel-props #barra-texto .bt-sep { flex: 1 1 100%; width: auto; height: 1px; margin: 5px 0; background: var(--border); }
 #panel-props #barra-texto select { flex: 1 1 100%; height: 38px; }
 #panel-props #barra-texto #bt-gfonts { flex: 1 1 100%; min-height: 38px; }
 #panel-props #barra-texto button { height: 36px; min-width: 36px; }
