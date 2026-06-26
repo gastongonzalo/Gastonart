@@ -2224,7 +2224,15 @@ function actualizarPanelProps(): void {
     // Los controles (.graf-tools) los anexa dibujarSelGraf() debajo de esta cabecera.
     return
   }
-  // Nada seleccionado → acciones de la placa.
+  // Nada seleccionado → fotos de la plantilla (sus controles, porque la foto a
+  // sangre suele estar tapada por overlays y no se puede clickear) + acciones de placa.
+  const huecos = svgEl
+    ? idsFoto().filter((id) => { const im = svgEl!.querySelector(`[data-foto="${id}"]`); return im && !im.closest('[data-recorte]') })
+    : []
+  huecos.forEach((id, i) => {
+    h('pp-grupo-tit', huecos.length > 1 ? `Foto ${i + 1}` : 'Foto')
+    construirFotoTools(id)
+  })
   h('pp-titulo', 'Placa')
   h('pp-sub', `${Math.round(svgEl?.viewBox.baseVal.width || 0)} × ${Math.round(svgEl?.viewBox.baseVal.height || 0)} px`)
   const g = document.createElement('div'); g.className = 'pp-grupo'; pp.appendChild(g)
@@ -2232,7 +2240,7 @@ function actualizarPanelProps(): void {
   grupoAccion('📐', 'Cambiar tamaño', clickTopbar('#btn-tamano'))
   grupoAccion('🗂', 'Guardar como plantilla', clickTopbar('#btn-guardar-plantilla'))
   grupoAccion('⬇', 'Exportar', clickTopbar('#btn-export'))
-  h('pp-vacio', 'Seleccioná un elemento para editar sus propiedades, o agregá uno desde la barra izquierda.')
+  if (!huecos.length) h('pp-vacio', 'Seleccioná un elemento para editar sus propiedades, o agregá uno desde la barra izquierda.')
 }
 
 // Nodo realmente manipulable: si el elemento ya está envuelto para mover, su wrapper.
@@ -2267,7 +2275,7 @@ function grafPointerDown(e: PointerEvent): void {
   if (fotoEl && !fotoEl.closest('[data-recorte]')) {
     e.preventDefault()
     const fid = fotoEl.getAttribute('data-foto')!
-    grafSeleccion = []; limpiarGraf()
+    grafSeleccion = []; limpiarGraf() // panel muestra los controles de la foto (placa)
     if (!fotos[fid]) { fotoActiva = fid; inFoto.click() }
     else iniciarPanFoto(e, fid)
     return
@@ -3614,18 +3622,16 @@ function construirOverlays(): void {
     }
     const r = rectFotoVisible(img, base)
     if (!r) continue
-    // En completa: solo la mini-barra (sin hit a sangre, así los vectores sobre la
-    // foto se pueden seleccionar). Subir/reencuadrar lo maneja grafPointerDown.
-    if (completa) { construirFotoTools(id, r); continue }
+    // En completa la foto se clickea (grafPointerDown) → se selecciona y sus
+    // controles van al PANEL. Sin hit a sangre, así los vectores sobre la foto
+    // se pueden seleccionar.
+    if (completa) continue
     const tieneFoto = !!fotos[id]
     const hit = crearHit(r, 'foto', () => { if (!fotos[id]) { fotoActiva = id; inFoto.click() } })
     hit.classList.add('hit-foto')
-    hit.title = tieneFoto ? 'Arrastrá para encuadrar · rueda para zoom' : 'Subir foto'
+    hit.title = tieneFoto ? 'Tocá para editar · arrastrá para encuadrar' : 'Subir foto'
     lienzo.appendChild(hit)
-    if (tieneFoto && framesFoto[id]) {
-      habilitarPanZoom(hit, id)
-      construirFotoTools(id, r)
-    }
+    if (tieneFoto && framesFoto[id]) habilitarPanZoom(hit, id)
   }
 
   for (const c of camposActuales) {
@@ -3940,11 +3946,12 @@ function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
 }
 
 // Mini-barra de la foto: cambiar y zoom. Se posiciona sobre cada hueco.
-function construirFotoTools(id: string, r: Rect): void {
+function construirFotoTools(id: string): void {
+  const pp = (panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))
+  if (!pp) return
   const enc = encuadreDe(id)
   const tools = document.createElement('div')
-  tools.className = 'foto-tools'
-  Object.assign(tools.style, { right: 'auto', left: r.left + 8 + 'px', top: r.top + 8 + 'px' })
+  tools.className = 'foto-tools' // se anexa al panel de propiedades (no flota)
   const imgFoto = svgEl?.querySelector(`[data-foto="${id}"]`)
   const op0 = imgFoto?.getAttribute('opacity') ?? '1'
   tools.innerHTML =
@@ -3982,7 +3989,7 @@ function construirFotoTools(id: string, r: Rect): void {
     qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, reaplicar, qf))
     tools.appendChild(qf)
   }
-  lienzo.appendChild(tools)
+  pp.appendChild(tools)
 }
 
 // ---------------------------------------------------------------

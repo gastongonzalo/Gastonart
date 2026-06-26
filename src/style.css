@@ -387,6 +387,23 @@ body.modo-plantilla .toolbar-izq { display: none; }
 #panel-props .graf-opac input[type='range'] { flex: 1; }
 #panel-props .graf-mascara { width: 100%; display: block; }
 #panel-props .graf-mascara .mascara-pop { position: static; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+/* Controles de FOTO (.foto-tools) dentro del panel: vertical, grandes. */
+#panel-props .foto-tools {
+  position: static; z-index: auto;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 8px; padding: 0; background: none; border: 0; box-shadow: none;
+}
+#panel-props .foto-tools .ft-cambiar,
+#panel-props .foto-tools .ft-fondo {
+  width: 100%; min-height: 40px; height: auto; border-radius: 9px;
+  font-size: 13px; font-weight: 600;
+}
+#panel-props .foto-tools .ft-zoom {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 11px; border: 1px solid var(--border); border-radius: 9px;
+  background: #0b1018; font-size: 13px;
+}
+#panel-props .foto-tools .ft-zoom input[type='range'] { flex: 1; width: auto; }
 #lienzo {
   position: relative;
   width: 100%;
