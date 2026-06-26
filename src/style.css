@@ -1197,32 +1197,17 @@ body.modo-plantilla .toolbar-izq { display: none; }
   position: fixed;
   inset: 0;
   z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(5, 8, 13, 0.72);
-  backdrop-filter: blur(3px);
-}
-.ini-card {
-  width: 100%;
-  max-width: 820px;
-  max-height: 90vh;
   overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
-  padding: 20px 22px;
+  background: var(--bg, #0b0e14);
 }
-.ini-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.ini-head strong { font-size: 20px; }
-.ini-head span { flex: 1; color: var(--dim); font-size: 14px; }
-.ini-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-@media (max-width: 680px) { .ini-cols { grid-template-columns: 1fr; } }
-.ini-col h3 { margin: 0 0 10px; font-size: 14px; }
-.ini-grupo-tit { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 0 6px; }
-.ini-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ini-wrap { max-width: 980px; margin: 0 auto; padding: 30px 24px 70px; }
+.ini-head { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+.ini-head strong { font-size: 22px; }
+.ini-head span { flex: 1; color: var(--dim); font-size: 15px; }
+.ini-seccion { margin-bottom: 34px; }
+.ini-seccion h3 { margin: 0 0 14px; font-size: 17px; }
+.ini-grupo-tit { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 16px 0 8px; }
+.ini-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 .ini-preset {
   display: flex;
   flex-direction: column;
@@ -1249,7 +1234,7 @@ body.modo-plantilla .toolbar-izq { display: none; }
   padding: 6px 8px;
   font-size: 13px;
 }
-.ini-plantillas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ini-plantillas { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 .ini-plantilla-wrap { position: relative; display: flex; }
 .ini-plantilla {
   flex: 1;

@@ -5837,32 +5837,35 @@ function mostrarInicio(): void {
   const ov = document.createElement('div')
   ov.id = 'pantalla-inicio'
   ov.innerHTML = `
-    <div class="ini-card">
+    <div class="ini-wrap">
       <div class="ini-head">
         <strong>GastonART</strong>
         <span>¿Cómo querés empezar?</span>
         <button id="ini-cerrar" class="mini" title="Cerrar">✕</button>
       </div>
-      <div class="ini-cols">
-        <section class="ini-col">
-          <h3>Imagen en blanco</h3>
-          ${seccionesTamano}
-          <div class="ini-grupo-tit">Personalizado</div>
-          <div class="ini-custom">
-            <input type="number" id="ini-w" min="16" max="8000" value="1080" aria-label="Ancho"> ×
-            <input type="number" id="ini-h" min="16" max="8000" value="1080" aria-label="Alto"> px
-            <button id="ini-crear-custom" class="ini-btn-acc">Crear</button>
-          </div>
-        </section>
-        <section class="ini-col">
-          ${seguirHtml}
-          <h3>Usar plantilla</h3>
-          <div class="ini-plantillas">${opcionesPlantilla}</div>
-          <h3 style="margin-top:18px">Cargar multimedia</h3>
-          <button id="ini-cargar-svg" class="ini-btn-acc">Subir imagen, SVG o PDF…</button>
-          <p class="ini-nota">Cualquier imagen, SVG o PDF entra al editor. Después podés <strong>guardarlo como plantilla</strong> con el botón “Plantilla” de la barra superior.</p>
-        </section>
-      </div>
+      <section class="ini-seccion">
+        <h3>Imagen en blanco</h3>
+        ${seccionesTamano}
+        <div class="ini-grupo-tit">Personalizado</div>
+        <div class="ini-custom">
+          <input type="number" id="ini-w" min="1" max="20000" value="1080" aria-label="Ancho"> ×
+          <input type="number" id="ini-h" min="1" max="20000" value="1080" aria-label="Alto">
+          <select id="ini-unidad" aria-label="Unidad">
+            <option value="px">px</option>
+            <option value="mm">mm</option>
+            <option value="cm">cm</option>
+          </select>
+          <button id="ini-crear-custom" class="ini-btn-acc">Crear</button>
+        </div>
+      </section>
+      <section class="ini-seccion">
+        ${seguirHtml}
+        <h3>Plantillas y guardados</h3>
+        <div class="ini-plantillas">${opcionesPlantilla}</div>
+        <h3 style="margin-top:18px">Cargar multimedia</h3>
+        <button id="ini-cargar-svg" class="ini-btn-acc">Subir imagen, SVG o PDF…</button>
+        <p class="ini-nota">Cualquier imagen, SVG o PDF entra al editor. Después podés <strong>guardarlo como plantilla</strong> con el botón “Plantilla” de la barra superior.</p>
+      </section>
     </div>`
   document.body.appendChild(ov)
 
@@ -5870,8 +5873,12 @@ function mostrarInicio(): void {
   ov.querySelectorAll<HTMLButtonElement>('.ini-preset').forEach((b) =>
     b.addEventListener('click', () => { cerrarInicio(); nuevaPlacaEnBlanco(+b.dataset.w!, +b.dataset.h!) }))
   ov.querySelector('#ini-crear-custom')!.addEventListener('click', () => {
-    const w = Math.max(16, Math.min(8000, +(ov.querySelector<HTMLInputElement>('#ini-w')!.value) || 1080))
-    const h = Math.max(16, Math.min(8000, +(ov.querySelector<HTMLInputElement>('#ini-h')!.value) || 1080))
+    // Unidades: px directo; mm/cm a 300 DPI (impresión). 1 in = 25.4 mm = 300 px.
+    const u = ov.querySelector<HTMLSelectElement>('#ini-unidad')!.value
+    const factor = u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1
+    const aPx = (v: number) => Math.max(16, Math.min(20000, Math.round(v * factor)))
+    const w = aPx(+(ov.querySelector<HTMLInputElement>('#ini-w')!.value) || 1080)
+    const h = aPx(+(ov.querySelector<HTMLInputElement>('#ini-h')!.value) || 1080)
     cerrarInicio(); nuevaPlacaEnBlanco(w, h)
   })
   ov.querySelectorAll<HTMLButtonElement>('.ini-plantilla').forEach((b) =>
