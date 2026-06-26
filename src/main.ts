@@ -3613,26 +3613,19 @@ function construirOverlays(): void {
   // Fotos primero (quedan DEBAJO de los textos). Una por cada hueco de la plantilla.
   for (const img of Array.from(svgEl.querySelectorAll('[data-foto]'))) {
     const id = img.getAttribute('data-foto')!
-    // Foto YA recortada: el recorte se manipula por la capa de selección (completa)
-    // y no se toca en plantilla.
+    // Foto YA recortada: un hit la hace clickeable → al tocarla se SELECCIONA y el
+    // panel muestra sus controles (Reencuadrar / Quitar recorte + tiradores de
+    // tamaño); arrastrar el hit la mueve. Antes se saltaba en ambos modos (quedó
+    // así al fusionar normal/Gráficos) → no se podía agrandar/mover el recorte.
     const rec = img.closest('[data-recorte]') as SVGElement | null
     if (rec) {
-      if (enPlantilla || completa) continue
       const rr = rectUnion([rec], base)
       if (!rr) continue
-      const hit = crearHit(rr, 'recorte', () => {})
+      const hit = crearHit(rr, 'recorte', () => { grafSeleccion = [rec]; dibujarSelGraf() })
       hit.classList.add('hit-agregado')
-      hit.title = 'Arrastrá para mover el recorte (para reencuadrar: Gráficos → Reencuadrar)'
+      hit.title = 'Tocá para editar el recorte (mover, cambiar tamaño, reencuadrar)'
       habilitarArrastreEl(hit, rec)
       lienzo.appendChild(hit)
-      const ctrls = [
-        crearBotonEliminar(rr, () => { rec.remove(); construirOverlays() }),
-        crearTiradorEscala(rr, rec, 'x'),  // ancho
-        crearTiradorEscala(rr, rec, 'y'),  // alto
-        crearTiradorEscala(rr, rec, 'xy'), // proporcional (esquina)
-      ]
-      for (const c of ctrls) lienzo.appendChild(c)
-      revelarAlHover(hit, ctrls)
       continue
     }
     const r = rectFotoVisible(img, base)
