@@ -387,6 +387,14 @@ body.modo-plantilla .toolbar-izq { display: none; }
 #panel-props .graf-opac input[type='range'] { flex: 1; }
 #panel-props .graf-mascara { width: 100%; display: block; }
 #panel-props .graf-mascara .mascara-pop { position: static; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+#panel-props .mas-cont[hidden] { display: none; }
+#panel-props .mas-cont { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 2px 10px; }
+#panel-props .mas-cont .mas-btn {
+  width: 100%; min-height: 36px; padding: 0 12px; text-align: left;
+  background: #0b1018; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 13px; cursor: pointer;
+}
+#panel-props .mas-cont .mas-btn:hover { border-color: var(--accent); }
 /* Controles de FOTO (.foto-tools) dentro del panel: vertical, grandes. */
 #panel-props .foto-tools {
   position: static; z-index: auto;

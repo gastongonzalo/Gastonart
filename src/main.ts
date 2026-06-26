@@ -3126,9 +3126,10 @@ function abrirPanelBuscatrazos(): void {
 
 // Popover "Más": capas (frente/atrás/subir/bajar) y, si hay varios, alinear y
 // buscatrazos. Mantiene la barra principal despejada.
-function abrirPanelMas(): void {
+// Opciones de "Ordenar" (capas + alinear/buscatrazos) como contenedor inline,
+// para desplegarse DEBAJO del botón dentro del panel de propiedades.
+function construirOrdenarCont(): HTMLElement {
   const multi = grafSeleccion.length > 1
-  const panel = crearPopover('Más')
   const cont = document.createElement('div'); cont.className = 'mas-cont'
   const capas: [string, 'arriba' | 'abajo' | 'tope' | 'fondo'][] = [
     ['↟ Traer al frente', 'tope'], ['↑ Subir una capa', 'arriba'],
@@ -3147,7 +3148,7 @@ function abrirPanelMas(): void {
     bt.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelBuscatrazos() })
     cont.append(bt)
   }
-  panel.append(cont)
+  return cont
 }
 
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
@@ -3217,7 +3218,7 @@ function dibujarSelGraf(): void {
   tools.append(opac)
 
   // Degradado de relleno
-  const grad = document.createElement('button'); grad.className = 'graf-btn graf-grad'; grad.textContent = '▦'; grad.title = 'Degradado de relleno'
+  const grad = document.createElement('button'); grad.className = 'graf-btn'; grad.textContent = 'Degradado'; grad.title = 'Degradado de relleno'
   grad.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelDegradado([...grafSeleccion]) })
   tools.append(grad)
 
@@ -3285,9 +3286,10 @@ function dibujarSelGraf(): void {
   }
 
   // Secundarios (capas, alinear, buscatrazos) en un menú "Más" para no saturar.
-  const mas = document.createElement('button'); mas.className = 'graf-btn'; mas.textContent = '⋯ Más'; mas.title = 'Capas, alinear, buscatrazos'
-  mas.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelMas() })
-  tools.appendChild(mas)
+  const mas = document.createElement('button'); mas.className = 'graf-btn'; mas.textContent = '↕ Ordenar'; mas.title = 'Capas, alinear, buscatrazos'
+  const masCont = construirOrdenarCont(); masCont.hidden = true
+  mas.addEventListener('click', (e) => { e.stopPropagation(); masCont.hidden = !masCont.hidden })
+  tools.appendChild(mas); tools.appendChild(masCont)
 
   const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '🗑 Eliminar'; del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
