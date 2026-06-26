@@ -2505,8 +2505,15 @@ function desagruparSel(): void {
   const objetivo = wrap ?? grupo
   // Hornear los transforms (wrapper + grupo) en cada hijo para no perder posición.
   const pre = [wrap?.getAttribute('transform') ?? '', grupo.getAttribute('transform') ?? ''].filter(Boolean).join(' ')
+  // Propagar a cada hijo los atributos de presentación HEREDABLES del grupo (p.ej.
+  // el fill/stroke del ícono): los hijos los heredaban del <g>, y al sacarlos del
+  // grupo los perderían (un ícono de contorno se volvía mancha negra rellena).
+  const heredables = ['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'opacity', 'fill-opacity', 'stroke-opacity', 'color']
+  const estiloGrupo: Record<string, string> = {}
+  for (const a of heredables) { const v = grupo.getAttribute(a); if (v != null) estiloGrupo[a] = v }
   const hijos = Array.from(grupo.children) as SVGElement[]
   for (const kid of hijos) {
+    for (const a in estiloGrupo) if (kid.getAttribute(a) == null) kid.setAttribute(a, estiloGrupo[a])
     if (pre) { const prev = kid.getAttribute('transform') ?? ''; kid.setAttribute('transform', (pre + ' ' + prev).trim()) }
     objetivo.parentNode!.insertBefore(kid, objetivo)
   }
