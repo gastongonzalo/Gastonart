@@ -299,7 +299,12 @@ function lineHeightDeGrupo(els: Element[], styleText: string): number {
   }
   // Fallback: ratio típico para campos de 1 línea.
   const cls = (els[0].getAttribute('class') ?? '').split(/\s+/)[0]
-  const fs = fontSizeDeClase(styleText, cls)
+  let fs = fontSizeDeClase(styleText, cls)
+  // Si no vino por clase, leer el font-size INLINE (p.ej. texto importado de PDF).
+  if (fs == null) {
+    const m = (els[0].getAttribute('style') ?? '').match(/font-size\s*:\s*([\d.]+)/i)
+    if (m) fs = parseFloat(m[1])
+  }
   return Math.round((fs ?? 48) * 1.5)
 }
 
