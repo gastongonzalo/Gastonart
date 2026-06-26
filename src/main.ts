@@ -2345,16 +2345,31 @@ function iniciarArrastreGraf(e: PointerEvent): void {
     const resto = tm ? (t.slice(0, tm.index) + t.slice(tm.index! + tm[0].length)).trim() : t.trim()
     return { g, tx0: tm ? +tm[1] : 0, ty0: tm ? +tm[2] : 0, resto }
   })
+  // Para imantar: caja-unión de la selección (px del lienzo) y excluirla del imán.
+  const base0 = lienzo.getBoundingClientRect()
+  const rect0 = rectUnion(grafSeleccion, base0)
+  snapExcluirSet = new Set(grafSeleccion)
   let sx = e.clientX, sy = e.clientY, accX = 0, accY = 0, movido = false
   const onMove = (ev: PointerEvent) => {
     accX += (ev.clientX - sx) / k; accY += (ev.clientY - sy) / k
     sx = ev.clientX; sy = ev.clientY
     if (Math.abs(accX) + Math.abs(accY) > 1) movido = true
-    for (const w of wraps) w.g.setAttribute('transform', `translate(${w.tx0 + accX} ${w.ty0 + accY}) ${w.resto}`.trim())
-    dibujarSelGraf()
+    // Guías inteligentes: imantar a centro/bordes de la placa y de otros elementos.
+    let dx = 0, dy = 0
+    if (rect0) {
+      const base = lienzo.getBoundingClientRect()
+      const rawBox: Rect = { left: rect0.left + accX * k, top: rect0.top + accY * k, width: rect0.width, height: rect0.height }
+      const snap = calcularSnap(rawBox, base)
+      dx = snap.dx / k; dy = snap.dy / k
+      dibujarGuias(snap.guias)
+    }
+    for (const w of wraps) w.g.setAttribute('transform', `translate(${w.tx0 + accX + dx} ${w.ty0 + accY + dy}) ${w.resto}`.trim())
+    dibujarSelGraf() // no borra las .guia (limpiarGraf no las incluye)
   }
   const onUp = () => {
     svgEl!.removeEventListener('pointermove', onMove)
+    snapExcluirSet = null
+    limpiarGuias()
     if (movido) { registrarHistorial(); autoguardar() }
   }
   try { svgEl.setPointerCapture(e.pointerId) } catch { /* igual arrastra */ }
@@ -3573,22 +3588,30 @@ function cajaScreen(nombre: string, base: DOMRect): Rect | null {
 const UMBRAL_SNAP = 6 // px de pantalla
 
 // Rects (en px del lienzo) de los demás elementos arrastrables (para imantar).
-function rectsDeElementos(excluir: string | null, base: DOMRect): Rect[] {
+// Junta textos (cajas) + cualquier unidad graf (vectores, figuras, imágenes…),
+// excluyendo lo que se está arrastrando (por nombre, por elemento o por set).
+function rectsDeElementos(base: DOMRect): Rect[] {
   if (!svgEl) return []
   const out: Rect[] = []
   for (const c of camposActuales) {
-    if (c.nombre === excluir) continue
+    if (c.nombre === snapExcluir) continue
     const r = cajaScreen(c.nombre, base) ?? rectUnion(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (r) out.push(r)
   }
-  for (const im of Array.from(svgEl.querySelectorAll('image[data-agregado="imagen"]'))) {
-    if (im === excluirImg) continue
-    const r = rectUnion([im], base)
+  const vistos = new Set<SVGElement>()
+  for (const leaf of Array.from(svgEl.querySelectorAll<SVGElement>(SEL_GRAF))) {
+    const u = graficoSeleccionable(leaf)
+    if (!u || vistos.has(u)) continue
+    vistos.add(u)
+    if (u.getAttribute('data-campo')) continue // textos ya cubiertos arriba
+    if (u === excluirImg || snapExcluirSet?.has(u)) continue
+    const r = rectUnion([u], base)
     if (r) out.push(r)
   }
   return out
 }
 let excluirImg: Element | null = null // imagen que se está arrastrando (no imantar consigo)
+let snapExcluirSet: Set<SVGElement> | null = null // selección graf en arrastre (no imantar consigo)
 
 interface Guia { tipo: 'v' | 'h'; pos: number }
 
@@ -3598,7 +3621,7 @@ function calcularSnap(box: Rect, base: DOMRect): { dx: number; dy: number; guias
   const W = lienzo.clientWidth, H = lienzo.clientHeight
   const vT = [0, W / 2, W]
   const hT = [0, H / 2, H]
-  for (const r of rectsDeElementos(snapExcluir, base)) {
+  for (const r of rectsDeElementos(base)) {
     vT.push(r.left, r.left + r.width / 2, r.left + r.width)
     hT.push(r.top, r.top + r.height / 2, r.top + r.height)
   }
@@ -4095,6 +4118,7 @@ function abrirEditor(nombre: string): void {
   ta.spellcheck = false
   ta.style.left = r.left + 'px'
   ta.style.top = r.top - 1 + 'px'
+  ta.dataset.baseTop = String(r.top - 1) // top sin compensar; aplicarEstiloTextarea ajusta por interlineado
   // +4px de holgura: maxWidthUser es el ancho EXACTO del texto (sin margen), y el
   // textarea (layout del navegador) redondea distinto que la medición SVG → sin
   // holgura, la última letra se cae a otra línea.
@@ -4148,6 +4172,13 @@ function aplicarEstiloTextarea(nombre: string): void {
   ta.style.textAlign = ef.align === 'middle' ? 'center' : ef.align === 'end' ? 'right' : 'left'
   ta.style.color = ef.color
   ta.style.caretColor = ef.color
+  // El <text> SVG ancla por baseline (glifos arriba); el textarea reparte el
+  // interlineado mitad arriba/mitad abajo del glifo → la primera línea cae ~medio
+  // leading más abajo y el texto "saltaba" al hacer clic. Subimos el textarea ese
+  // medio interlineado para que los glifos coincidan con el render SVG.
+  const bt = parseFloat(ta.dataset.baseTop ?? '')
+  const lhPx = parseFloat(ta.style.lineHeight), fsPx = parseFloat(ta.style.fontSize)
+  if (!isNaN(bt) && !isNaN(lhPx) && !isNaN(fsPx)) ta.style.top = bt - Math.max(0, (lhPx - fsPx) / 2) + 'px'
   autoCrecer(ta)
 }
 
