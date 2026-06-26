@@ -370,6 +370,12 @@ body.modo-plantilla .toolbar-izq { display: none; }
   display: flex; align-items: center; justify-content: center; gap: 8px;
 }
 #panel-props .graf-del { background: #e11d48; }
+/* Acción principal de una imagen ("Editar imagen"): destacada y arriba de todo. */
+#panel-props .graf-btn.destacado {
+  background: var(--accent); color: #06121c; border-color: var(--accent);
+  min-height: 46px; font-size: 14px; font-weight: 700; margin-bottom: 4px;
+}
+#panel-props .graf-btn.destacado:hover { filter: brightness(1.08); }
 #panel-props .graf-color {
   flex: 1; display: flex; align-items: center; gap: 6px;
   padding: 7px 9px; border: 1px solid var(--border); border-radius: 9px; background: #0b1018;

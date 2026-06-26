@@ -3288,7 +3288,7 @@ function dibujarSelGraf(): void {
     }
     const rep = document.createElement('button'); rep.className = 'graf-btn'; rep.textContent = '🔁 Reemplazar'; rep.title = 'Reemplazar por otra imagen (subir o del banco) manteniendo tamaño, recorte y opacidad'
     rep.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelImagen(); reemplazarDestino = im as unknown as SVGImageElement })
-    const ed = document.createElement('button'); ed.className = 'graf-btn'; ed.textContent = '✎ Editar'; ed.title = 'Editar la imagen (borrador, ajustes, filtros, recorte…)'
+    const ed = document.createElement('button'); ed.className = 'graf-btn destacado'; ed.textContent = '✎ Editar imagen'; ed.title = 'Editar la imagen (color, borrador, filtros, recorte…)'
     ed.addEventListener('click', (e) => { e.stopPropagation(); abrirEditorImagen(getHref(), setFoto) })
     const qf = document.createElement('button'); qf.className = 'graf-btn'; qf.textContent = 'Quitar fondo'; qf.title = 'Quitar el fondo de la imagen (IA, en tu navegador)'
     qf.addEventListener('click', (e) => { e.stopPropagation(); void ejecutarQuitarFondo(getHref(), setFoto, qf) })
@@ -3302,7 +3302,8 @@ function dibujarSelGraf(): void {
     }
     mb.addEventListener('click', (e) => { e.stopPropagation(); mp.hidden = !mp.hidden })
     mw.append(mb, mp)
-    tools.append(rep, ed, qf, mw)
+    tools.append(rep, qf, mw)
+    tools.prepend(ed) // "Editar imagen" destacado, arriba de todo
   }
 
   // Secundarios (capas, alinear, buscatrazos) en un menú "Más" para no saturar.
@@ -3320,6 +3321,10 @@ function dibujarSelGraf(): void {
   if (!multi) {
     // 8 tiradores: 4 esquinas (proporcional) + 4 lados (un eje).
     for (const dir of DIRS_TIRADOR) lienzo.appendChild(crearTiradorEscalaGraf(uni, dir))
+    // ✕ para eliminar, arriba a la derecha de la caja (por encima del tirador ne).
+    const xDel = crearBotonEliminar(uni, () => borrarGraf())
+    xDel.style.top = uni.top - 26 + 'px'
+    lienzo.appendChild(xDel)
   }
 }
 
@@ -5100,6 +5105,7 @@ function abrirEditorImagen(src: string, onAplicar: (f: Foto) => void): void {
     if (!tieneCursor()) cursorEl.hidden = true
     if (p === 'ajustes') { ajusteBase = copiarCv(); Object.assign(adj, adjNeutro()) } // capturar base limpia
     pintarBarra(); pintarOpts()
+    ajustarStage() // el alto de las opciones cambió (p.ej. curvas) → reencajar la imagen
   }
   type Accion = 'voltearH' | 'voltearV' | 'rotar'
   // Barra agrupada por familia (un '|' es un separador visual).
