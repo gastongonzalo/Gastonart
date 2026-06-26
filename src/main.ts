@@ -2221,7 +2221,7 @@ function actualizarPanelProps(): void {
     const t0 = tipoElementoSel(grafSeleccion[0])
     h('pp-titulo', grafSeleccion.length > 1 ? `${grafSeleccion.length} elementos` : t0.label)
     if (grafSeleccion.length > 1) h('pp-sub', tipos.join(', '))
-    h('pp-vacio', 'Los controles del elemento están en la barra sobre la selección. (Próximamente acá, más grandes.)')
+    // Los controles (.graf-tools) los anexa dibujarSelGraf() debajo de esta cabecera.
     return
   }
   // Nada seleccionado → acciones de la placa.
@@ -3151,8 +3151,7 @@ function dibujarSelGraf(): void {
   const uni: Rect = { left: minL, top: minT, width: maxR - minL, height: maxB - minT }
 
   const tools = document.createElement('div')
-  tools.className = 'graf-tools'
-  Object.assign(tools.style, { left: uni.left + 'px', top: Math.max(0, uni.top - 34) + 'px' })
+  tools.className = 'graf-tools' // se anexa al panel de propiedades (no flota)
   tools.addEventListener('pointerdown', (e) => e.stopPropagation())
 
   const multi = grafSeleccion.length > 1
@@ -3269,14 +3268,11 @@ function dibujarSelGraf(): void {
   mas.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelMas() })
   tools.appendChild(mas)
 
-  const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '✕'; del.title = 'Eliminar'
+  const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '🗑 Eliminar'; del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
   tools.appendChild(del)
-  lienzo.appendChild(tools)
-  // Mantener el toolbar dentro del lienzo (overflow:hidden lo cortaría en los bordes).
-  const maxL = Math.max(4, lienzo.clientWidth - tools.offsetWidth - 4)
-  tools.style.left = Math.max(4, Math.min(uni.left, maxL)) + 'px'
-  if (uni.top - 34 < 0) tools.style.top = Math.min(uni.top + uni.height + 6, lienzo.clientHeight - tools.offsetHeight - 4) + 'px'
+  // Los controles van al PANEL de propiedades (derecha), no flotando sobre el lienzo.
+  ;(panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))?.appendChild(tools)
 
   if (!multi) {
     lienzo.appendChild(crearTiradorEscalaGraf(uni, 'x'))  // ancho

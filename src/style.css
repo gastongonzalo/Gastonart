@@ -353,6 +353,40 @@ body.modo-plantilla .toolbar-izq { display: none; }
 .pp-btn .pp-ic { font-size: 17px; width: 20px; text-align: center; }
 .pp-vacio { font-size: 12px; line-height: 1.5; color: var(--muted, #94a3b8); padding: 6px 2px; }
 @media (max-width: 900px) { #panel-props { display: none; } }
+
+/* Controles de la selección (.graf-tools) re-housed dentro del panel: vertical,
+   ancho completo, botones grandes. */
+#panel-props .graf-tools {
+  position: static; z-index: auto;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 8px; padding: 0; background: none; border: 0; box-shadow: none;
+  flex-wrap: nowrap;
+}
+#panel-props .graf-btn,
+#panel-props .graf-del {
+  width: 100%; height: auto; min-height: 40px;
+  padding: 0 14px; border-radius: 9px;
+  font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+#panel-props .graf-del { background: #e11d48; }
+#panel-props .graf-color {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: 9px; background: #0b1018;
+}
+#panel-props .graf-color::before {
+  content: 'Relleno'; font-size: 12px; font-weight: 600; color: var(--text); flex: 1;
+}
+#panel-props .graf-color.graf-stroke::before { content: 'Contorno'; }
+#panel-props .graf-color input[type='color'] { width: 34px; height: 28px; }
+#panel-props .graf-opac {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 11px; border: 1px solid var(--border); border-radius: 9px; background: #0b1018;
+  font-size: 14px;
+}
+#panel-props .graf-opac input[type='range'] { flex: 1; }
+#panel-props .graf-mascara { width: 100%; display: block; }
+#panel-props .graf-mascara .mascara-pop { position: static; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 #lienzo {
   position: relative;
   width: 100%;
