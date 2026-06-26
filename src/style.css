@@ -321,6 +321,38 @@ body.modo-plantilla .toolbar-izq { display: none; }
   padding: 28px 16px 60px;
   background: #565c64; /* mesa de trabajo gris (no negro) */
 }
+/* Panel de propiedades (derecha): muestra los controles de lo seleccionado. */
+#panel-props {
+  width: 264px;
+  flex: 0 0 264px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 14px 14px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pp-titulo { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--text); }
+.pp-sub { font-size: 11px; color: var(--muted, #94a3b8); margin-top: -8px; }
+.pp-grupo { display: flex; flex-direction: column; gap: 8px; }
+.pp-grupo-tit { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #94a3b8); }
+.pp-btn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px;
+  background: #0b1018;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+.pp-btn:hover { border-color: var(--accent); background: #0e141d; }
+.pp-btn .pp-ic { font-size: 17px; width: 20px; text-align: center; }
+.pp-vacio { font-size: 12px; line-height: 1.5; color: var(--muted, #94a3b8); padding: 6px 2px; }
+@media (max-width: 900px) { #panel-props { display: none; } }
 #lienzo {
   position: relative;
   width: 100%;

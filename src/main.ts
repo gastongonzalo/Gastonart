@@ -458,6 +458,7 @@ app.innerHTML = `
       <div id="lienzo"></div>
       <div id="vista-carrusel" hidden></div>
     </div>
+    <aside id="panel-props" aria-label="Propiedades"></aside>
   </div>
   <div id="zoom-ctrl">
     <button id="zoom-menos" title="Alejar (Ctrl −)">−</button>
@@ -2186,6 +2187,52 @@ function grafKey(e: KeyboardEvent): void {
 function limpiarGraf(): void {
   lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
+  actualizarPanelProps()
+}
+
+// Tipo legible de un elemento seleccionado (para el panel de propiedades).
+function tipoElementoSel(el: SVGElement): { label: string; ic: string } {
+  const ag = el.getAttribute('data-agregado')
+  if (el.getAttribute('data-foto') != null) return { label: 'Foto', ic: '🖼' }
+  if (ag === 'texto' || el.getAttribute('data-campo') != null || el.tagName === 'text') return { label: 'Texto', ic: 'T' }
+  if (ag === 'imagen' || el.tagName === 'image') return { label: 'Imagen', ic: '▣' }
+  if (ag === 'figura') return { label: 'Figura', ic: '▢' }
+  if (ag === 'icono' || el.getAttribute('data-grupo') != null) return { label: 'Ícono / grupo', ic: '★' }
+  return { label: 'Forma', ic: '◆' }
+}
+
+// Panel de propiedades (derecha): contextual según lo seleccionado. Fase 1:
+// estado vacío con acciones de la placa + cabecera del elemento seleccionado.
+let panelPropsEl: HTMLElement | null = null
+function actualizarPanelProps(): void {
+  const pp = (panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))
+  if (!pp) return
+  pp.innerHTML = ''
+  const h = (cls: string, txt: string) => { const d = document.createElement('div'); d.className = cls; d.textContent = txt; pp.appendChild(d); return d }
+  const accion = (ic: string, txt: string, onClick: () => void) => {
+    const b = document.createElement('button'); b.className = 'pp-btn'
+    b.innerHTML = `<span class="pp-ic">${ic}</span><span>${txt}</span>`
+    b.addEventListener('click', onClick); pp.appendChild(b); return b
+  }
+  const clickTopbar = (sel: string) => () => document.querySelector<HTMLButtonElement>(sel)?.click()
+
+  if (grafSeleccion.length) {
+    const tipos = [...new Set(grafSeleccion.map((e) => tipoElementoSel(e).label))]
+    const t0 = tipoElementoSel(grafSeleccion[0])
+    h('pp-titulo', grafSeleccion.length > 1 ? `${grafSeleccion.length} elementos` : t0.label)
+    if (grafSeleccion.length > 1) h('pp-sub', tipos.join(', '))
+    h('pp-vacio', 'Los controles del elemento están en la barra sobre la selección. (Próximamente acá, más grandes.)')
+    return
+  }
+  // Nada seleccionado → acciones de la placa.
+  h('pp-titulo', 'Placa')
+  h('pp-sub', `${Math.round(svgEl?.viewBox.baseVal.width || 0)} × ${Math.round(svgEl?.viewBox.baseVal.height || 0)} px`)
+  const g = document.createElement('div'); g.className = 'pp-grupo'; pp.appendChild(g)
+  const grupoAccion = (ic: string, txt: string, onClick: () => void) => { accion(ic, txt, onClick); g.appendChild(pp.lastElementChild!) }
+  grupoAccion('📐', 'Cambiar tamaño', clickTopbar('#btn-tamano'))
+  grupoAccion('🗂', 'Guardar como plantilla', clickTopbar('#btn-guardar-plantilla'))
+  grupoAccion('⬇', 'Exportar', clickTopbar('#btn-export'))
+  h('pp-vacio', 'Seleccioná un elemento para editar sus propiedades, o agregá uno desde la barra izquierda.')
 }
 
 // Nodo realmente manipulable: si el elemento ya está envuelto para mover, su wrapper.
