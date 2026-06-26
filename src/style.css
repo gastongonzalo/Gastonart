@@ -644,9 +644,12 @@ body.modo-plantilla .toolbar-izq { display: none; }
   border: 2px solid #06121c;
   cursor: nwse-resize;
 }
-/* Handles de eje único: ancho (E-O) y alto (N-S), redondeados para distinguirlos. */
-.resize-handle-x { cursor: ew-resize; border-radius: 7px; }
-.resize-handle-y { cursor: ns-resize; border-radius: 7px; }
+/* Tiradores de lado (un eje): círculos, para distinguirlos de las esquinas. */
+.resize-handle-e, .resize-handle-w { cursor: ew-resize; border-radius: 7px; }
+.resize-handle-n, .resize-handle-s { cursor: ns-resize; border-radius: 7px; }
+/* Esquinas (proporcional): cuadrados, con el cursor diagonal correspondiente. */
+.resize-handle-nw, .resize-handle-se { cursor: nwse-resize; }
+.resize-handle-ne, .resize-handle-sw { cursor: nesw-resize; }
 .btn-candado {
   position: absolute;
   z-index: 5;

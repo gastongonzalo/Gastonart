@@ -3318,34 +3318,18 @@ function dibujarSelGraf(): void {
   panelDin()?.appendChild(tools)
 
   if (!multi) {
-    lienzo.appendChild(crearTiradorEscalaGraf(uni, 'x'))  // ancho
-    lienzo.appendChild(crearTiradorEscalaGraf(uni, 'y'))  // alto
-    lienzo.appendChild(crearTiradorEscalaGraf(uni, 'xy')) // proporcional (esquina)
+    // 8 tiradores: 4 esquinas (proporcional) + 4 lados (un eje).
+    for (const dir of DIRS_TIRADOR) lienzo.appendChild(crearTiradorEscalaGraf(uni, dir))
   }
 }
 
-// Calcula (sx, sy) de un tirador de escala: esquina (xy) o Shift = proporcional;
-// costados (x/y) = libre en un solo eje. El pivote/transform los pone el llamador.
-function calcularEscalaTirador(
-  eje: 'x' | 'y' | 'xy', accX: number, accY: number,
-  sx0: number, sy0: number, bw: number, bh: number, k: number, shift: boolean,
-): { sx: number; sy: number } {
-  if (eje === 'xy' || shift) {
-    const denom = eje === 'y' ? Math.max(bh * sy0 * k, 1) : Math.max(bw * sx0 * k, 1)
-    const delta = eje === 'y' ? accY : accX
-    const f = Math.max(0.04, 1 + delta / denom)
-    return { sx: Math.max(0.04, sx0 * f), sy: Math.max(0.04, sy0 * f) }
-  }
-  return {
-    sx: eje !== 'y' ? Math.max(0.04, sx0 + accX / (bw * k)) : sx0,
-    sy: eje !== 'x' ? Math.max(0.04, sy0 + accY / (bh * k)) : sy0,
-  }
-}
+// Las 8 direcciones de tiradores (esquinas + lados).
+const DIRS_TIRADOR: DirTirador[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
 // Tirador de escala para la selección de modo Gráficos: escala el WRAPPER del
 // elemento (preserva matrices de Illustrator). Delega en crearTiradorEscala.
-function crearTiradorEscalaGraf(r: Rect, eje: 'x' | 'y' | 'xy' = 'xy'): HTMLDivElement {
-  return crearTiradorEscala(r, grafSeleccion[0], eje, {
+function crearTiradorEscalaGraf(r: Rect, dir: DirTirador = 'se'): HTMLDivElement {
+  return crearTiradorEscala(r, grafSeleccion[0], dir, {
     wrap: true,
     onFin: () => { registrarHistorial(); autoguardar(); dibujarSelGraf() },
   })
@@ -3437,14 +3421,19 @@ function leerScale(tr: string): { sx: number; sy: number } {
 // Tirador de redimensión (figuras/íconos/imágenes/recortes/grupos). Escala el
 // `el` (o su wrapper si opts.wrap) con pivote fijo en la esquina sup-izq del bbox.
 // eje 'xy' = esquina (proporcional), 'x'/'y' = costado (libre). Shift = proporcional.
+// Direcciones de tirador: 8 (4 esquinas + 4 lados). Aliases viejos: x=e, y=s, xy=se.
+type DirTirador = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw' | 'x' | 'y' | 'xy'
 function crearTiradorEscala(
-  r: Rect, el: SVGElement, eje: 'x' | 'y' | 'xy' = 'xy',
+  r: Rect, el: SVGElement, dir: DirTirador = 'se',
   opts?: { wrap?: boolean; onFin?: () => void },
 ): HTMLDivElement {
+  const d = dir === 'x' ? 'e' : dir === 'y' ? 's' : dir === 'xy' ? 'se' : dir
+  const hc = d.includes('e') ? 1 : d.includes('w') ? -1 : 0 // horizontal: -1 izq, +1 der
+  const vc = d.includes('s') ? 1 : d.includes('n') ? -1 : 0 // vertical: -1 arriba, +1 abajo
   const h = document.createElement('div')
-  h.className = 'resize-handle resize-handle-' + eje
-  const left = eje === 'y' ? r.left + r.width / 2 - 7 : r.left + r.width - 7
-  const top = eje === 'x' ? r.top + r.height / 2 - 7 : r.top + r.height - 7
+  h.className = 'resize-handle resize-handle-' + d
+  const left = r.left + (hc < 0 ? 0 : hc > 0 ? r.width : r.width / 2) - 7
+  const top = r.top + (vc < 0 ? 0 : vc > 0 ? r.height : r.height / 2) - 7
   Object.assign(h.style, { left: left + 'px', top: top + 'px' })
   h.addEventListener('pointerdown', (e) => {
     if (!svgEl || !el) return
@@ -3456,16 +3445,29 @@ function crearTiradorEscala(
     const cx0 = tm ? +tm[1] : 0, cy0 = tm ? +tm[2] : 0
     const s0 = leerScale(tr)
     const sx0 = s0.sx, sy0 = s0.sy
-    let baseW = 100, baseH = 100, bx = 0, by = 0
-    try { const bb = (target as SVGGraphicsElement).getBBox(); baseW = bb.width || 100; baseH = bb.height || 100; bx = bb.x; by = bb.y } catch { /* default */ }
-    const ax = cx0 + sx0 * bx, ay = cy0 + sy0 * by // posición fija del pivote (esquina sup-izq del bbox)
-    const hx0 = parseFloat(h.style.left), hy0 = parseFloat(h.style.top)
+    let bw = 100, bh = 100, bx = 0, by = 0
+    try { const bb = (target as SVGGraphicsElement).getBBox(); bw = bb.width || 100; bh = bb.height || 100; bx = bb.x; by = bb.y } catch { /* default */ }
+    // Ancla = lado/esquina OPUESTO al tirador (queda fijo al escalar).
+    const aBx = hc > 0 ? bx : bx + bw, aBy = vc > 0 ? by : by + bh
+    const anchorWX = cx0 + sx0 * aBx, anchorWY = cy0 + sy0 * aBy
+    const lienzoBox = lienzo.getBoundingClientRect()
     const startX = e.clientX, startY = e.clientY
     const onMove = (ev: PointerEvent) => {
-      const { sx, sy } = calcularEscalaTirador(eje, ev.clientX - startX, ev.clientY - startY, sx0, sy0, baseW, baseH, k, ev.shiftKey)
-      target.setAttribute('transform', `translate(${ax - sx * bx} ${ay - sy * by}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
-      h.style.left = hx0 + (sx - sx0) * baseW * k + 'px'
-      h.style.top = hy0 + (sy - sy0) * baseH * k + 'px'
+      let sx = sx0, sy = sy0
+      if (hc !== 0) sx = Math.max(0.04, sx0 + hc * (ev.clientX - startX) / k / bw)
+      if (vc !== 0) sy = Math.max(0.04, sy0 + vc * (ev.clientY - startY) / k / bh)
+      // Esquina o Shift = proporcional (la dirige el eje que cambia).
+      if ((hc !== 0 && vc !== 0) || ev.shiftKey) {
+        if (hc !== 0) sy = Math.max(0.04, sx * (sy0 / sx0 || 1))
+        else if (vc !== 0) sx = Math.max(0.04, sy * (sx0 / sy0 || 1))
+      }
+      const cx = hc !== 0 ? anchorWX - sx * aBx : cx0
+      const cy = vc !== 0 ? anchorWY - sy * aBy : cy0
+      target.setAttribute('transform', `translate(${cx.toFixed(2)} ${cy.toFixed(2)}) scale(${sx.toFixed(4)} ${sy.toFixed(4)})`)
+      // El tirador sigue a su lado/esquina del nuevo bbox.
+      const bb2 = el.getBoundingClientRect()
+      h.style.left = (bb2.left - lienzoBox.left) + (hc < 0 ? 0 : hc > 0 ? bb2.width : bb2.width / 2) - 7 + 'px'
+      h.style.top = (bb2.top - lienzoBox.top) + (vc < 0 ? 0 : vc > 0 ? bb2.height : bb2.height / 2) - 7 + 'px'
     }
     const onUp = () => { h.removeEventListener('pointermove', onMove); (opts?.onFin ?? construirOverlays)() }
     try { h.setPointerCapture(e.pointerId) } catch { /* igual escala */ }
@@ -3735,9 +3737,7 @@ function construirOverlays(): void {
     lienzo.appendChild(hit)
     const ctrls = [
       crearBotonEliminar(r, () => { el.remove(); construirOverlays() }),
-      crearTiradorEscala(r, el, 'x'),  // ancho
-      crearTiradorEscala(r, el, 'y'),  // alto
-      crearTiradorEscala(r, el, 'xy'), // ambos (esquina)
+      ...DIRS_TIRADOR.map((dir) => crearTiradorEscala(r, el, dir)), // 4 esquinas + 4 lados
       crearSwatch(r, el, 'fill', 0),
       crearSwatch(r, el, 'stroke', 1),
     ]
