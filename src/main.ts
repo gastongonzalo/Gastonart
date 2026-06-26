@@ -470,7 +470,7 @@ app.innerHTML = `
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
   <input type="file" id="in-font" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden>
-  <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml,.pdf,application/pdf,image/*" hidden>
+  <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml,.pdf,application/pdf,.ai,application/illustrator,application/postscript,image/*" hidden>
 
   <div id="panel-export" hidden>
     <div class="pe-head">
@@ -5848,8 +5848,8 @@ function mostrarInicio(): void {
         ${seccionesTamano}
         <div class="ini-grupo-tit">Personalizado</div>
         <div class="ini-custom">
-          <input type="number" id="ini-w" min="1" max="20000" value="1080" aria-label="Ancho"> ×
-          <input type="number" id="ini-h" min="1" max="20000" value="1080" aria-label="Alto">
+          <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho"> ×
+          <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
           <select id="ini-unidad" aria-label="Unidad">
             <option value="px">px</option>
             <option value="mm">mm</option>
@@ -5872,13 +5872,27 @@ function mostrarInicio(): void {
   ov.querySelector('#ini-cerrar')!.addEventListener('click', () => cerrarInicio())
   ov.querySelectorAll<HTMLButtonElement>('.ini-preset').forEach((b) =>
     b.addEventListener('click', () => { cerrarInicio(); nuevaPlacaEnBlanco(+b.dataset.w!, +b.dataset.h!) }))
+  // Unidades: px directo; mm/cm a 300 DPI (impresión). 1 in = 25.4 mm = 300 px.
+  // pxPorUnidad = cuántos px vale 1 de la unidad.
+  const pxPorUnidad = (u: string) => u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1
+  const inpW = ov.querySelector<HTMLInputElement>('#ini-w')!
+  const inpH = ov.querySelector<HTMLInputElement>('#ini-h')!
+  const selU = ov.querySelector<HTMLSelectElement>('#ini-unidad')!
+  let unidadPrev = selU.value
+  // Al cambiar de unidad, convertir los valores actuales a la nueva medida.
+  selU.addEventListener('change', () => {
+    const factor = pxPorUnidad(unidadPrev) / pxPorUnidad(selU.value)
+    const conv = (inp: HTMLInputElement) => {
+      const v = (+inp.value || 0) * factor
+      inp.value = String(selU.value === 'px' ? Math.round(v) : Math.round(v * 100) / 100)
+    }
+    conv(inpW); conv(inpH)
+    unidadPrev = selU.value
+  })
   ov.querySelector('#ini-crear-custom')!.addEventListener('click', () => {
-    // Unidades: px directo; mm/cm a 300 DPI (impresión). 1 in = 25.4 mm = 300 px.
-    const u = ov.querySelector<HTMLSelectElement>('#ini-unidad')!.value
-    const factor = u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1
-    const aPx = (v: number) => Math.max(16, Math.min(20000, Math.round(v * factor)))
-    const w = aPx(+(ov.querySelector<HTMLInputElement>('#ini-w')!.value) || 1080)
-    const h = aPx(+(ov.querySelector<HTMLInputElement>('#ini-h')!.value) || 1080)
+    const aPx = (v: number) => Math.max(16, Math.min(20000, Math.round(v * pxPorUnidad(selU.value))))
+    const w = aPx(+inpW.value || 1080)
+    const h = aPx(+inpH.value || 1080)
     cerrarInicio(); nuevaPlacaEnBlanco(w, h)
   })
   ov.querySelectorAll<HTMLButtonElement>('.ini-plantilla').forEach((b) =>
@@ -6183,7 +6197,8 @@ inSvgPlantilla.addEventListener('change', async () => {
   if (file) {
     cerrarInicio()
     try {
-      if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') await importarPDF(file)
+      // .ai moderno es PDF por dentro → mismo camino que el PDF.
+      if (/\.(pdf|ai)$/i.test(file.name) || file.type === 'application/pdf') await importarPDF(file)
       else if (/\.svg$/i.test(file.name) || file.type === 'image/svg+xml') usarSvgImportado(await file.text(), file.name)
       else if (file.type.startsWith('image/')) await crearPlacaDesdeMultimedia(file)
       else usarSvgImportado(await file.text(), file.name)
