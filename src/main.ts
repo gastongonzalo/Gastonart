@@ -1216,9 +1216,14 @@ function agregarTexto(): void {
   const nombre = `nuevo_${contadorAgregados}`
   const vb = svgEl.viewBox.baseVal
   const vw = vb.width || 1080
-  const x0 = 90
-  const y0 = 180 + (contadorAgregados % 6) * 40
-  const fs = 48
+  const vh = vb.height || 1080
+  // Tamaño/posición PROPORCIONALES al lienzo: con valores fijos (48px, x0=90) el
+  // texto desbordaba la caja en lienzos chicos → el render quedaba en 1 línea
+  // pero el textarea lo envolvía en 2 (el texto "saltaba" al editar). Así la caja
+  // siempre es bastante más ancha que el texto por defecto.
+  const fs = Math.max(12, Math.round(vw * 0.045))
+  const x0 = Math.round(vw * 0.08)
+  const y0 = Math.round(vh * 0.17) + (contadorAgregados % 6) * Math.round(fs * 0.9)
 
   const t = document.createElementNS(SVGNS, 'text')
   t.setAttribute('data-campo', nombre)
@@ -1229,11 +1234,6 @@ function agregarTexto(): void {
   t.style.fontWeight = '600'
   t.style.fontSize = fs + 'px'
   t.style.fill = '#141930'
-  const ts = document.createElementNS(SVGNS, 'tspan')
-  ts.setAttribute('x', '0')
-  ts.setAttribute('y', '0')
-  ts.textContent = 'Texto nuevo'
-  t.appendChild(ts)
   svgEl.appendChild(t)
 
   camposActuales.push({ nombre, etiqueta: 'Texto nuevo' })
@@ -1246,12 +1246,15 @@ function agregarTexto(): void {
     weight: '600',
     family: "'Poppins'",
     color: 'rgb(20,25,48)',
-    maxWidthUser: Math.max(120, vw - x0 - 40),
+    maxWidthUser: Math.max(fs * 4, vw - x0 * 2),
     boxLines: 50,
   }
   valores[nombre] = 'Texto nuevo'
   bloqueado[nombre] = false // los cuadros agregados nacen movibles
 
+  // Renderizar por la ruta estándar (envolver/ajustar): así el layout inicial es
+  // idéntico al que produce la edición → al abrir el editor el texto no se mueve.
+  pintarCampo(nombre)
   construirOverlays()
   abrirEditor(nombre)
 }
