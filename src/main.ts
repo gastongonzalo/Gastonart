@@ -5725,6 +5725,17 @@ function cerrarInicio(): void {
   document.querySelector('#pantalla-inicio')?.remove()
 }
 
+// SVG liviano para la MINIATURA de la pantalla de inicio: las <image> embebidas
+// (fotos en base64) pesan MB y un <img src=data:svg> no las renderiza. Se
+// reemplazan por un rect gris (placeholder de foto) conservando posición/recorte;
+// el resto (texto/vectores/fondo) alcanza para reconocer el diseño.
+function miniaturaSvg(svg: string): string {
+  return svg.replace(/<image\b([^>]*)>(\s*<\/image>)?/gi, (_m, attrs: string) => {
+    const limpio = attrs.replace(/\/\s*$/, '').replace(/\s(?:xlink:href|href)\s*=\s*"[^"]*"/gi, '')
+    return `<rect${limpio} fill="#d4d7dd"/>`
+  })
+}
+
 function mostrarInicio(): void {
   cerrarInicio()
   const grupos = [...new Set(PRESETS_TAMANO.map((p) => p.grupo))]
@@ -5738,11 +5749,17 @@ function mostrarInicio(): void {
          </button>`).join('')}
     </div>`).join('')
 
-  const opcionesPlantilla = rutasPlantilla.map((r) =>
-    `<span class="ini-plantilla-wrap">
-      <button class="ini-plantilla" data-ruta="${escAttr(r)}">${escAttr(nombreCorto(r))}</button>
+  const opcionesPlantilla = rutasPlantilla.map((r) => {
+    const svg = plantillas[r] || ''
+    const thumb = svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(miniaturaSvg(svg))}` : ''
+    return `<span class="ini-plantilla-wrap">
+      <button class="ini-plantilla" data-ruta="${escAttr(r)}">
+        <span class="ini-plantilla-thumb">${thumb ? `<img src="${thumb}" alt="" loading="lazy">` : ''}</span>
+        <span class="ini-plantilla-nom">${escAttr(nombreCorto(r))}</span>
+      </button>
       <button class="ini-plantilla-del" data-ruta="${escAttr(r)}" title="Borrar plantilla">✕</button>
-    </span>`).join('')
+    </span>`
+  }).join('')
 
   // ¿Hay un trabajo guardado para ofrecer "Seguir editando"?
   const autosave = (() => { try { const g = localStorage.getItem('gastonart-proyecto'); return g && g.length <= 4_000_000 ? g : null } catch { return null } })()

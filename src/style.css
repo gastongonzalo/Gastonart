@@ -1145,18 +1145,31 @@ body.modo-plantilla .toolbar-izq { display: none; }
   padding: 6px 8px;
   font-size: 13px;
 }
-.ini-plantillas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ini-plantillas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .ini-plantilla-wrap { position: relative; display: flex; }
 .ini-plantilla {
   flex: 1;
-  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
   background: #0b1018;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text);
   cursor: pointer;
+  transition: border-color 0.12s, transform 0.08s;
 }
-.ini-plantilla:hover { border-color: var(--accent); }
+.ini-plantilla-thumb {
+  display: block;
+  aspect-ratio: 4 / 5;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f3f4f6 repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 0/16px 16px;
+}
+.ini-plantilla-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ini-plantilla-nom { font-size: 12px; font-weight: 600; text-align: center; padding-bottom: 2px; }
+.ini-plantilla:hover { border-color: var(--accent); transform: translateY(-1px); }
 .ini-plantilla-del {
   position: absolute;
   top: -6px;
