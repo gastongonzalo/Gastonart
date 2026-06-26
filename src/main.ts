@@ -2196,7 +2196,7 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
   actualizarPanelProps()
 }
@@ -2290,8 +2290,13 @@ function grafPointerDown(e: PointerEvent): void {
   if (editandoPuntos()) return // editando puntos: lo maneja la capa del editor
   if (reframeG) { iniciarPanReencuadre(e); return } // en reencuadre, arrastrar = mover la foto
   const tgt = e.target as Element
-  // Texto (campo de plantilla o agregado): clic abre el editor inline.
+  // Confirmar cualquier texto en edición ANTES de procesar el clic: como abajo
+  // hacemos e.preventDefault() (para no seleccionar texto del SVG), el textarea no
+  // pierde el foco solo → sin esto, su editor quedaba abierto tapando el hit y el
+  // recién agregado no se podía arrastrar hasta abrir otro editor.
   const campoEl = tgt.closest?.('[data-campo]')
+  if (editorActivo && editorActivo.nombre !== campoEl?.getAttribute('data-campo')) cerrarEditor()
+  // Texto (campo de plantilla o agregado): clic abre el editor inline.
   if (campoEl) { e.preventDefault(); abrirEditor(campoEl.getAttribute('data-campo')!); return }
   // Foto de hueco suelto (no recorte): vacío → subir; cargada → arrastrar reencuadra.
   // (La mini-barra Cambiar/Zoom/Opac/Editar/Quitar fondo la arma construirOverlays.)
