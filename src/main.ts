@@ -94,6 +94,9 @@ let fotos: Record<string, Foto> = {}
 let framesFoto: Record<string, FrameFoto> = {}
 let encuadres: Record<string, Encuadre> = {}
 let fotoActiva: string | null = null // slot al que se sube/cambia la foto
+// Si está seteado, la próxima imagen elegida (banco/subida) REEMPLAZA a esta
+// (mantiene tamaño/posición/recorte/opacidad/filtro; solo cambia el href).
+let reemplazarDestino: SVGImageElement | null = null
 let zoomSlider: HTMLInputElement | null = null
 
 // Ids de los huecos de foto presentes en el SVG montado (en orden del documento).
@@ -667,6 +670,7 @@ const pmInput = document.querySelector<HTMLInputElement>('#pm-input')!
 const pmEstado = document.querySelector<HTMLDivElement>('#pm-estado')!
 const pmGrid = document.querySelector<HTMLDivElement>('#pm-grid')!
 function abrirPanelImagen(): void {
+  reemplazarDestino = null // por defecto el panel inserta una imagen nueva
   cerrarPanelesFlotantes(panelImagen)
   panelImagen.hidden = false
   pmInput.focus()
@@ -704,7 +708,7 @@ async function agregarImagenBanco(url: string): Promise<void> {
   } catch { pmEstado.textContent = 'No se pudo agregar la imagen' }
 }
 document.querySelector('#pm-subir')!.addEventListener('click', () => { panelImagen.hidden = true; inImgNueva.click() })
-document.querySelector('#pm-cerrar')!.addEventListener('click', () => { panelImagen.hidden = true })
+document.querySelector('#pm-cerrar')!.addEventListener('click', () => { panelImagen.hidden = true; reemplazarDestino = null })
 document.querySelector('#pm-buscar')!.addEventListener('click', () => void buscarImagenes(pmInput.value))
 pmInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarImagenes(pmInput.value) })
 panelImagen.addEventListener('click', (e) => e.stopPropagation())
@@ -1268,6 +1272,13 @@ function eliminarCampo(nombre: string): void {
 // Inserta una imagen nueva (movible, redimensionable, eliminable).
 function insertarImagen(f: Foto): void {
   if (!svgEl) return
+  if (reemplazarDestino) {
+    const im = reemplazarDestino; reemplazarDestino = null
+    im.setAttribute('href', f.dataUrl); im.setAttributeNS(XLINK, 'xlink:href', f.dataUrl)
+    registrarHistorial(); autoguardar(); dibujarSelGraf()
+    estado.textContent = 'Imagen reemplazada'
+    return
+  }
   contadorAgregados++
   const vw = svgEl.viewBox.baseVal.width || 1080
   const W = Math.min(450, vw * 0.5)
@@ -3275,6 +3286,8 @@ function dibujarSelGraf(): void {
       if (W) im.setAttribute('height', String(W * f.h / f.w))
       registrarHistorial(); autoguardar(); dibujarSelGraf()
     }
+    const rep = document.createElement('button'); rep.className = 'graf-btn'; rep.textContent = '🔁 Reemplazar'; rep.title = 'Reemplazar por otra imagen (subir o del banco) manteniendo tamaño, recorte y opacidad'
+    rep.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelImagen(); reemplazarDestino = im as unknown as SVGImageElement })
     const ed = document.createElement('button'); ed.className = 'graf-btn'; ed.textContent = '✎ Editar'; ed.title = 'Editar la imagen (borrador, ajustes, filtros, recorte…)'
     ed.addEventListener('click', (e) => { e.stopPropagation(); abrirEditorImagen(getHref(), setFoto) })
     const qf = document.createElement('button'); qf.className = 'graf-btn'; qf.textContent = 'Quitar fondo'; qf.title = 'Quitar el fondo de la imagen (IA, en tu navegador)'
@@ -3289,7 +3302,7 @@ function dibujarSelGraf(): void {
     }
     mb.addEventListener('click', (e) => { e.stopPropagation(); mp.hidden = !mp.hidden })
     mw.append(mb, mp)
-    tools.append(ed, qf, mw)
+    tools.append(rep, ed, qf, mw)
   }
 
   // Secundarios (capas, alinear, buscatrazos) en un menú "Más" para no saturar.
