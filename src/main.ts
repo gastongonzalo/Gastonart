@@ -2204,8 +2204,21 @@ function tipoElementoSel(el: SVGElement): { label: string; ic: string } {
 // Panel de propiedades (derecha): contextual según lo seleccionado. Fase 1:
 // estado vacío con acciones de la placa + cabecera del elemento seleccionado.
 let panelPropsEl: HTMLElement | null = null
+// Contenedor del contenido DINÁMICO del panel (se vacía/rellena). La barra de
+// texto (#barra-texto) vive como hermana (no se destruye al rebuildear).
+function panelDin(): HTMLElement | null {
+  const outer = (panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))
+  if (!outer) return null
+  let din = outer.querySelector<HTMLElement>('#pp-dinamico')
+  if (!din) {
+    din = document.createElement('div'); din.id = 'pp-dinamico'
+    outer.appendChild(din)
+    outer.appendChild(barraTexto) // la barra de fuente/tamaño/color va al panel
+  }
+  return din
+}
 function actualizarPanelProps(): void {
-  const pp = (panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))
+  const pp = panelDin()
   if (!pp) return
   pp.innerHTML = ''
   const h = (cls: string, txt: string) => { const d = document.createElement('div'); d.className = cls; d.textContent = txt; pp.appendChild(d); return d }
@@ -3280,7 +3293,7 @@ function dibujarSelGraf(): void {
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
   tools.appendChild(del)
   // Los controles van al PANEL de propiedades (derecha), no flotando sobre el lienzo.
-  ;(panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))?.appendChild(tools)
+  panelDin()?.appendChild(tools)
 
   if (!multi) {
     lienzo.appendChild(crearTiradorEscalaGraf(uni, 'x'))  // ancho
@@ -3947,7 +3960,7 @@ function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
 
 // Mini-barra de la foto: cambiar y zoom. Se posiciona sobre cada hueco.
 function construirFotoTools(id: string): void {
-  const pp = (panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))
+  const pp = panelDin()
   if (!pp) return
   const enc = encuadreDe(id)
   const tools = document.createElement('div')
@@ -4130,6 +4143,8 @@ function sincronizarBarra(nombre: string): void {
   for (const b of Array.from(barraTexto.querySelectorAll('[data-bt^="al:"]'))) {
     b.classList.toggle('activo', b.getAttribute('data-bt') === 'al:' + ef.align)
   }
+  panelDin() // asegura que la barra de texto esté reubicada en el panel
+  const din = document.querySelector<HTMLElement>('#pp-dinamico'); if (din) din.hidden = true
   barraTexto.hidden = false
 }
 
@@ -4208,6 +4223,7 @@ function autoCrecer(ta: HTMLTextAreaElement): void {
 function commitEditor(): void {
   if (!editorActivo) return
   barraTexto.hidden = true
+  { const din = document.querySelector<HTMLElement>('#pp-dinamico'); if (din) din.hidden = false }
   const { nombre, ta, tocado, els } = editorActivo
   editorActivo = null
   for (const el of els) (el as SVGElement).style.opacity = '' // restaurar SVG
@@ -4224,6 +4240,7 @@ function commitEditor(): void {
 function cancelarEditor(): void {
   if (!editorActivo) return
   barraTexto.hidden = true
+  { const din = document.querySelector<HTMLElement>('#pp-dinamico'); if (din) din.hidden = false }
   const { nombre, ta, valorPrevio, tocado, els } = editorActivo
   editorActivo = null
   ta.remove()
