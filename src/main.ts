@@ -6145,7 +6145,10 @@ void (async () => {
   cargarOcultas()           // quitar del listado las plantillas del paquete que borró
   void cargarFuentesGuardadas() // re-baja las fuentes de Google agregadas (async)
   // La app SIEMPRE arranca en la pantalla de inicio (formatos + plantillas). El
-  // último trabajo, si existe, se ofrece desde ahí ("Seguir editando").
-  await montarPlantilla() // lienzo por defecto debajo
+  // último trabajo, si existe, se ofrece desde ahí ("Seguir editando"). Detrás
+  // va un lienzo EN BLANCO (no una plantilla del pack), para que no aparezca una
+  // "plantilla fantasma" al fondo mientras se elige cómo empezar.
+  svgActual = svgEnBlanco(1080, 1350)
+  await montarPlantilla()
   mostrarInicio()
 })()
