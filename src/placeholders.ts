@@ -97,8 +97,8 @@ export function listarCamposTexto(svg: string): CampoTexto[] {
 }
 
 export function hayImagen(svg: string): boolean {
-  // Las imágenes data-fondo (PDF importado de fondo) no cuentan como foto editable.
-  return !!parsear(svg).querySelector('image:not([data-fondo])')
+  // Solo cuentan los HUECOS de foto (no data-fondo ni imágenes editables agregadas).
+  return !!parsear(svg).querySelector('image:not([data-fondo]):not([data-agregado])')
 }
 
 export interface MetaCampo {
@@ -140,10 +140,13 @@ export function prepararEditor(svg: string): {
   }
 
   // Cada <image> de la plantilla es un hueco de foto editable (data-foto="0","1",…).
-  // Excepción: las marcadas data-fondo (p.ej. una página de PDF importada como
-  // fondo a sangre) NO son huecos reemplazables; quedan como backdrop fijo.
+  // Excepciones: data-fondo (fondo a sangre fijo) y data-agregado (imágenes EDITABLES,
+  // p.ej. las de un PDF/.ai importado: se mueven/escalan/borran/editan como elemento,
+  // no son huecos reemplazables).
   const frames: Record<string, FrameFoto> = {}
-  Array.from(doc.querySelectorAll('image')).filter((img) => !img.hasAttribute('data-fondo')).forEach((img, i) => {
+  Array.from(doc.querySelectorAll('image'))
+    .filter((img) => !img.hasAttribute('data-fondo') && !img.hasAttribute('data-agregado'))
+    .forEach((img, i) => {
     const id = String(i)
     img.setAttribute('data-foto', id)
     const W = parseFloat(img.getAttribute('width') ?? '0')

@@ -6092,7 +6092,9 @@ async function importarPDF(file: File): Promise<void> {
         // Si el recorte tiene forma curva, aplicarlo como <clipPath> (coords device).
         let clipAttr = '', clipDef = ''
         if (clipPathD) { const id = `pdfclip${nClip++}`; clipDef = `<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><path d="${clipPathD}"/></clipPath>`; clipAttr = ` clip-path="url(#${id})"` }
-        piezasGraf.push(`${clipDef}<image x="${r2(vis[0])}" y="${r2(vis[1])}" width="${r2(vw)}" height="${r2(vh)}" preserveAspectRatio="none"${clipAttr} href="${dataUrl}" xlink:href="${dataUrl}"/>`)
+        // data-agregado="imagen" → la imagen es un elemento EDITABLE (mover/escalar/
+        // borrar/editar/quitar fondo/máscara), no un hueco de foto reemplazable.
+        piezasGraf.push(`${clipDef}<image data-agregado="imagen" x="${r2(vis[0])}" y="${r2(vis[1])}" width="${r2(vw)}" height="${r2(vh)}" preserveAspectRatio="none"${clipAttr} href="${dataUrl}" xlink:href="${dataUrl}"/>`)
       }
     }
 
