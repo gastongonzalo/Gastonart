@@ -1170,6 +1170,8 @@ body.modo-plantilla .toolbar-izq { display: none; }
 .ini-plantilla-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .ini-plantilla-nom { font-size: 12px; font-weight: 600; text-align: center; padding-bottom: 2px; }
 .ini-plantilla:hover { border-color: var(--accent); transform: translateY(-1px); }
+.ini-nota { margin: 8px 2px 0; font-size: 11px; line-height: 1.4; color: var(--muted, #94a3b8); }
+.ini-nota strong { color: var(--text); }
 .ini-plantilla-del {
   position: absolute;
   top: -6px;

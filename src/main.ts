@@ -469,7 +469,7 @@ app.innerHTML = `
   <input type="file" id="in-foto" accept="image/*" hidden>
   <input type="file" id="in-img-nueva" accept="image/*" hidden>
   <input type="file" id="in-font" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden>
-  <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml,.pdf,application/pdf" hidden>
+  <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml,.pdf,application/pdf,image/*" hidden>
 
   <div id="panel-export" hidden>
     <div class="pe-head">
@@ -5789,8 +5789,9 @@ function mostrarInicio(): void {
           ${seguirHtml}
           <h3>Usar plantilla</h3>
           <div class="ini-plantillas">${opcionesPlantilla}</div>
-          <h3 style="margin-top:18px">Cargar plantilla SVG</h3>
-          <button id="ini-cargar-svg" class="ini-btn-acc">Elegir archivo .svg o .pdf…</button>
+          <h3 style="margin-top:18px">Cargar multimedia</h3>
+          <button id="ini-cargar-svg" class="ini-btn-acc">Subir imagen, SVG o PDF…</button>
+          <p class="ini-nota">Cualquier imagen, SVG o PDF entra al editor. Después podés <strong>guardarlo como plantilla</strong> con el botón “Plantilla” de la barra superior.</p>
         </section>
       </div>
     </div>`
@@ -6088,6 +6089,18 @@ async function importarPDF(file: File): Promise<void> {
   }
 }
 
+// Multimedia subida desde la pantalla de inicio: una imagen entra como una placa
+// del tamaño de la imagen, con la foto a sangre (editable / se puede guardar como
+// plantilla). PDF → importarPDF; SVG → usarSvgImportado.
+async function crearPlacaDesdeMultimedia(file: File): Promise<void> {
+  const foto = await leerFoto(file)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${foto.w} ${foto.h}">` +
+    `<image x="0" y="0" width="${foto.w}" height="${foto.h}" href="${foto.dataUrl}" xlink:href="${foto.dataUrl}"/></svg>`
+  modoEdicion = 'completa'
+  usarSvgImportado(svg, file.name.replace(/\.[^.]+$/, ''))
+  estado.textContent = `Multimedia cargada: ${file.name}`
+}
+
 const inSvgPlantilla = document.querySelector<HTMLInputElement>('#in-svg-plantilla')!
 inSvgPlantilla.addEventListener('change', async () => {
   const file = inSvgPlantilla.files?.[0]
@@ -6095,6 +6108,8 @@ inSvgPlantilla.addEventListener('change', async () => {
     cerrarInicio()
     try {
       if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') await importarPDF(file)
+      else if (/\.svg$/i.test(file.name) || file.type === 'image/svg+xml') usarSvgImportado(await file.text(), file.name)
+      else if (file.type.startsWith('image/')) await crearPlacaDesdeMultimedia(file)
       else usarSvgImportado(await file.text(), file.name)
     } catch (e) { estado.textContent = '❌ ' + (e instanceof Error ? e.message : String(e)) }
   }
