@@ -338,31 +338,35 @@ app.innerHTML = `
   <header class="topbar">
     <div class="tb-marca">
       <strong>GastonART</strong>
-      <label>Plantilla
-        <select id="sel-plantilla">
-          ${rutasPlantilla.map((r) => `<option value="${escAttr(r)}">${escAttr(nombreCorto(r))}</option>`).join('')}
-        </select>
-      </label>
+      <input id="tb-nombre" class="tb-nombre" type="text" placeholder="Mi diseño" aria-label="Nombre del proyecto" spellcheck="false">
+      <select id="sel-plantilla" hidden>
+        ${rutasPlantilla.map((r) => `<option value="${escAttr(r)}">${escAttr(nombreCorto(r))}</option>`).join('')}
+      </select>
+    </div>
+    <span class="estado" id="estado"></span>
+    <div class="tb-acciones">
       <button id="btn-tamano" class="mini" title="Cambiar el tamaño de la mesa de trabajo">📐 Tamaño</button>
       <div class="modo-switch" role="group" title="Modo de edición">
         <button data-modo="completa" class="activo" title="Edición completa: todo disponible">✎ Completa</button>
         <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">🗂 Plantilla</button>
       </div>
-    </div>
-    <span class="estado" id="estado"></span>
-    <div class="tb-acciones">
+      <span class="tb-div"></span>
       <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
       <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
+      <button id="btn-copiar" class="mini" title="Copiar (Ctrl+C)" disabled>⧉</button>
+      <button id="btn-pegar" class="mini" title="Pegar (Ctrl+V)" disabled>📋</button>
       <span class="tb-div"></span>
-      <button id="btn-copiar" class="mini" title="Copiar elemento seleccionado (Ctrl+C)" disabled>⧉ Copiar</button>
-      <button id="btn-pegar" class="mini" title="Pegar (Ctrl+V)" disabled>📋 Pegar</button>
-      <span class="tb-div"></span>
-      <button id="btn-import-font" class="mini" title="Importar tipografía (.ttf / .otf)">+ Aa</button>
-      <button id="btn-guardar" class="mini">💾 Guardar</button>
-      <button id="btn-cargar" class="mini">📂 Cargar</button>
-      <button id="btn-guardar-plantilla" class="mini" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Plantilla</button>
-      <button id="btn-nuevo" class="mini">Nuevo</button>
-      <button id="btn-export">⬇ Exportar PNG</button>
+      <span class="tb-menu-wrap">
+        <button id="btn-menu" class="mini" title="Archivo">☰ Archivo</button>
+        <div id="menu-archivo" class="menu-archivo" hidden>
+          <button id="btn-nuevo" class="tb-menu-item">＋ Nuevo diseño</button>
+          <button id="btn-guardar" class="tb-menu-item">💾 Guardar proyecto</button>
+          <button id="btn-cargar" class="tb-menu-item">📂 Abrir proyecto</button>
+          <button id="btn-guardar-plantilla" class="tb-menu-item" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Guardar como plantilla</button>
+          <button id="btn-import-font" class="tb-menu-item" title="Importar tipografía (.ttf / .otf)">＋ Importar tipografía</button>
+        </div>
+      </span>
+      <button id="btn-export" class="tb-export">⬇ Descargar</button>
     </div>
   </header>
   <input type="file" id="in-proyecto" accept=".json,application/json" hidden>
@@ -5847,7 +5851,7 @@ async function exportarPNG(): Promise<void> {
     const url = URL.createObjectURL(blob)
     peImg.src = url
     peDescargar.href = url
-    peDescargar.setAttribute('download', `${nombreCorto(plantillaActual)}${transp ? '-transparente' : ''}.png`)
+    peDescargar.setAttribute('download', `${nombreArchivo()}${transp ? '-transparente' : ''}.png`)
     panelExport.hidden = false
     estado.textContent = transp ? 'PNG exportado (fondo transparente).' : 'PNG exportado.'
   } catch (err) {
@@ -5876,7 +5880,7 @@ function descargarSVG(): void {
   if (!svgEl) return
   cerrarEditor()
   const s = svgParaExportar(peTransparente.checked)
-  descargar(new Blob([s], { type: 'image/svg+xml;charset=utf-8' }), `${nombreCorto(plantillaActual)}.svg`)
+  descargar(new Blob([s], { type: 'image/svg+xml;charset=utf-8' }), `${nombreArchivo()}.svg`)
   estado.textContent = 'SVG descargado.'
 }
 // Registra en la instancia jsPDF las fuentes (TTF/OTF) que usa el texto del SVG,
@@ -5924,7 +5928,7 @@ async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
   if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
   const vb = svgEl.viewBox.baseVal
   const w = vb.width || 1080, h = vb.height || 1350
-  const nombre = `${nombreCorto(plantillaActual)}.pdf`
+  const nombre = `${nombreArchivo()}.pdf`
   try {
     const { jsPDF } = await import('jspdf')
     const nuevoPdf = () => new jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'pt', format: [w, h] })
@@ -6019,7 +6023,7 @@ async function exportarTodas(): Promise<void> {
   if (!archivos.length) { estado.textContent = '❌ No se pudo exportar'; return }
   const a = document.createElement('a')
   a.href = URL.createObjectURL(crearZip(archivos))
-  a.download = `${nombreCorto(plantillaActual)}-mesas.zip`
+  a.download = `${nombreArchivo()}-mesas.zip`
   a.click()
   estado.textContent = `${archivos.length} mesa(s) exportada(s) en ZIP.`
 }
@@ -6364,7 +6368,7 @@ document.querySelector('#btn-guardar')!.addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
-  a.download = `${nombreCorto(plantillaActual)}.gastonart.json`
+  a.download = `${nombreArchivo()}.gastonart.json`
   a.click()
   estado.textContent = `Proyecto guardado (${mesas.length} mesa${mesas.length > 1 ? 's' : ''}).`
 })
@@ -6388,6 +6392,27 @@ document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () =
 document.querySelector('#btn-nuevo')!.addEventListener('click', () => mostrarInicio())
 document.querySelector('#btn-deshacer')!.addEventListener('click', () => void deshacer())
 document.querySelector('#btn-rehacer')!.addEventListener('click', () => void rehacer())
+
+// --- Menú "Archivo" (agrupa Nuevo/Guardar/Cargar/Plantilla/Importar fuente) ---
+const menuArchivo = document.querySelector<HTMLDivElement>('#menu-archivo')!
+const btnMenu = document.querySelector<HTMLButtonElement>('#btn-menu')!
+btnMenu.addEventListener('click', (e) => { e.stopPropagation(); menuArchivo.hidden = !menuArchivo.hidden })
+menuArchivo.addEventListener('click', () => { menuArchivo.hidden = true }) // cerrar tras elegir
+document.addEventListener('pointerdown', (e) => {
+  if (menuArchivo.hidden) return
+  const t = e.target as Element | null
+  if (t && !t.closest('.tb-menu-wrap')) menuArchivo.hidden = true
+}, true)
+
+// --- Nombre del proyecto (editable en la barra; se usa para los archivos) ---
+const inNombre = document.querySelector<HTMLInputElement>('#tb-nombre')!
+inNombre.value = (() => { try { return localStorage.getItem('gastonart-nombre') || '' } catch { return '' } })()
+inNombre.addEventListener('input', () => { try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* quota */ } })
+// Nombre de archivo (proyecto > plantilla), saneado.
+function nombreArchivo(): string {
+  const n = (inNombre.value || '').trim() || nombreCorto(plantillaActual) || 'diseño'
+  return n.replace(/[^\w\dáéíóúñÁÉÍÓÚÑ .-]+/g, '_').trim() || 'diseño'
+}
 document.querySelector('#btn-copiar')!.addEventListener('click', () => copiarSeleccion())
 document.querySelector('#btn-pegar')!.addEventListener('click', () => pegarPortapapeles())
 document.addEventListener('keydown', (e) => {

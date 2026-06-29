@@ -185,8 +185,17 @@ body {
   border-bottom: 1px solid var(--border);
   flex: none;
 }
-.tb-marca { display: flex; align-items: center; gap: 16px; }
+.tb-marca { display: flex; align-items: center; gap: 14px; }
 .tb-marca strong { font-size: 18px; letter-spacing: 0.02em; }
+/* Nombre del proyecto editable */
+.tb-nombre {
+  width: 200px; padding: 7px 10px;
+  background: transparent; border: 1px solid transparent; border-radius: 8px;
+  color: var(--text); font-size: 14px; font-weight: 600;
+}
+.tb-nombre::placeholder { color: var(--muted); font-weight: 400; }
+.tb-nombre:hover { border-color: var(--border); }
+.tb-nombre:focus { outline: none; border-color: var(--accent); background: var(--panel); }
 /* Switch de modo de edición (Completa / Plantilla) */
 .modo-switch {
   display: inline-flex; gap: 2px; padding: 2px;
@@ -229,6 +238,23 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   cursor: pointer;
 }
 #btn-export:hover { filter: brightness(1.08); }
+/* Menú "Archivo" desplegable */
+.tb-menu-wrap { position: relative; display: inline-flex; }
+.menu-archivo[hidden] { display: none; }
+.menu-archivo {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+  min-width: 220px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.tb-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; text-align: left;
+  background: transparent; border: 0; border-radius: 7px;
+  color: var(--text); font-size: 13px; cursor: pointer;
+}
+.tb-menu-item:hover { background: var(--inset); }
 .estado {
   flex: 1;
   text-align: center;
