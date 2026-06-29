@@ -1080,25 +1080,31 @@ function envolver(texto: string, m: Metrica, escala: number): string[] {
 }
 
 // Corta una palabra larga en piezas que entran en la caja; todas menos la última
-// terminan en guion. Usa división silábica del español.
+// terminan en guion. Prefiere cortar por sílabas (español); si una sílaba no
+// entra NI SOLA (p.ej. una tira sin vocales como "ddddd…"), la parte por
+// CARACTERES para que nunca se desborde.
 function partirPalabra(palabra: string, m: Metrica, escala: number): string[] {
-  const sil = silabas(palabra)
-  if (sil.length <= 1) return [palabra] // no se puede cortar (1 sílaba)
+  const guion = medirAncho('-', m, escala)
+  // Tokens a acomodar: sílabas que entran; las que no, divididas en caracteres.
+  const tokens: string[] = []
+  for (const sil of silabas(palabra)) {
+    if (medirAncho(sil, m, escala) + guion <= m.maxWidthUser) tokens.push(sil)
+    else for (const ch of Array.from(sil)) tokens.push(ch)
+  }
   const piezas: string[] = []
   let actual = ''
-  for (let i = 0; i < sil.length; i++) {
-    const ultima = i === sil.length - 1
-    const tentativa = actual + sil[i]
-    const medir = ultima ? tentativa : tentativa + '-'
-    if (actual !== '' && medirAncho(medir, m, escala) > m.maxWidthUser) {
+  for (const tok of tokens) {
+    const cand = actual + tok
+    // Reservamos el ancho del guion: así `actual + '-'` siempre entra.
+    if (actual !== '' && medirAncho(cand, m, escala) + guion > m.maxWidthUser) {
       piezas.push(actual + '-')
-      actual = sil[i]
+      actual = tok
     } else {
-      actual = tentativa
+      actual = cand
     }
   }
-  piezas.push(actual)
-  return piezas
+  if (actual) piezas.push(actual)
+  return piezas.length ? piezas : [palabra]
 }
 
 // División silábica del español (aproximada, suficiente para cortar palabras).
