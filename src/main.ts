@@ -458,6 +458,7 @@ app.innerHTML = `
       </span>
       <button id="btn-add-icono" class="herr" title="Agregar ícono / forma / vector"><span class="herr-ic">★</span><span>Ícono</span></button>
       <button id="btn-pluma" class="herr" title="Pluma (puntos de ancla)"><span class="herr-ic">✒</span><span>Pluma</span></button>
+      <button id="btn-nodos" class="herr" title="Puntero blanco: editar nodos de un trazo/polígono"><span class="herr-ic">⇲</span><span>Nodos</span></button>
     </nav>
     <div id="escenario">
       <div id="lienzo"></div>
@@ -470,6 +471,7 @@ app.innerHTML = `
     <button id="zoom-val" title="Restablecer a 100%">100%</button>
     <button id="zoom-mas" title="Acercar (Ctrl +)">+</button>
     <button id="zoom-fit" title="Ajustar a la vista">⤢</button>
+    <button id="btn-reglas" title="Reglas y guías (arrastrá desde las reglas)">📏</button>
   </div>
   <div id="tira-mesas"></div>
   <input type="file" id="in-foto" accept="image/*" hidden>
@@ -750,6 +752,11 @@ document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   grafSeleccion = []; limpiarGraf() // la pluma pone su propia capa por encima
   if (plumaActiva) desactivarPluma()
   else activarPluma()
+})
+document.querySelector('#btn-nodos')!.addEventListener('click', (e) => {
+  e.stopPropagation()
+  if (modoNodos) desactivarNodos()
+  else activarNodos()
 })
 // Switch de modo de edición (Completa / Plantilla)
 for (const b of document.querySelectorAll<HTMLButtonElement>('.modo-switch button')) {
@@ -1592,6 +1599,7 @@ let plumaPreview: SVGPathElement | null = null
 let plumaManijas: SVGPathElement | null = null // líneas finas ancla↔manija
 let plumaCursor: { x: number; y: number } | null = null
 let plumaCapa: HTMLDivElement | null = null
+let plumaResumePath: SVGPathElement | null = null // trazo abierto que se está continuando
 const COLOR_PLUMA = '#141930'
 const tieneIn = (a: Ancla) => a.hix !== 0 || a.hiy !== 0
 const tieneOut = (a: Ancla) => a.hox !== 0 || a.hoy !== 0
@@ -1704,8 +1712,10 @@ function plumaHover(e: PointerEvent): void {
 function activarPluma(): void {
   if (!svgEl) return
   cerrarEditor()
+  desactivarNodos()
   plumaActiva = true
   plumaAnclas = []
+  plumaResumePath = null
   plumaCursor = null
   document.querySelector('#btn-pluma')!.classList.add('activo-pluma')
   plumaCapa = document.createElement('div')
@@ -1725,6 +1735,7 @@ function desactivarPluma(): void {
   plumaPreview?.remove(); plumaPreview = null
   plumaManijas?.remove(); plumaManijas = null
   plumaCursor = null
+  plumaResumePath = null
   lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
   document.removeEventListener('keydown', plumaKey)
   plumaAnclas = []
@@ -1735,9 +1746,54 @@ function plumaKey(e: KeyboardEvent): void {
   else if (e.key === 'Enter') finalizarPluma(false)
 }
 
+// Si el clic (con la pluma recién activada, sin puntos) cae sobre el EXTREMO de un
+// trazo abierto existente, lo carga para continuarlo (estilo Illustrator). Pasa
+// las anclas a espacio de usuario (vía CTM, baked) y, si tocó el extremo inicial,
+// invierte el orden para seguir agregando por el final. Devuelve true si retomó.
+function resumirTrazo(clientX: number, clientY: number): boolean {
+  if (!svgEl || plumaAnclas.length) return false
+  const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+  const base = svgEl.getBoundingClientRect()
+  for (const path of Array.from(svgEl.querySelectorAll<SVGPathElement>('path[data-agregado="figura"]'))) {
+    const r = parsearD(path.getAttribute('d') || '')
+    if (!r || r.cerrado || r.anclas.length < 2) continue
+    const sctm = path.getScreenCTM(); if (!sctm) continue
+    // local -> pantalla (hit) y local -> usuario (viewBox) para seguir editando.
+    const screenOf = (x: number, y: number) => { const p = svgEl!.createSVGPoint(); p.x = x; p.y = y; const s = p.matrixTransform(sctm); return { sx: s.x, sy: s.y } }
+    const userOf = (x: number, y: number) => { const s = screenOf(x, y); return { x: (s.sx - base.left) / k, y: (s.sy - base.top) / k } }
+    const vecUser = (vx: number, vy: number) => ({ x: (sctm.a * vx + sctm.c * vy) / k, y: (sctm.b * vx + sctm.d * vy) / k })
+    const iN = r.anclas.length - 1
+    const s0 = screenOf(r.anclas[0].x, r.anclas[0].y)
+    const sN = screenOf(r.anclas[iN].x, r.anclas[iN].y)
+    const d0 = Math.hypot(s0.sx - clientX, s0.sy - clientY)
+    const dN = Math.hypot(sN.sx - clientX, sN.sy - clientY)
+    if (Math.min(d0, dN) > 12) continue
+    // Anclas a espacio de usuario (baked el transform del path, incluido scale).
+    let anclas: Ancla[] = r.anclas.map((a) => {
+      const u = userOf(a.x, a.y), hi = vecUser(a.hix, a.hiy), ho = vecUser(a.hox, a.hoy)
+      return { x: u.x, y: u.y, hix: hi.x, hiy: hi.y, hox: ho.x, hoy: ho.y }
+    })
+    // Si tocó el extremo INICIAL, invertir para continuar desde ese lado (las
+    // manijas in/out se intercambian al invertir el sentido del trazo).
+    if (d0 <= dN) {
+      anclas = anclas.reverse().map((a) => ({ x: a.x, y: a.y, hix: a.hox, hiy: a.hoy, hox: a.hix, hoy: a.hiy }))
+    }
+    plumaAnclas = anclas
+    plumaResumePath = path
+    const last = anclas[anclas.length - 1]
+    plumaCursor = { x: last.x, y: last.y }
+    dibujarPluma()
+    dibujarPreviewPluma()
+    return true
+  }
+  return false
+}
+
 function plumaPointerDown(e: PointerEvent): void {
   if (!svgEl || !plumaCapa) return
   e.preventDefault()
+  // Sin puntos aún: si se clickea el extremo de un trazo abierto, retomarlo.
+  if (!plumaAnclas.length && resumirTrazo(e.clientX, e.clientY)) return
   const pt = screenToUser(e.clientX, e.clientY)
   const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
   if (plumaAnclas.length >= 2) {
@@ -1773,15 +1829,25 @@ function finalizarPluma(cerrado: boolean): void {
   const norm = plumaAnclas.map((a) => ({ x: a.x - minX, y: a.y - minY, hix: a.hix, hiy: a.hiy, hox: a.hox, hoy: a.hoy }))
   const p = document.createElementNS(SVGNS, 'path')
   p.setAttribute('d', dPluma(norm, cerrado))
-  p.setAttribute('fill', 'none')
-  p.setAttribute('stroke', COLOR_PLUMA)
-  p.setAttribute('stroke-width', '4')
-  p.setAttribute('stroke-linecap', 'round')
-  p.setAttribute('stroke-linejoin', 'round')
-  p.setAttribute('transform', `translate(${minX} ${minY}) scale(1)`)
-  p.setAttribute('data-agregado', 'figura')
-  p.setAttribute('data-colormode', 'stroke')
-  svgEl.appendChild(p)
+  if (plumaResumePath) {
+    // Continuación de un trazo: heredar su estilo y reemplazarlo en su lugar.
+    for (const a of Array.from(plumaResumePath.attributes)) {
+      if (a.name === 'd' || a.name === 'transform') continue
+      p.setAttribute(a.name, a.value)
+    }
+    p.setAttribute('transform', `translate(${minX} ${minY}) scale(1)`)
+    plumaResumePath.parentNode!.replaceChild(p, plumaResumePath)
+  } else {
+    p.setAttribute('fill', 'none')
+    p.setAttribute('stroke', COLOR_PLUMA)
+    p.setAttribute('stroke-width', '4')
+    p.setAttribute('stroke-linecap', 'round')
+    p.setAttribute('stroke-linejoin', 'round')
+    p.setAttribute('transform', `translate(${minX} ${minY}) scale(1)`)
+    p.setAttribute('data-agregado', 'figura')
+    p.setAttribute('data-colormode', 'stroke')
+    svgEl.appendChild(p)
+  }
   desactivarPluma()
   construirOverlays()
 }
@@ -1875,7 +1941,40 @@ function pantallaALocal(clientX: number, clientY: number): { x: number; y: numbe
   return { x: l.x, y: l.y }
 }
 
-function entrarEditarPuntos(path: SVGPathElement): void {
+// Convierte una forma de segmentos rectos (polygon/polyline/line) en un <path>
+// editable equivalente, preservando estilo/transform/data-* (mismo render). Un
+// <path> se devuelve tal cual. Otras formas (rect/circle/ellipse) → null (no se
+// editan por nodos para no alterarlas: se decidió "solo path y polígonos").
+function formaAEditablePath(el: SVGElement): SVGPathElement | null {
+  const tag = el.tagName.toLowerCase()
+  if (tag === 'path') return el as SVGPathElement
+  let d = ''
+  if (tag === 'polygon' || tag === 'polyline') {
+    const pts = (el.getAttribute('points') || '').trim().split(/[\s,]+/).map(Number).filter((n) => !isNaN(n))
+    if (pts.length < 4) return null
+    d = `M ${pts[0]} ${pts[1]}`
+    for (let i = 2; i + 1 < pts.length; i += 2) d += ` L ${pts[i]} ${pts[i + 1]}`
+    if (tag === 'polygon') d += ' Z'
+  } else if (tag === 'line') {
+    const g = (n: string) => +(el.getAttribute(n) || '0') || 0
+    d = `M ${g('x1')} ${g('y1')} L ${g('x2')} ${g('y2')}`
+  } else {
+    return null
+  }
+  const path = document.createElementNS(SVGNS, 'path')
+  for (const a of Array.from(el.attributes)) {
+    if (['points', 'x1', 'y1', 'x2', 'y2'].includes(a.name)) continue
+    path.setAttribute(a.name, a.value)
+  }
+  path.setAttribute('d', d)
+  el.parentNode!.replaceChild(path, el)
+  const i = grafSeleccion.indexOf(el); if (i >= 0) grafSeleccion[i] = path
+  return path
+}
+
+function entrarEditarPuntos(el: SVGElement): void {
+  const path = formaAEditablePath(el)
+  if (!path) { alert('Esta forma no se edita por nodos (solo trazos y polígonos). Convertila a trazo primero.'); return }
   const r = parsearD(path.getAttribute('d') || '')
   if (!r) { alert('Este trazo no se puede editar punto a punto (tiene varios subtrazos o arcos).'); return }
   cerrarEditorPuntos()
@@ -2061,11 +2160,62 @@ function salirEditarPuntos(): void {
   const path = editPath
   cerrarEditorPuntos()
   registrarHistorial(); autoguardar()
-  if (modoGrafico) { grafSeleccion = [path]; dibujarSelGraf() }
+  if (modoNodos) { grafSeleccion = []; limpiarGraf(); ponerNodosCapa() } // seguir eligiendo nodos
+  else if (modoGrafico) { grafSeleccion = [path]; dibujarSelGraf() }
   else construirOverlays()
 }
 
 function editandoPuntos(): boolean { return editPath != null }
+
+// ============ Puntero blanco (modo nodos): editar puntos de cualquier trazo ============
+// Herramienta global: clic en un trazo/polígono lo abre en el editor de puntos
+// (sin tener que seleccionarlo y apretar "✎ Puntos"). Estilo selección directa.
+let modoNodos = false
+let nodosCapa: HTMLDivElement | null = null
+
+function ponerNodosCapa(): void {
+  if (nodosCapa || !modoNodos || !svgEl) return
+  nodosCapa = document.createElement('div')
+  nodosCapa.className = 'nodos-capa'
+  nodosCapa.addEventListener('pointerdown', nodosPointerDown)
+  lienzo.appendChild(nodosCapa)
+}
+function quitarNodosCapa(): void { nodosCapa?.remove(); nodosCapa = null }
+
+function activarNodos(): void {
+  if (!svgEl) return
+  desactivarPluma()
+  cerrarEditor()
+  grafSeleccion = []; limpiarGraf()
+  modoNodos = true
+  document.querySelector('#btn-nodos')!.classList.add('activo-pluma')
+  ponerNodosCapa()
+}
+function desactivarNodos(): void {
+  if (!modoNodos && !nodosCapa) return
+  modoNodos = false
+  document.querySelector('#btn-nodos')?.classList.remove('activo-pluma')
+  quitarNodosCapa()
+  if (editandoPuntos()) salirEditarPuntos()
+}
+
+function nodosPointerDown(e: PointerEvent): void {
+  if (!nodosCapa || !svgEl) return
+  e.preventDefault()
+  // Buscar el elemento bajo el puntero (la capa tapa el svg → la apagamos un instante).
+  nodosCapa.style.pointerEvents = 'none'
+  const bajo = document.elementFromPoint(e.clientX, e.clientY) as Element | null
+  nodosCapa.style.pointerEvents = ''
+  const u = bajo ? graficoSeleccionable(bajo) : null
+  if (!u) return
+  const tag = u.tagName.toLowerCase()
+  if (!['path', 'polygon', 'polyline', 'line'].includes(tag)) {
+    estado.textContent = 'El puntero blanco edita trazos y polígonos; esta forma no.'
+    return
+  }
+  quitarNodosCapa() // que la capa del editor de puntos tome el control
+  entrarEditarPuntos(u)
+}
 
 function cerrarEditorPuntos(): void {
   editCapa?.remove(); editCapa = null
@@ -3633,6 +3783,13 @@ function calcularSnap(box: Rect, base: DOMRect): { dx: number; dy: number; guias
     vT.push(r.left, r.left + r.width / 2, r.left + r.width)
     hT.push(r.top, r.top + r.height / 2, r.top + r.height)
   }
+  // Guías fijas (en unidades de la placa → px del lienzo).
+  if (svgEl) {
+    const kg = W / (svgEl.viewBox.baseVal.width || 1080)
+    const kh = H / (svgEl.viewBox.baseVal.height || 1350)
+    for (const x of guiasFijas.v) vT.push(x * kg)
+    for (const y of guiasFijas.h) hT.push(y * kh)
+  }
   const ax = [box.left, box.left + box.width / 2, box.left + box.width]
   const ay = [box.top, box.top + box.height / 2, box.top + box.height]
   let bx = Infinity, bxt = 0
@@ -3662,10 +3819,138 @@ function limpiarGuias(): void {
   lienzo.querySelectorAll('.guia').forEach((n) => n.remove())
 }
 
+// ============ Reglas y guías fijas ============
+// Reglas (arriba/izquierda) en unidades de la placa + guías arrastrables que el
+// usuario coloca y a las que los elementos imantan. Las guías se guardan por mesa
+// (en unidades del viewBox). Las reglas son una preferencia global de la vista.
+let mostrarReglas = false
+let guiasFijas: { v: number[]; h: number[] } = { v: [], h: [] }
+const ANCHO_REGLA = 18
+
+// Paso "lindo" (1/2/5 ×10ⁿ) ≥ al mínimo dado, para los rótulos de la regla.
+function pasoNice(min: number): number {
+  if (min <= 0) return 1
+  const base = Math.pow(10, Math.floor(Math.log10(min)))
+  for (const m of [1, 2, 5, 10]) if (m * base >= min) return m * base
+  return 10 * base
+}
+
+function dibujarReglas(): void {
+  let top = lienzo.querySelector<HTMLCanvasElement>('.regla-top')
+  let left = lienzo.querySelector<HTMLCanvasElement>('.regla-left')
+  let corner = lienzo.querySelector<HTMLDivElement>('.regla-corner')
+  if (!mostrarReglas || !svgEl) { top?.remove(); left?.remove(); corner?.remove(); return }
+  const vb = svgEl.viewBox.baseVal
+  const vbW = vb.width || 1080, vbH = vb.height || 1350
+  const W = lienzo.clientWidth, H = svgEl.clientHeight
+  const k = W / vbW
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const crear = (cls: string, horizontal: boolean): HTMLCanvasElement => {
+    const c = document.createElement('canvas'); c.className = cls
+    c.addEventListener('pointerdown', (e) => nuevaGuiaDesdeRegla(e, horizontal))
+    lienzo.appendChild(c); return c
+  }
+  if (!top) top = crear('regla-top', true) // regla superior → guías horizontales (tirar hacia abajo)
+  if (!left) left = crear('regla-left', false) // regla izquierda → guías verticales (tirar a la derecha)
+  if (!corner) { corner = document.createElement('div'); corner.className = 'regla-corner'; lienzo.appendChild(corner) }
+  Object.assign(top.style, { left: '0', top: -ANCHO_REGLA + 'px', width: W + 'px', height: ANCHO_REGLA + 'px' })
+  Object.assign(left.style, { left: -ANCHO_REGLA + 'px', top: '0', width: ANCHO_REGLA + 'px', height: H + 'px' })
+  Object.assign(corner.style, { left: -ANCHO_REGLA + 'px', top: -ANCHO_REGLA + 'px', width: ANCHO_REGLA + 'px', height: ANCHO_REGLA + 'px' })
+  const paso = pasoNice(60 / k) // ≥60px entre rótulos
+  pintarRegla(top, true, W, vbW, k, paso, dpr)
+  pintarRegla(left, false, H, vbH, k, paso, dpr)
+}
+
+function pintarRegla(cv: HTMLCanvasElement, horizontal: boolean, lenPx: number, lenU: number, k: number, paso: number, dpr: number): void {
+  const g = ANCHO_REGLA
+  cv.width = Math.max(1, Math.round((horizontal ? lenPx : g) * dpr))
+  cv.height = Math.max(1, Math.round((horizontal ? g : lenPx) * dpr))
+  const ctx = cv.getContext('2d'); if (!ctx) return
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  const w = horizontal ? lenPx : g, h = horizontal ? g : lenPx
+  ctx.fillStyle = '#3a3f47'; ctx.fillRect(0, 0, w, h)
+  ctx.strokeStyle = '#878d96'; ctx.fillStyle = '#c2c8d0'; ctx.lineWidth = 1; ctx.font = '9px system-ui, sans-serif'
+  const menor = paso / 5
+  for (let u = 0; u <= lenU + 0.001; u += menor) {
+    const px = Math.round(u * k) + 0.5
+    const major = Math.abs(((u / paso) % 1)) < 1e-6 || Math.abs(((u / paso) % 1) - 1) < 1e-6
+    const largo = major ? g * 0.8 : g * 0.4
+    ctx.beginPath()
+    if (horizontal) { ctx.moveTo(px, g); ctx.lineTo(px, g - largo) } else { ctx.moveTo(g, px); ctx.lineTo(g - largo, px) }
+    ctx.stroke()
+    if (major && u > 0.001) {
+      const lbl = String(Math.round(u))
+      if (horizontal) { ctx.textBaseline = 'top'; ctx.fillText(lbl, u * k + 2, 1) }
+      else { ctx.save(); ctx.translate(11, u * k - 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'top'; ctx.fillText(lbl, 0, 0); ctx.restore() }
+    }
+  }
+}
+
+function dibujarGuiasFijas(): void {
+  lienzo.querySelectorAll('.guia-fija').forEach((n) => n.remove())
+  if (!svgEl) return
+  const vb = svgEl.viewBox.baseVal
+  const W = lienzo.clientWidth, H = svgEl.clientHeight
+  const kg = W / (vb.width || 1080), kh = H / (vb.height || 1350)
+  const crear = (horizontal: boolean, idx: number, posU: number) => {
+    const d = document.createElement('div')
+    d.className = 'guia-fija ' + (horizontal ? 'guia-fija-h' : 'guia-fija-v')
+    if (horizontal) Object.assign(d.style, { top: posU * kh + 'px', left: '0', width: W + 'px' })
+    else Object.assign(d.style, { left: posU * kg + 'px', top: '0', height: H + 'px' })
+    d.addEventListener('pointerdown', (e) => arrastrarGuiaFija(e, horizontal, idx))
+    d.addEventListener('dblclick', (e) => { e.stopPropagation(); (horizontal ? guiasFijas.h : guiasFijas.v).splice(idx, 1); dibujarGuiasFijas(); registrarHistorial(); autoguardar() })
+    lienzo.appendChild(d)
+  }
+  guiasFijas.v.forEach((x, i) => crear(false, i, x))
+  guiasFijas.h.forEach((y, i) => crear(true, i, y))
+}
+
+// Coord. de usuario (unidad de la placa) bajo el puntero, en el eje de la guía.
+function unidadGuia(ev: PointerEvent, horizontal: boolean): number {
+  const base = lienzo.getBoundingClientRect()
+  const vb = svgEl!.viewBox.baseVal
+  if (horizontal) return (ev.clientY - base.top) / (svgEl!.clientHeight / (vb.height || 1350))
+  return (ev.clientX - base.left) / (lienzo.clientWidth / (vb.width || 1080))
+}
+
+// Arrastra una guía desde la regla (crear) o una ya puesta (mover/quitar).
+function arrastrarGuiaComun(arr: number[], idx: number, horizontal: boolean): void {
+  const lim = horizontal ? (svgEl!.viewBox.baseVal.height || 1350) : (svgEl!.viewBox.baseVal.width || 1080)
+  const onMove = (ev: PointerEvent) => { arr[idx] = unidadGuia(ev, horizontal); dibujarGuiasFijas() }
+  const onUp = (ev: PointerEvent) => {
+    document.removeEventListener('pointermove', onMove)
+    const u = unidadGuia(ev, horizontal)
+    if (u < 0 || u > lim) arr.splice(idx, 1) // soltada fuera de la placa → quitar
+    else arr[idx] = Math.round(u)
+    dibujarGuiasFijas(); registrarHistorial(); autoguardar()
+  }
+  document.addEventListener('pointermove', onMove)
+  document.addEventListener('pointerup', onUp, { once: true })
+}
+function arrastrarGuiaFija(e: PointerEvent, horizontal: boolean, idx: number): void {
+  e.preventDefault(); e.stopPropagation()
+  if (!svgEl) return
+  arrastrarGuiaComun(horizontal ? guiasFijas.h : guiasFijas.v, idx, horizontal)
+}
+function nuevaGuiaDesdeRegla(e: PointerEvent, horizontal: boolean): void {
+  e.preventDefault()
+  if (!svgEl) return
+  const arr = horizontal ? guiasFijas.h : guiasFijas.v
+  arr.push(Math.max(0, unidadGuia(e, horizontal)))
+  dibujarGuiasFijas()
+  arrastrarGuiaComun(arr, arr.length - 1, horizontal)
+}
+function toggleReglas(): void {
+  mostrarReglas = !mostrarReglas
+  document.querySelector('#btn-reglas')?.classList.toggle('activo', mostrarReglas)
+  dibujarReglas(); dibujarGuiasFijas()
+}
+
 function construirOverlays(): void {
   if (!svgEl) return
   lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
   zoomSlider = null
+  dibujarReglas(); dibujarGuiasFijas() // se redibujan al cambiar zoom/modo/contenido
   const base = lienzo.getBoundingClientRect()
   // 'plantilla' = restringido (texto + foto). 'completa' = todo: el texto, las
   // fotos (solo la mini-barra; los vectores se seleccionan por la capa del svg) y
@@ -5629,6 +5914,7 @@ interface Proyecto {
   contador: number
   svg: string
   modoEdicion?: ModoEdicion // 'completa' | 'plantilla' (opcional: saves viejos → completa)
+  guias?: { v: number[]; h: number[] } // guías fijas por mesa (unidades del viewBox)
 }
 
 function snapshotProyecto(): Proyecto {
@@ -5640,12 +5926,14 @@ function snapshotProyecto(): Proyecto {
     contador: contadorAgregados,
     svg: svgEl ? new XMLSerializer().serializeToString(svgEl) : '',
     modoEdicion,
+    guias: { v: [...guiasFijas.v], h: [...guiasFijas.h] },
   }
 }
 
 // Aplica un snapshot al DOM y estado (sin tocar el historial).
 async function aplicarSnapshot(p: Proyecto): Promise<void> {
   cerrarEditor()
+  desactivarPluma(); desactivarNodos(); cerrarEditorPuntos()
   plantillaActual = p.plantilla
   if ([...selPlantilla.options].some((o) => o.value === p.plantilla)) selPlantilla.value = p.plantilla
   valores = p.valores ?? {}
@@ -5663,6 +5951,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   }
   contadorAgregados = p.contador ?? 0
   modoEdicion = p.modoEdicion ?? 'completa'
+  guiasFijas = p.guias ? { v: [...(p.guias.v ?? [])], h: [...(p.guias.h ?? [])] } : { v: [], h: [] }
 
   svgActual = p.svg
   lienzo.innerHTML = p.svg
@@ -6623,6 +6912,7 @@ document.querySelector('#zoom-menos')!.addEventListener('click', () => setZoom(z
 document.querySelector('#zoom-mas')!.addEventListener('click', () => setZoom(zoomLienzo + 0.1))
 document.querySelector('#zoom-val')!.addEventListener('click', () => setZoom(1))
 document.querySelector('#zoom-fit')!.addEventListener('click', () => setZoom(1))
+document.querySelector('#btn-reglas')!.addEventListener('click', toggleReglas)
 escenario.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return // Ctrl + rueda = zoom
   e.preventDefault()

@@ -837,6 +837,17 @@ body.modo-plantilla .toolbar-izq { display: none; }
 .guia-v { width: 1px; }
 .guia-h { height: 1px; }
 
+/* --- Reglas y guías fijas (arrastrables) --- */
+.regla-top, .regla-left { position: absolute; z-index: 7; display: block; }
+.regla-top { cursor: ns-resize; }
+.regla-left { cursor: ew-resize; }
+.regla-corner { position: absolute; z-index: 7; background: #2b2f36; }
+.guia-fija { position: absolute; z-index: 6; background: #22d3ee; pointer-events: auto; }
+.guia-fija-v { width: 1px; cursor: ew-resize; }
+.guia-fija-h { height: 1px; cursor: ns-resize; }
+.guia-fija-v::before { content: ''; position: absolute; left: -3px; top: 0; width: 7px; height: 100%; }
+.guia-fija-h::before { content: ''; position: absolute; top: -3px; left: 0; height: 7px; width: 100%; }
+
 /* Menú de figuras */
 .add-wrap { position: relative; display: inline-flex; }
 .menu-pop[hidden] { display: none; }
@@ -916,6 +927,7 @@ body.modo-plantilla .toolbar-izq { display: none; }
 
 /* Editor de puntos de un trazo terminado */
 .edit-capa { position: absolute; inset: 0; z-index: 8; cursor: default; }
+.nodos-capa { position: absolute; inset: 0; z-index: 8; cursor: cell; }
 .edit-svg {
   position: absolute; left: 0; top: 0;
   z-index: 8; pointer-events: none; overflow: visible;
