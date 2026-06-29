@@ -1195,8 +1195,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   background: var(--inset); color: var(--text); font-size: 12px; cursor: pointer;
 }
 .bt-grid button:hover { border-color: var(--accent); }
-/* Menú "Más": lista vertical de acciones secundarias */
-.mas-cont { display: flex; flex-direction: column; gap: 4px; }
+/* Menú "Más": lista vertical de acciones secundarias (oculto hasta abrirlo) */
+.mas-cont[hidden] { display: none; }
+.mas-cont:not([hidden]) { display: flex; flex-direction: column; gap: 4px; }
 .mas-btn {
   text-align: left; padding: 6px 10px;
   border: 1px solid var(--border); border-radius: 5px;

@@ -90,6 +90,7 @@ let valores: Record<string, string> = {}
 let estilos: Record<string, EstiloCampo> = {}
 let bloqueado: Record<string, boolean> = {} // textos de plantilla nacen bloqueados (no se mueven)
 let cajaAlto: Record<string, number> = {} // alto de la caja (user units). Definido ⇒ caja activa (recorta)
+let cajaManual: Record<string, boolean> = {} // el usuario redimensionó la caja a mano → no autoajustar al texto
 // Cada <image> de la plantilla es un hueco de foto editable, identificado por su
 // id (data-foto="0","1",…). El estado de foto/encuadre se guarda por id.
 let fotos: Record<string, Foto> = {}
@@ -415,9 +416,9 @@ app.innerHTML = `
       <button class="rail-item" data-cat="plantillas" title="Plantillas"><span class="rail-ic">▦</span><span>Plantillas</span></button>
       <button class="rail-item" data-cat="texto" title="Texto"><span class="rail-ic">T</span><span>Texto</span></button>
       <button class="rail-item" data-cat="elementos" title="Formas, íconos y vectores"><span class="rail-ic">◇</span><span>Elementos</span></button>
-      <button class="rail-item" data-cat="subir" title="Subir imágenes"><span class="rail-ic">⬆</span><span>Subir</span></button>
+      <button class="rail-item" data-cat="subir" title="Imágenes (subir o del banco)"><span class="rail-ic">▣</span><span>Imágenes</span></button>
       <button class="rail-item" data-cat="dibujar" title="Pluma y nodos"><span class="rail-ic">✎</span><span>Dibujar</span></button>
-      <button class="rail-item" data-cat="marca" title="Tipografías"><span class="rail-ic">⌥</span><span>Marca</span></button>
+      <button class="rail-item" data-cat="marca" title="Tipografías"><span class="rail-ic">Aa</span><span>Fuentes</span></button>
     </nav>
     <aside id="panel-lateral" aria-label="Contenido" hidden>
       <div class="pl-head">
@@ -836,7 +837,7 @@ pgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && pgInput.va
 const panelLateral = document.querySelector<HTMLElement>('#panel-lateral')!
 const TITULOS_CAT: Record<string, string> = {
   plantillas: 'Plantillas', texto: 'Texto', elementos: 'Elementos',
-  subir: 'Subir', dibujar: 'Dibujar', marca: 'Marca',
+  subir: 'Imágenes', dibujar: 'Dibujar', marca: 'Fuentes',
 }
 let categoriaActiva: string | null = null
 function abrirCategoria(cat: string): void {
@@ -1005,6 +1006,7 @@ function calcularMetricas(): void {
   rectsIniciales = {}
   bloqueado = {}
   cajaAlto = {}
+  cajaManual = {}
   const base = lienzo.getBoundingClientRect()
 
   for (const c of camposActuales) {
@@ -1197,8 +1199,9 @@ function pintarCampo(nombre: string): void {
   let lineas = res.lineas
   const escala = res.escala
 
-  // Caja con alto definido → recortar las líneas que no entran (no se renderizan).
-  if (cajaAlto[nombre] !== undefined) {
+  // Caja de alto FIJADO A MANO → recortar las líneas que no entran. Las cajas
+  // automáticas (no manuales) dejan fluir el texto y se ajustan a él.
+  if (cajaManual[nombre] && cajaAlto[nombre] !== undefined) {
     const maxLineas = Math.max(1, Math.floor(cajaAlto[nombre] / (lhBase * escala)))
     if (lineas.length > maxLineas) lineas = lineas.slice(0, maxLineas)
   }
@@ -3435,8 +3438,13 @@ function posicionarFlotante(el: HTMLElement, target: Rect): void {
   const bw = el.offsetWidth, bh = el.offsetHeight
   const W = lienzo.clientWidth, H = lienzo.clientHeight
   let left = target.left + target.width / 2 - bw / 2
+  // Preferimos ARRIBA del elemento; si no entra, DEBAJO (no tapar el contenido);
+  // si tampoco, pegada al borde superior.
   let top = target.top - bh - 10
-  if (top < 4) top = Math.min(target.top + 6, Math.max(4, H - bh - 4))
+  if (top < 4) {
+    const abajo = target.top + target.height + 10
+    top = abajo + bh <= H - 4 ? abajo : Math.max(4, Math.min(target.top + 6, H - bh - 4))
+  }
   left = Math.max(4, Math.min(left, W - bw - 4))
   el.style.left = Math.round(left) + 'px'
   el.style.top = Math.round(top) + 'px'
@@ -4091,8 +4099,10 @@ function construirOverlays(): void {
     let r = rectUnion(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`), base)
     if (!r || r.height < 10) r = rectsIniciales[c.nombre] ?? r
     if (!r) continue
-    // Si está desbloqueado, materializamos la caja (con alto) y usamos su rect.
-    if (libre && cajaAlto[c.nombre] === undefined) {
+    // Caja del texto desbloqueado: salvo que el usuario la haya redimensionado a
+    // mano, la AJUSTAMOS al texto en cada rebuild (si no, al cambiar tamaño/preset
+    // el recuadro quedaba con el alto viejo y no coincidía con la tipografía).
+    if (libre && !cajaManual[c.nombre]) {
       const bb = bboxCampoUser(c.nombre)
       if (bb) cajaAlto[c.nombre] = bb.h + 6
     }
@@ -4262,7 +4272,7 @@ function crearTiradorCaja(r: Rect, nombre: string, eje: 'x' | 'y' | 'xy'): HTMLD
       sx = ev.clientX; sy = ev.clientY
       const m = metricas[nombre]
       if (eje !== 'y') m.maxWidthUser = Math.max(40, m.maxWidthUser + dxs / k)
-      if (eje !== 'x') cajaAlto[nombre] = Math.max(20, (cajaAlto[nombre] ?? 0) + dys / k)
+      if (eje !== 'x') { cajaAlto[nombre] = Math.max(20, (cajaAlto[nombre] ?? 0) + dys / k); cajaManual[nombre] = true }
       // Re-acomodar/recortar si hay texto real (el ancho re-wrappea, el alto re-recorta).
       if ((valores[nombre] ?? '').trim()) pintarCampo(nombre)
       if (eje !== 'y') h.style.left = parseFloat(h.style.left) + dxs + 'px'
@@ -6041,6 +6051,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   estilos = p.estilos ?? {}
   bloqueado = p.bloqueado ?? {}
   cajaAlto = p.cajaAlto ?? {}
+  cajaManual = {}
   metricas = p.metricas ?? {}
   // Multi-foto (v2). Migrar saves viejos (v1: una sola foto → hueco "0").
   if (p.fotos || p.encuadres) {
