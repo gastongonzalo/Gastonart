@@ -1306,7 +1306,7 @@ function insertarImagen(f: Foto): void {
   img.setAttribute('href', f.dataUrl)
   img.setAttributeNS(XLINK, 'xlink:href', f.dataUrl)
   svgEl.appendChild(img)
-  construirOverlays()
+  seleccionarAgregado(img)
 }
 
 // Inserta una figura (movible, redimensionable por escala, color, eliminable).
@@ -1365,6 +1365,15 @@ function crearFiguraEl(tipo: string, S: number): { el: SVGElement; modo: 'fill' 
   return { el, modo }
 }
 
+// Tras insertar un elemento agregado: reconstruye overlays, lo deja SELECCIONADO
+// (caja + panel de propiedades) y registra historial/autoguardado. Antes el
+// recién agregado no quedaba seleccionado y tampoco se anotaba en el historial.
+function seleccionarAgregado(el: SVGElement): void {
+  construirOverlays()
+  if (modoGrafico) { grafSeleccion = [graficoSeleccionable(el) ?? el]; dibujarSelGraf() }
+  registrarHistorial(); autoguardar()
+}
+
 function insertarFigura(tipo: string): void {
   if (!svgEl) return
   contadorAgregados++
@@ -1379,7 +1388,7 @@ function insertarFigura(tipo: string): void {
   el.setAttribute('data-agregado', 'figura')
   el.setAttribute('data-colormode', modo)
   svgEl.appendChild(el)
-  construirOverlays()
+  seleccionarAgregado(el)
 }
 
 // Inserta un ícono (Lucide) como <g> de trazos, escalable y coloreable.
@@ -1420,7 +1429,7 @@ function insertarIcono(raw: string): void {
   const x = Math.round(vw / 2 - (iw * s) / 2), y = Math.round(vh / 2 - (ih * s) / 2)
   g.setAttribute('transform', `translate(${x} ${y}) scale(${s})`)
   svgEl.appendChild(g)
-  construirOverlays()
+  seleccionarAgregado(g)
 }
 
 // ============ Máscaras de recorte para imágenes agregadas ============

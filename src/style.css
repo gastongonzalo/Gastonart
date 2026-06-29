@@ -352,7 +352,13 @@ body.modo-plantilla .toolbar-izq { display: none; }
 .pp-btn:hover { border-color: var(--accent); background: #0e141d; }
 .pp-btn .pp-ic { font-size: 17px; width: 20px; text-align: center; }
 .pp-vacio { font-size: 12px; line-height: 1.5; color: var(--muted, #94a3b8); padding: 6px 2px; }
-@media (max-width: 900px) { #panel-props { display: none; } }
+/* En pantallas medianas el panel se angosta pero SIGUE visible (antes desaparecía
+   <900px y no se podía editar nada). Solo se oculta en ancho de teléfono. */
+@media (max-width: 900px) {
+  #panel-props { width: 208px; flex-basis: 208px; padding: 12px 10px 40px; gap: 10px; }
+  #panel-props .pp-btn { padding: 9px 10px; font-size: 13px; }
+}
+@media (max-width: 560px) { #panel-props { display: none; } }
 
 /* Controles de la selección (.graf-tools) re-housed dentro del panel: vertical,
    ancho completo, botones grandes. */
