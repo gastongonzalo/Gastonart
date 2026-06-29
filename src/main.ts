@@ -483,7 +483,6 @@ app.innerHTML = `
       <div id="lienzo"></div>
       <div id="vista-carrusel" hidden></div>
     </div>
-    <aside id="panel-props" aria-label="Propiedades"></aside>
   </div>
   <div id="zoom-ctrl">
     <button id="zoom-menos" title="Alejar (Ctrl −)">−</button>
@@ -2484,75 +2483,21 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-sel, .graf-tools, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-tools, .foto-tools, .graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
   actualizarPanelProps()
 }
 
-// Tipo legible de un elemento seleccionado (para el panel de propiedades).
-function tipoElementoSel(el: SVGElement): { label: string; ic: string } {
-  const ag = el.getAttribute('data-agregado')
-  if (el.getAttribute('data-foto') != null) return { label: 'Foto', ic: '🖼' }
-  if (ag === 'texto' || el.getAttribute('data-campo') != null || el.tagName === 'text') return { label: 'Texto', ic: 'T' }
-  if (ag === 'imagen' || el.tagName === 'image') return { label: 'Imagen', ic: '▣' }
-  if (ag === 'figura') return { label: 'Figura', ic: '▢' }
-  if (ag === 'icono' || el.getAttribute('data-grupo') != null) return { label: 'Ícono / grupo', ic: '★' }
-  return { label: 'Forma', ic: '◆' }
-}
-
 // Panel de propiedades (derecha): contextual según lo seleccionado. Fase 1:
 // estado vacío con acciones de la placa + cabecera del elemento seleccionado.
-let panelPropsEl: HTMLElement | null = null
-// Contenedor del contenido DINÁMICO del panel (se vacía/rellena). La barra de
-// texto (#barra-texto) vive como hermana (no se destruye al rebuildear).
-function panelDin(): HTMLElement | null {
-  const outer = (panelPropsEl ??= document.querySelector<HTMLElement>('#panel-props'))
-  if (!outer) return null
-  let din = outer.querySelector<HTMLElement>('#pp-dinamico')
-  if (!din) {
-    din = document.createElement('div'); din.id = 'pp-dinamico'
-    outer.appendChild(din)
-    outer.appendChild(barraTexto) // la barra de fuente/tamaño/color va al panel
-  }
-  return din
-}
+// Sin panel de propiedades: con selección los controles flotan (dibujarSelGraf);
+// sin selección se muestran las barras flotantes de cada hueco de foto (la foto a
+// sangre suele estar tapada por overlays y no se puede clickear). Las acciones de
+// placa (Tamaño / Guardar plantilla / Exportar) viven en la barra superior.
 function actualizarPanelProps(): void {
-  const pp = panelDin()
-  if (!pp) return
-  pp.innerHTML = ''
-  const h = (cls: string, txt: string) => { const d = document.createElement('div'); d.className = cls; d.textContent = txt; pp.appendChild(d); return d }
-  const accion = (ic: string, txt: string, onClick: () => void) => {
-    const b = document.createElement('button'); b.className = 'pp-btn'
-    b.innerHTML = `<span class="pp-ic">${ic}</span><span>${txt}</span>`
-    b.addEventListener('click', onClick); pp.appendChild(b); return b
-  }
-  const clickTopbar = (sel: string) => () => document.querySelector<HTMLButtonElement>(sel)?.click()
-
-  if (grafSeleccion.length) {
-    const tipos = [...new Set(grafSeleccion.map((e) => tipoElementoSel(e).label))]
-    const t0 = tipoElementoSel(grafSeleccion[0])
-    h('pp-titulo', grafSeleccion.length > 1 ? `${grafSeleccion.length} elementos` : t0.label)
-    if (grafSeleccion.length > 1) h('pp-sub', tipos.join(', '))
-    // Los controles (.graf-tools) los anexa dibujarSelGraf() debajo de esta cabecera.
-    return
-  }
-  // Nada seleccionado → fotos de la plantilla (sus controles, porque la foto a
-  // sangre suele estar tapada por overlays y no se puede clickear) + acciones de placa.
-  const huecos = svgEl
-    ? idsFoto().filter((id) => { const im = svgEl!.querySelector(`[data-foto="${id}"]`); return im && !im.closest('[data-recorte]') })
-    : []
-  huecos.forEach((id, i) => {
-    h('pp-grupo-tit', huecos.length > 1 ? `Foto ${i + 1}` : 'Foto')
-    construirFotoTools(id)
-  })
-  h('pp-titulo', 'Placa')
-  h('pp-sub', `${Math.round(svgEl?.viewBox.baseVal.width || 0)} × ${Math.round(svgEl?.viewBox.baseVal.height || 0)} px`)
-  const g = document.createElement('div'); g.className = 'pp-grupo'; pp.appendChild(g)
-  const grupoAccion = (ic: string, txt: string, onClick: () => void) => { accion(ic, txt, onClick); g.appendChild(pp.lastElementChild!) }
-  grupoAccion('📐', 'Cambiar tamaño', clickTopbar('#btn-tamano'))
-  grupoAccion('🗂', 'Guardar como plantilla', clickTopbar('#btn-guardar-plantilla'))
-  grupoAccion('⬇', 'Exportar', clickTopbar('#btn-export'))
-  if (!huecos.length) h('pp-vacio', 'Seleccioná un elemento para editar sus propiedades, o agregá uno desde la barra izquierda.')
+  if (!svgEl || grafSeleccion.length) return
+  const huecos = idsFoto().filter((id) => { const im = svgEl!.querySelector(`[data-foto="${id}"]`); return im && !im.closest('[data-recorte]') })
+  for (const id of huecos) construirFotoTools(id)
 }
 
 // Nodo realmente manipulable: si el elemento ya está envuelto para mover, su wrapper.
@@ -3481,6 +3426,22 @@ function construirOrdenarCont(): HTMLElement {
 }
 
 // Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
+// ============ Barra contextual flotante (estilo Express) ============
+// Reemplaza al panel de propiedades: los controles del elemento seleccionado
+// (o del texto en edición) flotan en una barra ENCIMA del elemento.
+// Centra `el` arriba de `target` (px del lienzo); si no entra arriba va abajo /
+// pegado al borde superior, y se clampa al ancho del lienzo.
+function posicionarFlotante(el: HTMLElement, target: Rect): void {
+  const bw = el.offsetWidth, bh = el.offsetHeight
+  const W = lienzo.clientWidth, H = lienzo.clientHeight
+  let left = target.left + target.width / 2 - bw / 2
+  let top = target.top - bh - 10
+  if (top < 4) top = Math.min(target.top + 6, Math.max(4, H - bh - 4))
+  left = Math.max(4, Math.min(left, W - bw - 4))
+  el.style.left = Math.round(left) + 'px'
+  el.style.top = Math.round(top) + 'px'
+}
+
 function dibujarSelGraf(): void {
   limpiarGraf()
   if (!grafSeleccion.length || !svgEl) return
@@ -3623,11 +3584,11 @@ function dibujarSelGraf(): void {
   mas.addEventListener('click', (e) => { e.stopPropagation(); masCont.hidden = !masCont.hidden })
   tools.appendChild(mas); tools.appendChild(masCont)
 
-  const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '🗑 Eliminar'; del.title = 'Eliminar'
+  const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '🗑'; del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
   tools.appendChild(del)
-  // Los controles van al PANEL de propiedades (derecha), no flotando sobre el lienzo.
-  panelDin()?.appendChild(tools)
+  // Los controles FLOTAN en una barra encima de la selección (estilo Express).
+  lienzo.appendChild(tools); posicionarFlotante(tools, uni)
 
   if (!multi) {
     // 8 tiradores: 4 esquinas (proporcional) + 4 lados (un eje).
@@ -4203,6 +4164,9 @@ function construirOverlays(): void {
     for (const c of ctrls) lienzo.appendChild(c)
     revelarAlHover(hit, ctrls)
   }
+  // Barras flotantes de las fotos de la plantilla (se borraron arriba; rebuild al
+  // final para que sobrevivan al clear y queden bien posicionadas tras el zoom).
+  if (!grafSeleccion.length) actualizarPanelProps()
   registrarHistorial()
   autoguardar()
 }
@@ -4434,11 +4398,11 @@ function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
 
 // Mini-barra de la foto: cambiar y zoom. Se posiciona sobre cada hueco.
 function construirFotoTools(id: string): void {
-  const pp = panelDin()
-  if (!pp) return
+  if (!svgEl) return
   const enc = encuadreDe(id)
   const tools = document.createElement('div')
-  tools.className = 'foto-tools' // se anexa al panel de propiedades (no flota)
+  tools.className = 'foto-tools' // flota encima del hueco de foto
+  tools.addEventListener('pointerdown', (e) => e.stopPropagation())
   const imgFoto = svgEl?.querySelector(`[data-foto="${id}"]`)
   const op0 = imgFoto?.getAttribute('opacity') ?? '1'
   tools.innerHTML =
@@ -4476,7 +4440,12 @@ function construirFotoTools(id: string): void {
     qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, reaplicar, qf))
     tools.appendChild(qf)
   }
-  pp.appendChild(tools)
+  lienzo.appendChild(tools)
+  // Posicionar la barra encima del marco visible del hueco.
+  const base = lienzo.getBoundingClientRect()
+  let rect = imgFoto ? rectFotoVisible(imgFoto, base) : null
+  if (!rect && imgFoto) { const rb = imgFoto.getBoundingClientRect(); rect = { left: rb.left - base.left, top: rb.top - base.top, width: rb.width, height: rb.height } }
+  if (rect) posicionarFlotante(tools, rect)
 }
 
 // ---------------------------------------------------------------
@@ -4563,6 +4532,9 @@ function abrirEditor(nombre: string): void {
 
   editorActivo = { nombre, ta, valorPrevio, tocado: false, els }
   sincronizarBarra(nombre)
+  // La barra de formato flota encima del texto en edición (estilo Express).
+  lienzo.appendChild(barraTexto)
+  posicionarFlotante(barraTexto, r)
   ta.addEventListener('input', () => {
     editorActivo!.tocado = true
     valores[nombre] = ta.value
@@ -4682,9 +4654,7 @@ function sincronizarBarra(nombre: string): void {
   for (const b of Array.from(barraTexto.querySelectorAll('[data-bt^="al:"]'))) {
     b.classList.toggle('activo', b.getAttribute('data-bt') === 'al:' + ef.align)
   }
-  panelDin() // asegura que la barra de texto esté reubicada en el panel
-  const din = document.querySelector<HTMLElement>('#pp-dinamico'); if (din) din.hidden = true
-  barraTexto.hidden = false
+  barraTexto.hidden = false // la posición la fija abrirEditor (flota sobre el texto)
 }
 
 // Evitar que los botones de la barra roben el foco del textarea (si no, el
@@ -4762,7 +4732,6 @@ function autoCrecer(ta: HTMLTextAreaElement): void {
 function commitEditor(): void {
   if (!editorActivo) return
   barraTexto.hidden = true
-  { const din = document.querySelector<HTMLElement>('#pp-dinamico'); if (din) din.hidden = false }
   const { nombre, ta, tocado, els } = editorActivo
   editorActivo = null
   for (const el of els) (el as SVGElement).style.opacity = '' // restaurar SVG
@@ -4779,7 +4748,6 @@ function commitEditor(): void {
 function cancelarEditor(): void {
   if (!editorActivo) return
   barraTexto.hidden = true
-  { const din = document.querySelector<HTMLElement>('#pp-dinamico'); if (din) din.hidden = false }
   const { nombre, ta, valorPrevio, tocado, els } = editorActivo
   editorActivo = null
   ta.remove()

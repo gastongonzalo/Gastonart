@@ -1064,15 +1064,17 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .graf-tools {
   position: absolute;
-  z-index: 7;
+  z-index: 13;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 4px 6px;
-  background: var(--panel-glass);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  max-width: 560px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 }
 .graf-color { position: relative; display: inline-flex; }
 .graf-color input[type='color'] {
@@ -1308,17 +1310,16 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 /* --- Mini-barra de la foto --- */
 .foto-tools {
   position: absolute;
-  z-index: 4;
-  top: 8px;
-  right: 8px;
+  z-index: 12;
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 6px 10px;
-  background: var(--panel-glass);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  backdrop-filter: blur(4px);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 }
 .foto-tools .ft-zoom {
   display: flex;
@@ -1328,6 +1329,20 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   color: var(--dim);
 }
 .foto-tools input[type='range'] { width: 90px; }
+.foto-tools .ft-zoom { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+
+/* La barra de formato de texto, cuando flota sobre el texto en edición. */
+#barra-texto:not([hidden]) {
+  position: absolute;
+  z-index: 13;
+  flex-wrap: wrap;
+  max-width: 560px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+}
 
 /* --- Pantalla de inicio --- */
 #pantalla-inicio {
