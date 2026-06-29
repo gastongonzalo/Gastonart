@@ -2492,7 +2492,9 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  lienzo.querySelectorAll('.graf-tools, .foto-tools, .graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
+  // La barra flotante vive en <body>; el resto de overlays, en el lienzo.
+  document.querySelectorAll('.graf-tools').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.foto-tools, .graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
   actualizarPanelProps()
 }
@@ -3440,25 +3442,70 @@ function construirOrdenarCont(): HTMLElement {
 // (o del texto en edición) flotan en una barra ENCIMA del elemento.
 // Centra `el` arriba de `target` (px del lienzo); si no entra arriba va abajo /
 // pegado al borde superior, y se clampa al ancho del lienzo.
+// Desplazamiento manual de la barra flotante (si el usuario la arrastró).
+// Se reinicia al cambiar de selección (ver dibujarSelGraf).
+let barraOffset = { dx: 0, dy: 0 }
+let barraSelFirma: SVGElement | null = null
+
+// La barra flota en coordenadas de VIEWPORT (position: fixed, anexada a <body>),
+// así puede salir de la mesa de trabajo y moverse libre por toda la pantalla.
+// `target` viene en coords relativas al lienzo → se convierte a viewport.
 function posicionarFlotante(el: HTMLElement, target: Rect): void {
+  const lr = lienzo.getBoundingClientRect()
+  const tx = target.left + lr.left, ty = target.top + lr.top
   const bw = el.offsetWidth, bh = el.offsetHeight
-  const W = lienzo.clientWidth, H = lienzo.clientHeight
-  let left = target.left + target.width / 2 - bw / 2
+  const W = window.innerWidth, H = window.innerHeight
+  let left = tx + target.width / 2 - bw / 2
   // Preferimos ARRIBA del elemento; si no entra, DEBAJO (no tapar el contenido);
   // si tampoco, pegada al borde superior.
-  let top = target.top - bh - 10
+  let top = ty - bh - 10
   if (top < 4) {
-    const abajo = target.top + target.height + 10
-    top = abajo + bh <= H - 4 ? abajo : Math.max(4, Math.min(target.top + 6, H - bh - 4))
+    const abajo = ty + target.height + 10
+    top = abajo + bh <= H - 4 ? abajo : Math.max(4, Math.min(ty + 6, H - bh - 4))
   }
   left = Math.max(4, Math.min(left, W - bw - 4))
-  el.style.left = Math.round(left) + 'px'
-  el.style.top = Math.round(top) + 'px'
+  // Guardamos la posición AUTOMÁTICA para medir el offset manual del arrastre.
+  el.dataset.autoLeft = String(Math.round(left))
+  el.dataset.autoTop = String(Math.round(top))
+  let fl = left + barraOffset.dx, ft = top + barraOffset.dy
+  fl = Math.max(4, Math.min(fl, W - bw - 4))
+  ft = Math.max(4, Math.min(ft, H - bh - 4))
+  el.style.left = Math.round(fl) + 'px'
+  el.style.top = Math.round(ft) + 'px'
+}
+
+// Arranca el arrastre de la barra flotante desde su manija (grip).
+function iniciarArrastreBarra(tools: HTMLElement, e: PointerEvent): void {
+  const startX = e.clientX, startY = e.clientY
+  const baseLeft = parseFloat(tools.style.left) || 0
+  const baseTop = parseFloat(tools.style.top) || 0
+  const autoLeft = parseFloat(tools.dataset.autoLeft || '0')
+  const autoTop = parseFloat(tools.dataset.autoTop || '0')
+  const onMove = (ev: PointerEvent) => {
+    const W = window.innerWidth, H = window.innerHeight
+    const bw = tools.offsetWidth, bh = tools.offsetHeight
+    let nl = baseLeft + (ev.clientX - startX)
+    let nt = baseTop + (ev.clientY - startY)
+    nl = Math.max(4, Math.min(nl, W - bw - 4))
+    nt = Math.max(4, Math.min(nt, H - bh - 4))
+    tools.style.left = Math.round(nl) + 'px'
+    tools.style.top = Math.round(nt) + 'px'
+    barraOffset = { dx: nl - autoLeft, dy: nt - autoTop }
+  }
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove)
+    document.removeEventListener('pointerup', onUp)
+  }
+  document.addEventListener('pointermove', onMove)
+  document.addEventListener('pointerup', onUp)
 }
 
 function dibujarSelGraf(): void {
   limpiarGraf()
   if (!grafSeleccion.length || !svgEl) return
+  // Al cambiar de elemento seleccionado, la barra vuelve a su posición automática.
+  const firma = grafSeleccion[0] ?? null
+  if (firma !== barraSelFirma) { barraOffset = { dx: 0, dy: 0 }; barraSelFirma = firma }
   const base = lienzo.getBoundingClientRect()
   const rects = grafSeleccion.map((el) => {
     const rb = el.getBoundingClientRect()
@@ -3601,8 +3648,15 @@ function dibujarSelGraf(): void {
   const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '🗑'; del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
   tools.appendChild(del)
-  // Los controles FLOTAN en una barra encima de la selección (estilo Express).
-  lienzo.appendChild(tools); posicionarFlotante(tools, uni)
+  // Manija para mover la barra (queda primera, aunque otros botones hagan prepend).
+  const grip = document.createElement('button'); grip.className = 'graf-grip'; grip.textContent = '⠿'
+  grip.title = 'Arrastrá para mover esta barra'
+  grip.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); iniciarArrastreBarra(tools, e) })
+  grip.addEventListener('click', (e) => e.stopPropagation())
+  tools.prepend(grip)
+  // Los controles FLOTAN en una barra (fixed, en <body>) para poder moverse
+  // libres por toda la pantalla, fuera de la mesa de trabajo.
+  document.body.appendChild(tools); posicionarFlotante(tools, uni)
 
   if (!multi) {
     // 8 tiradores: 4 esquinas (proporcional) + 4 lados (un eje).
@@ -7042,6 +7096,16 @@ inSvgPlantilla.addEventListener('change', async () => {
 let zoomLienzo = 1
 const escenario = document.querySelector<HTMLDivElement>('#escenario')!
 const zoomVal = document.querySelector<HTMLButtonElement>('#zoom-val')!
+
+// Clic en la mesa de trabajo (gris) FUERA del artboard → deselecciona: se va la
+// barra flotante y los tiradores del elemento. La barra (en <body>) no burbujea
+// por acá, así que clickearla no deselecciona.
+escenario.addEventListener('pointerdown', (e) => {
+  const t = e.target as Element
+  if (t.closest('#lienzo') || t.closest('.graf-tools')) return
+  if (editorActivo) cerrarEditor()
+  if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() }
+})
 function anchoBaseLienzo(): number {
   return Math.min(680, Math.max(140, escenario.clientWidth - 36))
 }
