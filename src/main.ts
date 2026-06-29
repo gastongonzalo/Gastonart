@@ -1925,6 +1925,9 @@ let editAnclas: Ancla[] = []
 let editCerrado = false
 let editCapa: HTMLDivElement | null = null
 let editLineas: SVGSVGElement | null = null
+let editTools: HTMLDivElement | null = null
+let editSel: number | null = null // ancla seleccionada (para Borrar / Esquina-Curva)
+let editModoAgregar = false // ON = clic sobre el trazo inserta un punto
 
 function ctmEdit(): DOMMatrix { return editPath!.getScreenCTM() as DOMMatrix }
 // local (espacio del `d`) -> px relativos al lienzo
@@ -1981,6 +1984,8 @@ function entrarEditarPuntos(el: SVGElement): void {
   editPath = path
   editAnclas = r.anclas
   editCerrado = r.cerrado
+  editSel = null
+  editModoAgregar = false
   limpiarGraf()
   editLineas = document.createElementNS(SVGNS, 'svg') as unknown as SVGSVGElement
   editLineas.setAttribute('class', 'edit-svg')
@@ -1990,8 +1995,67 @@ function entrarEditarPuntos(el: SVGElement): void {
   editCapa.addEventListener('pointerdown', editPointerDown)
   editCapa.addEventListener('dblclick', editDblClick)
   lienzo.appendChild(editCapa)
+  crearEditTools()
   document.addEventListener('keydown', editKey)
   dibujarEditor()
+}
+
+// Barra flotante con acciones visibles del editor de puntos (agregar/borrar/
+// esquina↔curva/listo), para no depender solo de atajos.
+function crearEditTools(): void {
+  editTools = document.createElement('div')
+  editTools.className = 'edit-tools'
+  editTools.addEventListener('pointerdown', (e) => e.stopPropagation())
+  const btn = (txt: string, title: string, onClick: () => void): HTMLButtonElement => {
+    const b = document.createElement('button'); b.className = 'graf-btn'; b.textContent = txt; b.title = title
+    b.addEventListener('click', (e) => { e.stopPropagation(); onClick() })
+    editTools!.appendChild(b); return b
+  }
+  btn('➕ Agregar', 'Modo agregar: clic sobre el trazo inserta un punto', () => {
+    editModoAgregar = !editModoAgregar
+    if (editCapa) editCapa.style.cursor = editModoAgregar ? 'crosshair' : 'default'
+    dibujarEditor()
+  }).dataset.rol = 'agregar'
+  btn('🗑 Borrar', 'Borrar el punto seleccionado (Supr)', () => borrarNodoSel()).dataset.rol = 'borrar'
+  btn('⌣ Curva / ◇ Esquina', 'Alternar el punto seleccionado entre esquina y curva (doble clic)', () => {
+    if (editSel != null) { alternarTipoNodo(editSel); dibujarEditor() }
+  }).dataset.rol = 'tipo'
+  btn('✓ Listo', 'Terminar de editar puntos (Enter / Esc)', () => salirEditarPuntos())
+  const hint = document.createElement('span'); hint.className = 'edit-hint'
+  hint.textContent = 'Arrastrá los nodos · doble clic = esquina/curva'
+  editTools.appendChild(hint)
+  lienzo.appendChild(editTools)
+}
+
+function borrarNodoSel(): void {
+  if (editSel == null || editAnclas.length <= 2) return
+  editAnclas.splice(editSel, 1)
+  editSel = null
+  dibujarEditor()
+}
+
+// Alterna un ancla entre esquina (sin manijas) y curva (manijas según vecinos).
+function alternarTipoNodo(i: number): void {
+  const n = editAnclas.length, a = editAnclas[i]
+  if (tieneIn(a) || tieneOut(a)) { a.hix = a.hiy = a.hox = a.hoy = 0 } // -> esquina
+  else { // -> curva: manijas según la dirección de los vecinos
+    const prev = editAnclas[(i - 1 + n) % n], next = editAnclas[(i + 1) % n]
+    const vx = next.x - prev.x, vy = next.y - prev.y
+    const len = Math.hypot(vx, vy) || 1
+    const mag = Math.min(Math.hypot(a.x - prev.x, a.y - prev.y), Math.hypot(next.x - a.x, next.y - a.y)) / 3
+    a.hox = (vx / len) * mag; a.hoy = (vy / len) * mag
+    a.hix = -a.hox; a.hiy = -a.hoy
+  }
+}
+
+// Refleja el estado en los botones de la barra (habilitado/activo).
+function actualizarEditTools(): void {
+  if (!editTools) return
+  const get = (rol: string) => editTools!.querySelector<HTMLButtonElement>(`[data-rol="${rol}"]`)
+  const hayNodos = editAnclas.length > 2
+  const agregar = get('agregar'); if (agregar) agregar.classList.toggle('activo', editModoAgregar)
+  const borrar = get('borrar'); if (borrar) borrar.disabled = editSel == null || !hayNodos
+  const tipo = get('tipo'); if (tipo) tipo.disabled = editSel == null
 }
 
 function dibujarEditor(): void {
@@ -2014,12 +2078,13 @@ function dibujarEditor(): void {
     d.style.left = left + 'px'; d.style.top = top + 'px'
     lienzo.appendChild(d)
   }
-  editAnclas.forEach((a) => {
+  editAnclas.forEach((a, i) => {
     const s = localAPx(a.x, a.y)
     if (tieneIn(a)) { const h = localAPx(a.x + a.hix, a.y + a.hiy); linea(s.left, s.top, h.left, h.top); dot(h.left, h.top, 'pluma-manija') }
     if (tieneOut(a)) { const h = localAPx(a.x + a.hox, a.y + a.hoy); linea(s.left, s.top, h.left, h.top); dot(h.left, h.top, 'pluma-manija') }
-    dot(s.left, s.top, 'pluma-pt')
+    dot(s.left, s.top, 'pluma-pt' + (i === editSel ? ' sel' : ''))
   })
+  actualizarEditTools()
 }
 
 // Devuelve qué se tocó: un ancla o una manija (in/out) cercana al puntero.
@@ -2088,21 +2153,26 @@ function insertarPuntoEditor(clientX: number, clientY: number): boolean {
 function editPointerDown(e: PointerEvent): void {
   if (!editCapa) return
   const hit = editHit(e.clientX, e.clientY)
-  if (!hit) {
-    // Sobre el trazo: agrega un punto. En vacío real: termina.
-    if (insertarPuntoEditor(e.clientX, e.clientY)) { e.preventDefault(); dibujarEditor() }
-    else salirEditarPuntos()
+  // Modo agregar: el clic sobre el trazo inserta un punto (no arrastra/selecciona).
+  if (editModoAgregar) {
+    e.preventDefault()
+    if (!hit && insertarPuntoEditor(e.clientX, e.clientY)) dibujarEditor()
     return
+  }
+  if (!hit) {
+    // Clic en vacío: deseleccionar (NO salir: se sale con Listo / Enter / Esc).
+    e.preventDefault(); editSel = null; dibujarEditor(); return
   }
   e.preventDefault()
   const a = editAnclas[hit.i]
+  if (hit.tipo === 'a') { editSel = hit.i; dibujarEditor() } // seleccionar para los botones
   // Alt + clic sobre un ANCLA (sin arrastrar) = eliminar el punto.
   if (hit.tipo === 'a' && e.altKey && editAnclas.length > 2) {
     let movido = false
     const onMv = () => { movido = true }
     const onUp = () => {
       editCapa!.removeEventListener('pointermove', onMv)
-      if (!movido) { editAnclas.splice(hit.i, 1); dibujarEditor() }
+      if (!movido) { editAnclas.splice(hit.i, 1); editSel = null; dibujarEditor() }
     }
     editCapa.addEventListener('pointermove', onMv)
     editCapa.addEventListener('pointerup', onUp, { once: true })
@@ -2132,25 +2202,18 @@ function editPointerDown(e: PointerEvent): void {
   editCapa.addEventListener('pointercancel', onUp, { once: true })
 }
 
-// Doble clic sobre un ancla: alterna entre esquina (sin manijas) y liso.
+// Doble clic sobre un ancla: alterna entre esquina (sin manijas) y curva.
 function editDblClick(e: MouseEvent): void {
   const hit = editHit(e.clientX, e.clientY)
   if (!hit || hit.tipo !== 'a') return
   e.preventDefault()
-  const n = editAnclas.length, i = hit.i, a = editAnclas[i]
-  if (tieneIn(a) || tieneOut(a)) { a.hix = a.hiy = a.hox = a.hoy = 0 } // -> esquina
-  else { // -> liso: manijas según la dirección de los vecinos
-    const prev = editAnclas[(i - 1 + n) % n], next = editAnclas[(i + 1) % n]
-    const vx = next.x - prev.x, vy = next.y - prev.y
-    const len = Math.hypot(vx, vy) || 1
-    const mag = Math.min(Math.hypot(a.x - prev.x, a.y - prev.y), Math.hypot(next.x - a.x, next.y - a.y)) / 3
-    a.hox = (vx / len) * mag; a.hoy = (vy / len) * mag
-    a.hix = -a.hox; a.hiy = -a.hoy
-  }
+  editSel = hit.i
+  alternarTipoNodo(hit.i)
   dibujarEditor()
 }
 
 function editKey(e: KeyboardEvent): void {
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); borrarNodoSel(); return }
   if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); salirEditarPuntos() }
 }
 
@@ -2220,9 +2283,11 @@ function nodosPointerDown(e: PointerEvent): void {
 function cerrarEditorPuntos(): void {
   editCapa?.remove(); editCapa = null
   editLineas?.remove(); editLineas = null
+  editTools?.remove(); editTools = null
   lienzo.querySelectorAll('.pluma-pt, .pluma-manija').forEach((n) => n.remove())
   document.removeEventListener('keydown', editKey)
   editPath = null; editAnclas = []; editCerrado = false
+  editSel = null; editModoAgregar = false
 }
 
 // ---------------------------------------------------------------
