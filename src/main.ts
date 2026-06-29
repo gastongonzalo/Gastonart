@@ -16,9 +16,11 @@ import {
   interpretarNombreFuente,
   familiaInternaDeFont,
   detectarFormatoCss,
+  bytesABase64,
   type FontFace,
 } from './font'
 import { renderResvg } from './render-resvg'
+import type { jsPDF } from 'jspdf'
 import polygonClipping from 'polygon-clipping'
 
 // ---------------------------------------------------------------
@@ -2293,14 +2295,18 @@ function grafPointerDown(e: PointerEvent): void {
   if (editandoPuntos()) return // editando puntos: lo maneja la capa del editor
   if (reframeG) { iniciarPanReencuadre(e); return } // en reencuadre, arrastrar = mover la foto
   const tgt = e.target as Element
+  const aditivo = e.ctrlKey || e.metaKey
   // Confirmar cualquier texto en edición ANTES de procesar el clic: como abajo
   // hacemos e.preventDefault() (para no seleccionar texto del SVG), el textarea no
   // pierde el foco solo → sin esto, su editor quedaba abierto tapando el hit y el
   // recién agregado no se podía arrastrar hasta abrir otro editor.
   const campoEl = tgt.closest?.('[data-campo]')
   if (editorActivo && editorActivo.nombre !== campoEl?.getAttribute('data-campo')) cerrarEditor()
-  // Texto (campo de plantilla o agregado): clic abre el editor inline.
-  if (campoEl) { e.preventDefault(); abrirEditor(campoEl.getAttribute('data-campo')!); return }
+  // Texto: clic SIMPLE abre el editor inline. Pero con Ctrl/Cmd (selección
+  // aditiva) el clic en un cuadro de texto agregado lo SUMA a la selección
+  // gráfica (para alinear/agrupar/mover junto con formas) en vez de editarlo:
+  // cae al camino de graficoSeleccionable de más abajo.
+  if (campoEl && !aditivo) { e.preventDefault(); abrirEditor(campoEl.getAttribute('data-campo')!); return }
   // Foto de hueco suelto (no recorte): vacío → subir; cargada → arrastrar reencuadra.
   // (La mini-barra Cambiar/Zoom/Opac/Editar/Quitar fondo la arma construirOverlays.)
   const fotoEl = tgt.closest?.('[data-foto]') as SVGElement | null
@@ -2313,7 +2319,6 @@ function grafPointerDown(e: PointerEvent): void {
     return
   }
   const el = graficoSeleccionable(e.target as Element)
-  const aditivo = e.ctrlKey || e.metaKey
   if (!el) {
     // Clic en vacío: recuadro de selección (marquee). Sin Ctrl, limpia primero.
     e.preventDefault() // si no, arrastrar selecciona el TEXTO del SVG (resaltado azul)
@@ -4113,6 +4118,9 @@ function abrirEditor(nombre: string): void {
   // Ocultamos el texto del SVG mientras se edita; el textarea (mismo color,
   // fuente y posición) lo reemplaza visualmente → el cursor queda alineado.
   const els = Array.from(svgEl.querySelectorAll(`[data-campo="${nombre}"]`))
+  // Línea base de la 1.ª línea del render (ancla fija) ANTES de ocultar el texto.
+  const anchorEl = (els.find((e) => (e as Element).hasAttribute('data-anchor')) ?? els[0]) as SVGElement | undefined
+  const baseBaseline = anchorEl ? baselineCampoScreenY(anchorEl, base) : null
   for (const el of els) (el as SVGElement).style.opacity = '0'
 
   const ta = document.createElement('textarea')
@@ -4122,6 +4130,7 @@ function abrirEditor(nombre: string): void {
   ta.style.left = r.left + 'px'
   ta.style.top = r.top - 1 + 'px'
   ta.dataset.baseTop = String(r.top - 1) // top sin compensar; aplicarEstiloTextarea ajusta por interlineado
+  if (baseBaseline != null) ta.dataset.baseBaseline = String(baseBaseline) // ancla por baseline (preciso)
   // +4px de holgura: maxWidthUser es el ancho EXACTO del texto (sin margen), y el
   // textarea (layout del navegador) redondea distinto que la medición SVG → sin
   // holgura, la última letra se cae a otra línea.
@@ -4154,6 +4163,51 @@ function abrirEditor(nombre: string): void {
   })
 }
 
+// Contexto de canvas reutilizable para medir métricas de fuente.
+const ctxMedir = document.createElement('canvas').getContext('2d')
+
+// Ascenso/descenso de la caja de fuente (px) para un estilo dado. Es lo que el
+// navegador usa para repartir el interlineado de una línea; permite alinear el
+// textarea por LÍNEA BASE con el render SVG (el modelo de medio interlineado
+// dejaba ~3px de error que variaban según la fuente).
+function metricasFuenteTA(fsPx: number, weight: string, italic: boolean, family: string): { asc: number; desc: number } {
+  if (ctxMedir) {
+    ctxMedir.font = `${italic ? 'italic ' : ''}${weight} ${fsPx}px ${family}`
+    const tm = ctxMedir.measureText('Hg')
+    const asc = tm.fontBoundingBoxAscent, desc = tm.fontBoundingBoxDescent
+    if (asc != null && desc != null && asc + desc > 0) return { asc, desc }
+  }
+  return { asc: fsPx * 0.8, desc: fsPx * 0.2 } // fallback aproximado
+}
+
+// Y (px, relativa al lienzo) de la línea base de la PRIMERA línea del campo en el
+// render SVG. La baseline no se mueve con el tamaño/escala (el primer tspan
+// conserva su `y`), así que sirve de ancla fija para posicionar el textarea.
+function baselineCampoScreenY(anchor: SVGElement, base: DOMRect): number | null {
+  const ctm = (anchor as SVGGraphicsElement).getScreenCTM?.()
+  const svg = anchor.ownerSVGElement
+  if (!ctm || !svg) return null
+  let local: { x: number; y: number } | null = null
+  const tc = anchor as unknown as SVGTextContentElement
+  try {
+    if (tc.getNumberOfChars && tc.getNumberOfChars() > 0) {
+      const p = tc.getStartPositionOfChar(0)
+      local = { x: p.x, y: p.y }
+    }
+  } catch { /* sin glifos medibles */ }
+  if (!local) {
+    // Texto vacío: usar la `y` declarada del primer tspan (o del propio <text>).
+    const ref = anchor.querySelector('tspan') ?? anchor
+    const y = parseFloat(ref.getAttribute('y') ?? 'NaN')
+    if (isNaN(y)) return null
+    const x = parseFloat(ref.getAttribute('x') ?? '0')
+    local = { x: isNaN(x) ? 0 : x, y }
+  }
+  const pt = svg.createSVGPoint()
+  pt.x = local.x; pt.y = local.y
+  return pt.matrixTransform(ctm).y - base.top
+}
+
 // Aplica el estilo efectivo del campo al textarea (vista en vivo durante la edición).
 // Reproduce el auto-shrink del render: si el texto no entra a tamaño completo,
 // achica la fuente igual que pintarCampo, para que el textarea envuelva como va a
@@ -4176,12 +4230,20 @@ function aplicarEstiloTextarea(nombre: string): void {
   ta.style.color = ef.color
   ta.style.caretColor = ef.color
   // El <text> SVG ancla por baseline (glifos arriba); el textarea reparte el
-  // interlineado mitad arriba/mitad abajo del glifo → la primera línea cae ~medio
-  // leading más abajo y el texto "saltaba" al hacer clic. Subimos el textarea ese
-  // medio interlineado para que los glifos coincidan con el render SVG.
-  const bt = parseFloat(ta.dataset.baseTop ?? '')
+  // interlineado mitad arriba/mitad abajo y posiciona la baseline a (medio
+  // interlineado + ascenso) de su borde superior. Alineamos esa baseline con la
+  // del render SVG (medida con métricas reales de la fuente) → sin salto al editar.
   const lhPx = parseFloat(ta.style.lineHeight), fsPx = parseFloat(ta.style.fontSize)
-  if (!isNaN(bt) && !isNaN(lhPx) && !isNaN(fsPx)) ta.style.top = bt - Math.max(0, (lhPx - fsPx) / 2) + 'px'
+  const baseBL = parseFloat(ta.dataset.baseBaseline ?? '')
+  if (!isNaN(baseBL) && !isNaN(lhPx) && !isNaN(fsPx)) {
+    const { asc, desc } = metricasFuenteTA(fsPx, ef.weight, ef.italic, ef.family)
+    const baselineDesdeTop = (lhPx + asc - desc) / 2 // medio interlineado + ascenso
+    ta.style.top = baseBL - baselineDesdeTop + 'px'
+  } else {
+    // Fallback (sin baseline medible): modelo aproximado de medio interlineado.
+    const bt = parseFloat(ta.dataset.baseTop ?? '')
+    if (!isNaN(bt) && !isNaN(lhPx) && !isNaN(fsPx)) ta.style.top = bt - Math.max(0, (lhPx - fsPx) / 2) + 'px'
+  }
   autoCrecer(ta)
 }
 
@@ -5403,6 +5465,37 @@ function descargarSVG(): void {
   descargar(new Blob([s], { type: 'image/svg+xml;charset=utf-8' }), `${nombreCorto(plantillaActual)}.svg`)
   estado.textContent = 'SVG descargado.'
 }
+// Registra en la instancia jsPDF las fuentes (TTF/OTF) que usa el texto del SVG,
+// para que svg2pdf dibuje con la fuente real (Poppins, etc.) en vez de caer a
+// Helvetica. jsPDF y svg2pdf comparten la MISMA combineFontStyleAndFontWeight: al
+// registrar con addFont(archivo, familia, estilo, peso), la clave de estilo que
+// guarda jsPDF coincide con la que svg2pdf pide en getFontList() (p.ej. peso 600 →
+// "600normal", 700 → "bold", 700+itálica → "bolditalic"). jsPDF solo admite sfnt
+// (ttf/otf): las woff/woff2 (p.ej. fuentes traídas de Google) no se pueden embeber
+// y ese texto cae igual a la fuente estándar.
+function registrarFuentesPdf(pdf: jsPDF): void {
+  if (!svgEl) return
+  // Familias realmente usadas por el texto (1.ª de cada font-family), en minúscula.
+  const usadas = new Set<string>()
+  for (const t of Array.from(svgEl.querySelectorAll('text'))) {
+    const fam = getComputedStyle(t).fontFamily.split(',')[0]?.replace(/['"]/g, '').trim()
+    if (fam) usadas.add(fam.toLowerCase())
+  }
+  const hechas = new Set<string>()
+  for (const f of facesPack) {
+    if (f.formato !== 'truetype' && f.formato !== 'opentype') continue
+    if (!usadas.has(f.family.toLowerCase())) continue
+    const clave = `${f.family}|${f.weight}|${f.style}`
+    if (hechas.has(clave)) continue
+    hechas.add(clave)
+    const archivo = `${f.family.replace(/\s+/g, '')}-${f.weight}${f.style === 'italic' ? 'i' : ''}.ttf`
+    try {
+      pdf.addFileToVFS(archivo, bytesABase64(f.bytes))
+      pdf.addFont(archivo, f.family, f.style === 'italic' ? 'italic' : 'normal', f.weight)
+    } catch (e) { console.warn('No se pudo registrar la fuente en el PDF:', f.family, f.weight, e) }
+  }
+}
+
 // PDF con jsPDF (import diferido). Intenta VECTORIAL con svg2pdf.js (texto/vectores
 // reeditables); si falla —típico cuando hay una foto embebida grande, que svg2pdf
 // no procesa— cae a PDF "imagen" (PNG de resvg embebido), que siempre funciona.
@@ -5424,6 +5517,7 @@ async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
     try {
       const { svg2pdf } = await import('svg2pdf.js')
       const pdf = nuevoPdf()
+      registrarFuentesPdf(pdf) // fuentes reales (Poppins, etc.) antes de vectorizar
       await svg2pdf(svgEl, pdf, { x: 0, y: 0, width: w, height: h })
       pdf.save(nombre)
       estado.textContent = 'PDF exportado (vectorial).'
