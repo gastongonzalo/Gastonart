@@ -4541,8 +4541,7 @@ function abrirEditor(nombre: string): void {
   ta.style.color = m.color
   ta.style.caretColor = m.color
   lienzo.appendChild(ta)
-  aplicarEstiloTextarea(nombre) // tamaño/peso/cursiva/familia/alineación
-  autoCrecer(ta)
+  aplicarEstiloTextarea(nombre) // tamaño/peso/cursiva/familia/alineación (recorta el textarea si la caja es manual)
   ta.focus()
   ta.setSelectionRange(ta.value.length, ta.value.length)
 
@@ -4650,7 +4649,7 @@ function aplicarEstiloTextarea(nombre: string): void {
     const bt = parseFloat(ta.dataset.baseTop ?? '')
     if (!isNaN(bt) && !isNaN(lhPx) && !isNaN(fsPx)) ta.style.top = bt - Math.max(0, (lhPx - fsPx) / 2) + 'px'
   }
-  autoCrecer(ta)
+  autoCrecer(ta, nombre)
 }
 
 // Refleja en la barra los valores actuales del campo y la muestra.
@@ -4740,9 +4739,19 @@ function aHex(color: string): string {
   return '#' + h(m[1]) + h(m[2]) + h(m[3])
 }
 
-function autoCrecer(ta: HTMLTextAreaElement): void {
+function autoCrecer(ta: HTMLTextAreaElement, nombre = editorActivo?.nombre): void {
   ta.style.height = 'auto'
-  ta.style.height = ta.scrollHeight + 'px'
+  let h = ta.scrollHeight
+  // Caja de alto FIJADO A MANO: el textarea se recorta a las MISMAS líneas que
+  // mostrará el render al commitear (overflow hidden de .editor-text) → en edición
+  // se ve el mismo recorte, no todo el texto.
+  if (nombre && cajaManual[nombre] && cajaAlto[nombre] !== undefined && svgEl) {
+    const k = svgEl.clientWidth / (svgEl.viewBox.baseVal.width || 1080)
+    const lhPx = parseFloat(ta.style.lineHeight) || 0
+    const boxPx = cajaAlto[nombre] * k
+    h = lhPx > 0 ? Math.min(h, Math.max(1, Math.floor(boxPx / lhPx)) * lhPx) : Math.min(h, boxPx)
+  }
+  ta.style.height = Math.round(h) + 'px'
 }
 
 function commitEditor(): void {
