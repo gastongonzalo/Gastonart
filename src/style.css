@@ -13,6 +13,7 @@
   --muted: #8a94a4;         /* hints / placeholders */
   --accent: #0284c7;        /* cian profundo (texto blanco legible encima) */
   --on-accent: #ffffff;     /* texto/figura sobre el acento */
+  --bg-accent: #e0f2fe;     /* tinte suave del acento (chips/activos) */
 }
 
 * { box-sizing: border-box; }
@@ -198,8 +199,8 @@ body {
 }
 .modo-switch button:hover { color: var(--text); }
 .modo-switch button.activo { background: var(--accent); color: var(--on-accent); }
-/* En Modo plantilla se oculta la barra lateral de inserción/edición. */
-body.modo-plantilla .toolbar-izq { display: none; }
+/* En Modo plantilla se ocultan el riel y el panel de inserción/edición. */
+body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .tb-acciones { display: flex; align-items: center; gap: 8px; }
 .tb-div { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 .topbar label {
@@ -239,25 +240,25 @@ body.modo-plantilla .toolbar-izq { display: none; }
   min-width: 0;
 }
 
-/* --- Cuerpo: barra de herramientas vertical + escenario --- */
+/* --- Cuerpo: riel de categorías + panel acoplado + escenario --- */
 .cuerpo { flex: 1; display: flex; min-height: 0; }
-.toolbar-izq {
+/* Riel de íconos de categorías (estilo Express/Canva). */
+.rail {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 10px;
+  gap: 2px;
+  padding: 8px 6px;
   background: var(--panel);
   border-right: 1px solid var(--border);
-  overflow: visible; /* que los popovers de Figura puedan salir del sidebar */
   flex: none;
 }
-.herr {
+.rail-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   width: 64px;
-  padding: 10px 0;
+  padding: 9px 0;
   background: transparent;
   border: 0;
   border-radius: 10px;
@@ -265,9 +266,58 @@ body.modo-plantilla .toolbar-izq { display: none; }
   cursor: pointer;
   font-size: 11px;
 }
-.herr:hover { background: var(--inset-hover); color: var(--text); }
-.herr-ic { font-size: 19px; line-height: 1; }
-.herr.activo-pluma, .herr.activo-grafico { background: var(--accent); color: var(--on-accent); }
+.rail-item:hover { background: var(--inset-hover); color: var(--text); }
+.rail-item.activo { background: var(--bg-accent, #e0f2fe); color: var(--accent); }
+.rail-ic { font-size: 19px; line-height: 1; }
+
+/* Panel acoplado de contenido de la categoría activa. */
+#panel-lateral {
+  width: 248px;
+  flex: 0 0 248px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+#panel-lateral[hidden] { display: none; }
+.pl-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px 8px;
+}
+.pl-head strong { font-size: 15px; }
+.pl-body { flex: 1; overflow-y: auto; padding: 0 14px 24px; display: flex; flex-direction: column; gap: 10px; }
+.pl-view[hidden] { display: none; }
+.pl-view { display: flex; flex-direction: column; gap: 10px; }
+.pl-sub { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-top: 4px; }
+.pl-nota { font-size: 12px; line-height: 1.5; color: var(--dim); margin: 4px 0 0; }
+.pl-accion {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 42px; padding: 0 14px;
+  background: var(--inset); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.pl-accion:hover { border-color: var(--accent); background: var(--inset-hover); }
+.pl-accion.activo-pluma { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.pl-preset {
+  width: 100%; padding: 12px 14px; text-align: left;
+  background: var(--inset); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text); cursor: pointer;
+}
+.pl-preset:hover { border-color: var(--accent); }
+/* Grilla de plantillas */
+.pl-tpl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pl-tpl {
+  display: flex; flex-direction: column; gap: 5px; padding: 0; text-align: center;
+  background: transparent; border: 0; color: var(--text); cursor: pointer; font-size: 11px;
+}
+.pl-tpl-thumb {
+  display: block; aspect-ratio: 4 / 5; overflow: hidden;
+  background: var(--inset); border: 1px solid var(--border); border-radius: 8px;
+}
+.pl-tpl:hover .pl-tpl-thumb { border-color: var(--accent); }
+.pl-tpl-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-tpl-nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- Barra de formato (texto) --- */
 #barra-texto[hidden] { display: none; }
@@ -893,10 +943,14 @@ body.modo-plantilla .toolbar-izq { display: none; }
   cursor: pointer;
 }
 .menu-pop button:hover { border-color: var(--accent); }
-/* Popover de figuras: grilla (no se aplica cuando está oculto). */
-.menu-figs:not([hidden]) { display: grid; grid-template-columns: repeat(5, 32px); }
-.menu-figs button { display: flex; align-items: center; justify-content: center; padding: 3px; }
-.menu-figs button svg { color: var(--accent); }
+/* Grilla de figuras (en-flujo dentro de la vista Elementos). */
+.menu-figs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.menu-figs button {
+  display: flex; align-items: center; justify-content: center; aspect-ratio: 1; padding: 5px;
+  background: var(--inset); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+}
+.menu-figs button:hover { border-color: var(--accent); }
+.menu-figs button svg { color: var(--accent); width: 100%; height: 100%; }
 .menu-iconos {
   display: grid;
   grid-template-columns: repeat(6, 32px);

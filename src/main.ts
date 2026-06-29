@@ -392,48 +392,6 @@ app.innerHTML = `
 
   <div id="aviso-fuentes" hidden></div>
 
-  <div id="panel-gfonts" hidden>
-    <div class="pg-head">
-      <strong>Agregar fuente de Google Fonts</strong>
-      <button id="pg-cerrar" class="mini" title="Cerrar">✕</button>
-    </div>
-    <div class="pg-buscar">
-      <input id="pg-input" type="text" placeholder="Nombre de la fuente (ej. Oswald)" autocomplete="off">
-      <button id="pg-traer" class="ini-btn-acc">Agregar</button>
-    </div>
-    <div id="pg-estado" class="pg-estado"></div>
-    <div class="pg-pop-tit">Populares</div>
-    <div id="pg-populares" class="pg-populares"></div>
-  </div>
-
-  <div id="panel-iconos" hidden>
-    <div class="pg-head">
-      <strong>Íconos, formas y vectores</strong>
-      <button id="pi-cerrar" class="mini" title="Cerrar">✕</button>
-    </div>
-    <div class="pg-buscar">
-      <input id="pi-input" type="text" placeholder="Buscar (inglés): heart, arrow, home, star…" autocomplete="off">
-      <button id="pi-buscar" class="ini-btn-acc">Buscar</button>
-    </div>
-    <div id="pi-estado" class="pg-estado"></div>
-    <div id="pi-grid" class="pi-grid"></div>
-  </div>
-
-  <div id="panel-imagen" hidden>
-    <div class="pg-head">
-      <strong>Agregar imagen</strong>
-      <button id="pm-cerrar" class="mini" title="Cerrar">✕</button>
-    </div>
-    <button id="pm-subir" class="ini-btn-acc pm-subir">⬆ Subir desde el dispositivo</button>
-    <div class="pm-sep">o buscá en el banco de imágenes libres</div>
-    <div class="pg-buscar">
-      <input id="pm-input" type="text" placeholder="Buscar (inglés): mountain, city, people…" autocomplete="off">
-      <button id="pm-buscar" class="ini-btn-acc">Buscar</button>
-    </div>
-    <div id="pm-estado" class="pg-estado"></div>
-    <div id="pm-grid" class="pi-grid"></div>
-  </div>
-
   <div id="panel-tamano" hidden>
     <div class="pg-head">
       <strong>Tamaño de la mesa</strong>
@@ -449,17 +407,74 @@ app.innerHTML = `
   </div>
 
   <div class="cuerpo">
-    <nav class="toolbar-izq" aria-label="Insertar elementos">
-      <button id="btn-add-texto" class="herr" title="Agregar texto"><span class="herr-ic">T</span><span>Texto</span></button>
-      <button id="btn-add-img" class="herr" title="Agregar imagen"><span class="herr-ic">▣</span><span>Imagen</span></button>
-      <span class="add-wrap">
-        <button id="btn-add-figura" class="herr" title="Agregar figura"><span class="herr-ic">▢</span><span>Figura</span></button>
-        <div id="menu-figura" class="menu-pop menu-figs" hidden></div>
-      </span>
-      <button id="btn-add-icono" class="herr" title="Agregar ícono / forma / vector"><span class="herr-ic">★</span><span>Ícono</span></button>
-      <button id="btn-pluma" class="herr" title="Pluma (puntos de ancla)"><span class="herr-ic">✒</span><span>Pluma</span></button>
-      <button id="btn-nodos" class="herr" title="Puntero blanco: editar nodos de un trazo/polígono"><span class="herr-ic">⇲</span><span>Nodos</span></button>
+    <nav class="rail" aria-label="Categorías">
+      <button class="rail-item" data-cat="plantillas" title="Plantillas"><span class="rail-ic">▦</span><span>Plantillas</span></button>
+      <button class="rail-item" data-cat="texto" title="Texto"><span class="rail-ic">T</span><span>Texto</span></button>
+      <button class="rail-item" data-cat="elementos" title="Formas, íconos y vectores"><span class="rail-ic">◇</span><span>Elementos</span></button>
+      <button class="rail-item" data-cat="subir" title="Subir imágenes"><span class="rail-ic">⬆</span><span>Subir</span></button>
+      <button class="rail-item" data-cat="dibujar" title="Pluma y nodos"><span class="rail-ic">✎</span><span>Dibujar</span></button>
+      <button class="rail-item" data-cat="marca" title="Tipografías"><span class="rail-ic">⌥</span><span>Marca</span></button>
     </nav>
+    <aside id="panel-lateral" aria-label="Contenido" hidden>
+      <div class="pl-head">
+        <strong id="pl-titulo">Plantillas</strong>
+        <button id="pl-cerrar" class="mini" title="Cerrar">✕</button>
+      </div>
+      <div class="pl-body">
+        <section class="pl-view" data-cat="plantillas" hidden>
+          <div id="pl-plantillas" class="pl-tpl-grid"></div>
+        </section>
+
+        <section class="pl-view" data-cat="texto" hidden>
+          <button id="btn-add-texto" class="pl-accion">＋ Agregar cuadro de texto</button>
+          <div class="pl-sub">Presets</div>
+          <button class="pl-preset" data-preset="titulo" style="font-size:20px; font-weight:700;">Título</button>
+          <button class="pl-preset" data-preset="subtitulo" style="font-size:15px; font-weight:600;">Subtítulo</button>
+          <button class="pl-preset" data-preset="cuerpo" style="font-size:13px;">Cuerpo de texto</button>
+        </section>
+
+        <section class="pl-view" data-cat="elementos" hidden>
+          <div class="pl-sub">Formas</div>
+          <div id="menu-figura" class="menu-figs"></div>
+          <div class="pl-sub">Íconos y vectores</div>
+          <div class="pg-buscar">
+            <input id="pi-input" type="text" placeholder="Buscar (inglés): heart, arrow, star…" autocomplete="off">
+            <button id="pi-buscar" class="ini-btn-acc">Buscar</button>
+          </div>
+          <div id="pi-estado" class="pg-estado"></div>
+          <div id="pi-grid" class="pi-grid"></div>
+        </section>
+
+        <section class="pl-view" data-cat="subir" hidden>
+          <button id="pm-subir" class="pl-accion">⬆ Subir desde el dispositivo</button>
+          <div class="pm-sep">o buscá en el banco de imágenes libres</div>
+          <div class="pg-buscar">
+            <input id="pm-input" type="text" placeholder="Buscar (inglés): mountain, city, people…" autocomplete="off">
+            <button id="pm-buscar" class="ini-btn-acc">Buscar</button>
+          </div>
+          <div id="pm-estado" class="pg-estado"></div>
+          <div id="pm-grid" class="pi-grid"></div>
+        </section>
+
+        <section class="pl-view" data-cat="dibujar" hidden>
+          <button id="btn-pluma" class="pl-accion">✒ Pluma (curvas y rectas)</button>
+          <button id="btn-nodos" class="pl-accion">⇲ Editar nodos (puntero blanco)</button>
+          <p class="pl-nota">Dibujá trazos con la pluma y editá sus puntos con el puntero blanco. Clic en un extremo abierto para retomar el trazo.</p>
+        </section>
+
+        <section class="pl-view" data-cat="marca" hidden>
+          <button id="btn-import-font2" class="pl-accion">＋ Importar tipografía (.ttf / .otf)</button>
+          <div class="pl-sub">Agregar de Google Fonts</div>
+          <div class="pg-buscar">
+            <input id="pg-input" type="text" placeholder="Nombre de la fuente (ej. Oswald)" autocomplete="off">
+            <button id="pg-traer" class="ini-btn-acc">Agregar</button>
+          </div>
+          <div id="pg-estado" class="pg-estado"></div>
+          <div class="pg-pop-tit">Populares</div>
+          <div id="pg-populares" class="pg-populares"></div>
+        </section>
+      </div>
+    </aside>
     <div id="escenario">
       <div id="lienzo"></div>
       <div id="vista-carrusel" hidden></div>
@@ -512,7 +527,6 @@ const btWeight = document.querySelector<HTMLSelectElement>('#bt-weight')!
 const btColor = document.querySelector<HTMLInputElement>('#bt-color')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
-document.querySelector('#btn-add-img')!.addEventListener('click', (e) => { e.stopPropagation(); abrirPanelImagen() })
 const menuFigura = document.querySelector<HTMLDivElement>('#menu-figura')!
 // Tipos de figura disponibles (orden del selector).
 const TIPOS_FIGURA = [
@@ -526,29 +540,21 @@ for (const tipo of TIPOS_FIGURA) {
   svg.setAttribute('viewBox', '-1 -1 26 26'); svg.setAttribute('width', '22'); svg.setAttribute('height', '22')
   svg.appendChild(crearFiguraEl(tipo, 24).el)
   b.appendChild(svg)
-  b.addEventListener('click', () => { insertarFigura(tipo); menuFigura.hidden = true })
+  b.addEventListener('click', () => insertarFigura(tipo))
   menuFigura.appendChild(b)
 }
-// Cierra los paneles flotantes (Figura, Íconos, Imagen, Google Fonts) excepto uno.
+// Cierra los paneles FLOTANTES que quedan (solo Tamaño) excepto uno.
 function cerrarPanelesFlotantes(excepto?: Element): void {
-  for (const sel of ['#menu-figura', '#panel-iconos', '#panel-imagen', '#panel-gfonts', '#panel-tamano']) {
+  for (const sel of ['#panel-tamano']) {
     const p = document.querySelector<HTMLElement>(sel)
     if (p && p !== excepto) {
-      // Soltar el foco del input de búsqueda (si no, su cursor sigue parpadeando).
       if (p.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
       p.hidden = true
     }
   }
 }
-document.querySelector('#btn-add-figura')!.addEventListener('click', (e) => {
-  e.stopPropagation()
-  const abrir = menuFigura.hidden
-  cerrarPanelesFlotantes()
-  menuFigura.hidden = !abrir
-})
 
-// --- Panel de íconos / formas / vectores (Iconify + favoritos empaquetados) ---
-const panelIconos = document.querySelector<HTMLDivElement>('#panel-iconos')!
+// --- Vista de íconos / formas / vectores (Iconify + favoritos empaquetados) ---
 const piInput = document.querySelector<HTMLInputElement>('#pi-input')!
 const piEstado = document.querySelector<HTMLDivElement>('#pi-estado')!
 const piGrid = document.querySelector<HTMLDivElement>('#pi-grid')!
@@ -557,7 +563,7 @@ function mostrarIconosFavoritos(): void {
   piGrid.innerHTML = ''
   for (const raw of Object.values(iconosPack)) {
     const b = document.createElement('button'); b.className = 'pi-item'; b.innerHTML = raw
-    const svg = b.querySelector('svg'); if (svg) { svg.setAttribute('stroke', '#e6edf6') }
+    const svg = b.querySelector('svg'); if (svg) { svg.setAttribute('stroke', '#1d2330') }
     b.addEventListener('click', () => insertarIcono(raw))
     piGrid.appendChild(b)
   }
@@ -656,27 +662,16 @@ async function insertarIconoIconify(nombre: string): Promise<void> {
     piEstado.textContent = `✓ ${nombre}`
   } catch { piEstado.textContent = 'No se pudo agregar el ícono' }
 }
-document.querySelector('#btn-add-icono')!.addEventListener('click', (e) => {
-  e.stopPropagation()
-  cerrarPanelesFlotantes(panelIconos)
-  panelIconos.hidden = false
-  if (!piGrid.childElementCount) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos() }
-  piInput.focus()
-})
-document.querySelector('#pi-cerrar')!.addEventListener('click', () => { panelIconos.hidden = true })
 document.querySelector('#pi-buscar')!.addEventListener('click', () => void buscarIconos(piInput.value))
 piInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarIconos(piInput.value) })
-panelIconos.addEventListener('click', (e) => e.stopPropagation())
 
-// --- Panel de imagen: subir del dispositivo o banco de imágenes libres (Openverse) ---
-const panelImagen = document.querySelector<HTMLDivElement>('#panel-imagen')!
+// --- Vista de imagen: subir del dispositivo o banco de imágenes libres (Openverse) ---
 const pmInput = document.querySelector<HTMLInputElement>('#pm-input')!
 const pmEstado = document.querySelector<HTMLDivElement>('#pm-estado')!
 const pmGrid = document.querySelector<HTMLDivElement>('#pm-grid')!
 function abrirPanelImagen(): void {
-  reemplazarDestino = null // por defecto el panel inserta una imagen nueva
-  cerrarPanelesFlotantes(panelImagen)
-  panelImagen.hidden = false
+  reemplazarDestino = null // por defecto inserta una imagen nueva
+  abrirCategoria('subir')
   pmInput.focus()
 }
 async function buscarImagenes(q: string): Promise<void> {
@@ -707,15 +702,12 @@ async function agregarImagenBanco(url: string): Promise<void> {
     const blob = await (await fetchTimeout(url)).blob()
     const foto = await leerFoto(new File([blob], 'banco', { type: blob.type || 'image/jpeg' }))
     insertarImagen(foto)
-    panelImagen.hidden = true
     estado.textContent = 'Imagen agregada desde el banco'
   } catch { pmEstado.textContent = 'No se pudo agregar la imagen' }
 }
-document.querySelector('#pm-subir')!.addEventListener('click', () => { panelImagen.hidden = true; inImgNueva.click() })
-document.querySelector('#pm-cerrar')!.addEventListener('click', () => { panelImagen.hidden = true; reemplazarDestino = null })
+document.querySelector('#pm-subir')!.addEventListener('click', () => inImgNueva.click())
 document.querySelector('#pm-buscar')!.addEventListener('click', () => void buscarImagenes(pmInput.value))
 pmInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarImagenes(pmInput.value) })
-panelImagen.addEventListener('click', (e) => e.stopPropagation())
 
 // --- Panel de tamaño de mesa ---
 const panelTamano = document.querySelector<HTMLDivElement>('#panel-tamano')!
@@ -772,8 +764,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('.modo-switch butto
 // Cerrar los paneles flotantes al hacer clic fuera de ellos (si no, el input de
 // búsqueda queda con foco y su cursor parpadea arriba a la izquierda). Se excluye
 // cada panel y su botón disparador para no cerrarlos en el mismo clic que los abre.
-const SEL_PANELES = '#menu-figura, #panel-iconos, #panel-imagen, #panel-gfonts, #panel-tamano'
-const SEL_DISPARADORES = '#btn-add-figura, #btn-add-icono, #btn-add-img, #btn-tamano, #bt-gfonts'
+const SEL_PANELES = '#panel-tamano'
+const SEL_DISPARADORES = '#btn-tamano'
 document.addEventListener('pointerdown', (e) => {
   const t = e.target as Element | null
   if (!t || t.closest(SEL_PANELES) || t.closest(SEL_DISPARADORES)) return
@@ -797,14 +789,13 @@ inFont.addEventListener('change', async () => {
   inFont.value = ''
 })
 
-// --- Panel de Google Fonts ---
-const panelGfonts = document.querySelector<HTMLDivElement>('#panel-gfonts')!
+// --- Vista de Google Fonts (categoría Marca) ---
 const pgInput = document.querySelector<HTMLInputElement>('#pg-input')!
 const pgEstado = document.querySelector<HTMLDivElement>('#pg-estado')!
-function abrirGfonts(): void {
-  cerrarPanelesFlotantes(panelGfonts)
-  panelGfonts.hidden = false
-  pgEstado.textContent = ''
+let popularesCargadas = false
+function cargarPopularesGfonts(): void {
+  if (popularesCargadas) return
+  popularesCargadas = true
   const cont = document.querySelector<HTMLDivElement>('#pg-populares')!
   cont.innerHTML = ''
   for (const fam of GOOGLE_FONTS_POPULARES) {
@@ -817,7 +808,10 @@ function abrirGfonts(): void {
   const link = document.createElement('link'); link.rel = 'stylesheet'
   link.href = 'https://fonts.googleapis.com/css2?' + GOOGLE_FONTS_POPULARES.map((f) => 'family=' + encodeURIComponent(f)).join('&') + '&display=swap'
   document.head.appendChild(link)
-  pgInput.value = ''; pgInput.focus()
+}
+function abrirGfonts(): void {
+  abrirCategoria('marca') // carga las populares vía abrirCategoria
+  pgInput.focus()
 }
 async function agregarGfont(fam: string): Promise<void> {
   pgEstado.textContent = `Trayendo «${fam}»…`
@@ -831,9 +825,70 @@ async function agregarGfont(fam: string): Promise<void> {
 }
 document.querySelector('#bt-gfonts')!.addEventListener('mousedown', (e) => e.preventDefault()) // no robar foco del editor
 document.querySelector('#bt-gfonts')!.addEventListener('click', () => abrirGfonts())
-document.querySelector('#pg-cerrar')!.addEventListener('click', () => { panelGfonts.hidden = true })
+document.querySelector('#btn-import-font2')!.addEventListener('click', () => inFont.click())
 document.querySelector('#pg-traer')!.addEventListener('click', () => { if (pgInput.value.trim()) void agregarGfont(pgInput.value.trim()) })
 pgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && pgInput.value.trim()) void agregarGfont(pgInput.value.trim()) })
+
+// ============ Riel de categorías + panel acoplado (estilo Express) ============
+const panelLateral = document.querySelector<HTMLElement>('#panel-lateral')!
+const TITULOS_CAT: Record<string, string> = {
+  plantillas: 'Plantillas', texto: 'Texto', elementos: 'Elementos',
+  subir: 'Subir', dibujar: 'Dibujar', marca: 'Marca',
+}
+let categoriaActiva: string | null = null
+function abrirCategoria(cat: string): void {
+  categoriaActiva = cat
+  panelLateral.hidden = false
+  const tit = document.querySelector('#pl-titulo'); if (tit) tit.textContent = TITULOS_CAT[cat] ?? cat
+  for (const v of Array.from(panelLateral.querySelectorAll<HTMLElement>('.pl-view'))) v.hidden = v.dataset.cat !== cat
+  for (const b of Array.from(document.querySelectorAll<HTMLElement>('.rail-item'))) b.classList.toggle('activo', b.dataset.cat === cat)
+  // Cargas perezosas por categoría.
+  if (cat === 'elementos' && !piGrid.childElementCount) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos() }
+  if (cat === 'plantillas') renderPanelPlantillas()
+  if (cat === 'marca') cargarPopularesGfonts()
+}
+function cerrarCategoria(): void {
+  categoriaActiva = null
+  panelLateral.hidden = true
+  for (const b of Array.from(document.querySelectorAll<HTMLElement>('.rail-item'))) b.classList.remove('activo')
+}
+for (const b of Array.from(document.querySelectorAll<HTMLElement>('.rail-item'))) {
+  b.addEventListener('click', () => {
+    const cat = b.dataset.cat!
+    if (categoriaActiva === cat) cerrarCategoria(); else abrirCategoria(cat)
+  })
+}
+document.querySelector('#pl-cerrar')!.addEventListener('click', cerrarCategoria)
+
+// Grilla de plantillas dentro del panel (misma idea que la pantalla de inicio).
+function renderPanelPlantillas(): void {
+  const cont = document.querySelector<HTMLDivElement>('#pl-plantillas')!
+  cont.innerHTML = ''
+  for (const ruta of rutasPlantilla) {
+    const svg = plantillas[ruta] || ''
+    const thumb = svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(miniaturaSvg(svg))}` : ''
+    const b = document.createElement('button'); b.className = 'pl-tpl'
+    b.innerHTML = `<span class="pl-tpl-thumb">${thumb ? `<img src="${thumb}" alt="" loading="lazy">` : ''}</span><span class="pl-tpl-nom">${escHtml(nombreCorto(ruta))}</span>`
+    b.addEventListener('click', () => usarPlantilla(ruta))
+    cont.appendChild(b)
+  }
+}
+
+// Presets de texto (Título / Subtítulo / Cuerpo): agregan un cuadro y fijan tamaño.
+function agregarTextoPreset(mult: number): void {
+  agregarTexto()
+  if (!editorActivo) return
+  const nombre = editorActivo.nombre
+  const base = metricas[nombre]?.fontSizeUser ?? 48
+  ;(estilos[nombre] ??= {}).fontSize = Math.max(8, Math.round(base * mult))
+  aplicarEstiloTextarea(nombre); sincronizarBarra(nombre); marcarCampoEditado()
+}
+for (const b of Array.from(document.querySelectorAll<HTMLElement>('.pl-preset'))) {
+  b.addEventListener('click', () => {
+    const p = b.dataset.preset
+    agregarTextoPreset(p === 'titulo' ? 1.7 : p === 'subtitulo' ? 1.1 : 0.7)
+  })
+}
 
 let contadorAgregados = 0 // para nombres únicos de elementos agregados
 
@@ -4513,7 +4568,7 @@ function abrirEditor(nombre: string): void {
     // Si el foco va a la barra de controles (ej. el selector de fuente),
     // NO cerramos el editor: queremos seguir editando ese campo.
     const rt = e.relatedTarget as HTMLElement | null
-    if (rt && (barraTexto.contains(rt) || rt.closest('#panel-gfonts'))) return
+    if (rt && (barraTexto.contains(rt) || rt.closest('#panel-lateral'))) return
     commitEditor()
   })
   ta.addEventListener('keydown', (e) => {
