@@ -483,9 +483,8 @@ app.innerHTML = `
       <button id="btn-nodos" class="md-opcion">⇲ Editar nodos</button>
     </div>
     <div id="escenario">
-      <div id="tira-lienzos">
-        <div id="lienzo"></div>
-      </div>
+      <div id="lienzo"></div>
+      <div id="vista-carrusel" hidden></div>
     </div>
   </div>
   <div id="zoom-ctrl">
@@ -6295,7 +6294,6 @@ async function irAMesa(i: number): Promise<void> {
   restaurarHistorialActivo()
   aplicarZoom()
   renderMesas()
-  document.querySelector('#lienzo')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
 }
 async function agregarMesa(duplicar: boolean): Promise<void> {
   guardarMesaActiva(); guardarHistorialActivo()
@@ -6378,45 +6376,50 @@ function renderMesas(): void {
   tam.addEventListener('click', (e) => { e.stopPropagation(); togglePanelTamano() })
   tira.append(add, dup, tam)
   if (mesas.length > 1) {
+    const carr = document.createElement('button'); carr.className = 'mesa-btn' + (vistaCarrusel ? ' activa' : ''); carr.textContent = '▦'; carr.title = 'Ver todas las mesas (carrusel)'
+    carr.addEventListener('click', () => toggleCarrusel())
     const zip = document.createElement('button'); zip.className = 'mesa-btn'; zip.textContent = '⬇'; zip.title = 'Exportar todas las mesas (ZIP)'
     zip.addEventListener('click', () => void exportarTodas())
-    tira.append(zip)
+    tira.append(carr, zip)
   }
-  renderTira() // las mesas se ven pegadas en el lienzo (la activa editable)
+  if (vistaCarrusel) renderCarrusel()
 }
 
-// ---- Tira horizontal: todas las mesas pegadas; la activa es el lienzo editable,
-// las demás son vistas previas (clic para editar). Reemplaza al carrusel aparte. ----
-function renderTira(): void {
-  const tira = document.querySelector<HTMLDivElement>('#tira-lienzos')
-  const lz = document.querySelector<HTMLElement>('#lienzo')
-  if (!tira || !lz) return
-  lz.remove() // se reinserta en la posición de la mesa activa
-  tira.innerHTML = ''
-  const W = Math.round(anchoBaseLienzo() * zoomLienzo)
-  if (!mesas.length) { tira.appendChild(lz); return }
+// ---- Vista carrusel: todas las mesas pegadas, click para editar, drag para reordenar ----
+let vistaCarrusel = false
+function aplicarVistaCarrusel(): void {
+  const lz = document.querySelector<HTMLElement>('#lienzo')!
+  const vc = document.querySelector<HTMLElement>('#vista-carrusel')!
+  const zc = document.querySelector<HTMLElement>('#zoom-ctrl')
+  lz.hidden = vistaCarrusel
+  vc.hidden = !vistaCarrusel
+  if (zc) zc.style.display = vistaCarrusel ? 'none' : ''
+  if (vistaCarrusel) renderCarrusel()
+}
+function toggleCarrusel(): void {
+  if (!vistaCarrusel) guardarMesaActiva()
+  vistaCarrusel = !vistaCarrusel
+  aplicarVistaCarrusel()
+  renderMesas()
+}
+function renderCarrusel(): void {
+  const vc = document.querySelector<HTMLDivElement>('#vista-carrusel')
+  if (!vc) return
+  if (mesas.length) guardarMesaActiva()
+  vc.innerHTML = ''
   mesas.forEach((m, i) => {
-    if (i === mesaActiva) { tira.appendChild(lz); return }
-    const prev = document.createElement('button'); prev.className = 'mesa-preview'
-    const vb = m.svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)/)
-    const ratio = vb ? (+vb[2]) / (+vb[1]) : 1.25
-    prev.dataset.ratio = String(ratio)
-    prev.style.width = W + 'px'; prev.style.height = Math.round(W * ratio) + 'px'
-    prev.title = (m.nombre || `Mesa ${i + 1}`) + ' — clic para editar'
+    const item = document.createElement('div'); item.className = 'carr-item' + (i === mesaActiva ? ' activa' : '')
+    item.draggable = true; item.title = 'Clic: editar · arrastrar: reordenar'
     const img = document.createElement('img'); img.src = 'data:image/svg+xml,' + encodeURIComponent(m.svg); img.alt = ''
-    prev.appendChild(img)
-    prev.addEventListener('click', () => void irAMesa(i))
-    tira.appendChild(prev)
+    const label = document.createElement('span'); label.className = 'carr-label'; label.textContent = m.nombre || `Mesa ${i + 1}`
+    item.append(img, label)
+    item.addEventListener('click', () => { vistaCarrusel = false; aplicarVistaCarrusel(); renderMesas(); void irAMesa(i) })
+    item.addEventListener('dragstart', () => { arrastrandoMesa = i })
+    item.addEventListener('dragover', (e) => e.preventDefault())
+    item.addEventListener('drop', (e) => { e.preventDefault(); moverMesa(arrastrandoMesa, i); arrastrandoMesa = -1 })
+    vc.appendChild(item)
   })
 }
-// Reescala solo las previews al cambiar el zoom (sin reconstruir las imágenes).
-function tamanoPreviews(): void {
-  const W = Math.round(anchoBaseLienzo() * zoomLienzo)
-  for (const p of Array.from(document.querySelectorAll<HTMLElement>('.mesa-preview'))) {
-    p.style.width = W + 'px'; p.style.height = Math.round(W * (parseFloat(p.dataset.ratio || '1.25'))) + 'px'
-  }
-}
-
 
 // Restaura un guardado que puede ser multi-mesa { multi, mesas, mesaActiva } o
 // un proyecto viejo de una sola placa.
@@ -7284,7 +7287,6 @@ function aplicarZoom(): void {
   lienzo.style.maxWidth = 'none'
   lienzo.style.width = Math.round(anchoBaseLienzo() * zoomLienzo) + 'px'
   zoomVal.textContent = Math.round(zoomLienzo * 100) + '%'
-  tamanoPreviews() // las vistas previas de las otras mesas siguen el zoom
   construirOverlays()
   if (modoGrafico && grafSeleccion.length) dibujarSelGraf()
 }
