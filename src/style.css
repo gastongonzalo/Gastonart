@@ -1498,9 +1498,10 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .ini-preset-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .ini-preset-nom { font-size: 13px; }
 .ini-preset-dim { font-size: 11px; color: var(--dim); }
-/* Mini-ícono con la proporción del formato. */
-.prop-ic { flex: none; display: inline-block; vertical-align: middle; }
-.prop-ic rect { fill: var(--accent); opacity: 0.9; }
+/* Mini-ícono con la proporción del formato: marco de color + líneas gris "texto". */
+.prop-ic { flex: none; display: inline-block; vertical-align: middle; width: 22px; height: 22px; }
+.prop-frame { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.prop-line { fill: var(--muted); opacity: 0.7; }
 .ini-custom { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
 .ini-custom input[type='number'] {
   width: 76px;
@@ -1531,7 +1532,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .carr-fmt:hover { border-color: var(--accent); }
 .carr-fmt.activo { border-color: var(--accent); background: rgba(2, 132, 199, 0.08); box-shadow: inset 0 0 0 1px var(--accent); }
-.carr-fmt .prop-ic { width: 30px; height: 30px; }
+.carr-fmt .prop-ic { width: 40px; height: 40px; }
 .carr-fmt-nom { font-size: 13px; font-weight: 600; }
 .carr-fmt-dim { font-size: 11px; color: var(--dim); }
 .ini-plantillas { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }

@@ -803,13 +803,26 @@ function poblarPresetsTamano(): void {
 function clampDim(v: number): number { return Math.max(16, Math.min(8000, Math.round(v) || 16)) }
 // Cuántos px vale 1 de la unidad (mm/cm a 300 DPI de impresión; 1 in = 25.4 mm = 300 px).
 function pxPorUnidad(u: string): number { return u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1 }
-// Mini-ícono SVG con la proporción real del formato (un rectángulo a escala).
+// Mini-ícono SVG con la proporción real del formato: marco con contorno de color y
+// adentro líneas grises tipo "texto" (más o menos según el alto disponible), como
+// el preview de una plantilla.
 function iconoProporcion(w: number, h: number): string {
-  const max = 14
+  const VB = 24, max = 22
   let rw = max, rh = max
-  if (w >= h) rh = Math.max(3, Math.round((max * h) / w)); else rw = Math.max(3, Math.round((max * w) / h))
-  const x = ((16 - rw) / 2).toFixed(1), y = ((16 - rh) / 2).toFixed(1)
-  return `<svg class="prop-ic" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="${x}" y="${y}" width="${rw}" height="${rh}" rx="1.5"/></svg>`
+  if (w >= h) rh = Math.max(7, (max * h) / w); else rw = Math.max(7, (max * w) / h)
+  const x = (VB - rw) / 2, y = (VB - rh) / 2
+  const pad = 2.6, ix = x + pad, iw = rw - pad * 2
+  const gap = 3.2
+  const anchos = [0.9, 0.6, 0.78, 0.5, 0.7] // 1.ª línea = "título" más larga
+  let ly = y + pad + 0.5, i = 0
+  const lineas: string[] = []
+  while (ly <= y + rh - pad - 1 && lineas.length < 5) {
+    lineas.push(`<rect x="${ix.toFixed(1)}" y="${ly.toFixed(1)}" width="${(iw * anchos[i % anchos.length]).toFixed(1)}" height="1.3" rx="0.6" class="prop-line"/>`)
+    ly += gap; i++
+  }
+  return `<svg class="prop-ic" viewBox="0 0 ${VB} ${VB}" aria-hidden="true">` +
+    `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${rw.toFixed(1)}" height="${rh.toFixed(1)}" rx="2.5" class="prop-frame"/>` +
+    lineas.join('') + `</svg>`
 }
 // El botón "Tamaño" vive en la tira de mesas (renderMesas lo crea y llama esto).
 function togglePanelTamano(): void {
