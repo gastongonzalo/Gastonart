@@ -338,6 +338,16 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 app.innerHTML = `
   <header class="topbar">
     <div class="tb-marca">
+      <span class="tb-menu-wrap">
+        <button id="btn-menu" class="mini" title="Archivo">☰ Archivo</button>
+        <div id="menu-archivo" class="menu-archivo" hidden>
+          <button id="btn-nuevo" class="tb-menu-item">＋ Nuevo diseño</button>
+          <button id="btn-guardar" class="tb-menu-item">💾 Guardar proyecto</button>
+          <button id="btn-cargar" class="tb-menu-item">📂 Abrir proyecto</button>
+          <button id="btn-guardar-plantilla" class="tb-menu-item" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Guardar como plantilla</button>
+          <button id="btn-import-font" class="tb-menu-item" title="Importar tipografía (.ttf / .otf)">＋ Importar tipografía</button>
+        </div>
+      </span>
       <strong>GastonART</strong>
       <input id="tb-nombre" class="tb-nombre" type="text" placeholder="Mi diseño" aria-label="Nombre del proyecto" spellcheck="false">
       <select id="sel-plantilla" hidden>
@@ -357,16 +367,6 @@ app.innerHTML = `
       <button id="btn-copiar" class="mini" title="Copiar (Ctrl+C)" disabled>⧉</button>
       <button id="btn-pegar" class="mini" title="Pegar (Ctrl+V)" disabled>📋</button>
       <span class="tb-div"></span>
-      <span class="tb-menu-wrap">
-        <button id="btn-menu" class="mini" title="Archivo">☰ Archivo</button>
-        <div id="menu-archivo" class="menu-archivo" hidden>
-          <button id="btn-nuevo" class="tb-menu-item">＋ Nuevo diseño</button>
-          <button id="btn-guardar" class="tb-menu-item">💾 Guardar proyecto</button>
-          <button id="btn-cargar" class="tb-menu-item">📂 Abrir proyecto</button>
-          <button id="btn-guardar-plantilla" class="tb-menu-item" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Guardar como plantilla</button>
-          <button id="btn-import-font" class="tb-menu-item" title="Importar tipografía (.ttf / .otf)">＋ Importar tipografía</button>
-        </div>
-      </span>
       <button id="btn-export" class="tb-export">⬇ Descargar</button>
     </div>
   </header>
@@ -454,17 +454,12 @@ app.innerHTML = `
           <button id="pm-subir" class="pl-accion">⬆ Subir desde el dispositivo</button>
           <div class="pm-sep">o buscá en el banco de imágenes libres</div>
           <div class="pg-buscar">
-            <input id="pm-input" type="text" placeholder="Buscar (inglés): mountain, city, people…" autocomplete="off">
+            <input id="pm-input" type="text" placeholder="Escribí para buscar (ej. montaña, ciudad…)" autocomplete="off">
             <button id="pm-buscar" class="ini-btn-acc">Buscar</button>
           </div>
+          <div id="pm-sugerencias" class="pg-sugerencias"></div>
           <div id="pm-estado" class="pg-estado"></div>
           <div id="pm-grid" class="pi-grid"></div>
-        </section>
-
-        <section class="pl-view" data-cat="dibujar" hidden>
-          <button id="btn-pluma" class="pl-accion">✒ Pluma (curvas y rectas)</button>
-          <button id="btn-nodos" class="pl-accion">⇲ Editar nodos (puntero blanco)</button>
-          <p class="pl-nota">Dibujá trazos con la pluma y editá sus puntos con el puntero blanco. Clic en un extremo abierto para retomar el trazo.</p>
         </section>
 
         <section class="pl-view" data-cat="marca" hidden>
@@ -480,6 +475,10 @@ app.innerHTML = `
         </section>
       </div>
     </aside>
+    <div id="menu-dibujar" class="menu-dibujar" hidden>
+      <button id="btn-pluma" class="md-opcion">✒ Pluma</button>
+      <button id="btn-nodos" class="md-opcion">⇲ Editar nodos</button>
+    </div>
     <div id="escenario">
       <div id="lienzo"></div>
       <div id="vista-carrusel" hidden></div>
@@ -491,6 +490,7 @@ app.innerHTML = `
     <button id="zoom-mas" title="Acercar (Ctrl +)">+</button>
     <button id="zoom-fit" title="Ajustar a la vista">⤢</button>
     <button id="btn-reglas" title="Reglas y guías (arrastrá desde las reglas)">📏</button>
+    <button id="btn-recorte" title="Recortar a la mesa: ocultar lo que sobresale del borde">⬚</button>
   </div>
   <div id="tira-mesas"></div>
   <input type="file" id="in-foto" accept="image/*" hidden>
@@ -678,20 +678,24 @@ function abrirPanelImagen(): void {
   abrirCategoria('subir')
   pmInput.focus()
 }
+let buscarImgToken = 0
 async function buscarImagenes(q: string): Promise<void> {
   q = q.trim()
   if (!q) return
   const consulta = traducirBusqueda(q)
+  const token = ++buscarImgToken // descarta resultados de búsquedas viejas (en vivo)
   pmEstado.textContent = 'Buscando…'; pmGrid.innerHTML = ''
   let resultados: { id: string; thumbnail?: string; title?: string }[] = []
   try {
     const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(consulta)}&page_size=20`
     const data = await (await fetchTimeout(url)).json()
     resultados = (data as { results?: typeof resultados }).results ?? []
-  } catch { pmEstado.textContent = 'No se pudo buscar (¿sin conexión?)'; return }
+  } catch { if (token === buscarImgToken) pmEstado.textContent = 'No se pudo buscar (¿sin conexión?)'; return }
+  if (token !== buscarImgToken) return // llegó una búsqueda más nueva
   const conThumb = resultados.filter((r) => r.thumbnail)
   if (!conThumb.length) { pmEstado.textContent = `Sin resultados para «${q}»`; return }
   pmEstado.textContent = `${conThumb.length} imágenes`
+  pmGrid.innerHTML = ''
   for (const r of conThumb) {
     const b = document.createElement('button'); b.className = 'pi-item pm-item'; b.title = r.title ?? ''
     const img = document.createElement('img'); img.src = r.thumbnail!; img.loading = 'lazy'; img.alt = r.title ?? ''
@@ -712,6 +716,30 @@ async function agregarImagenBanco(url: string): Promise<void> {
 document.querySelector('#pm-subir')!.addEventListener('click', () => inImgNueva.click())
 document.querySelector('#pm-buscar')!.addEventListener('click', () => void buscarImagenes(pmInput.value))
 pmInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarImagenes(pmInput.value) })
+// Búsqueda EN VIVO: filtra al tipear, a partir de la 3.ª letra (con un respiro
+// para no disparar en cada tecla).
+let tBuscarImg: number | undefined
+pmInput.addEventListener('input', () => {
+  clearTimeout(tBuscarImg)
+  const q = pmInput.value.trim()
+  if (q.length < 3) return
+  tBuscarImg = window.setTimeout(() => void buscarImagenes(q), 350)
+})
+
+// Sugerencias al abrir Imágenes: chips de términos comunes + carga una por defecto
+// para que la grilla no arranque vacía.
+const SUGERENCIAS_IMG = ['naturaleza', 'ciudad', 'gente', 'comida', 'negocios', 'tecnología', 'abstracto', 'fondo']
+let sugerenciasImgCargadas = false
+function mostrarSugerenciasImg(): void {
+  const cont = document.querySelector<HTMLDivElement>('#pm-sugerencias')
+  if (!cont || cont.childElementCount) return
+  for (const term of SUGERENCIAS_IMG) {
+    const c = document.createElement('button'); c.className = 'pg-chip'; c.textContent = term
+    c.addEventListener('click', () => { pmInput.value = term; void buscarImagenes(term) })
+    cont.appendChild(c)
+  }
+  if (!sugerenciasImgCargadas) { sugerenciasImgCargadas = true; void buscarImagenes('naturaleza') }
+}
 
 // --- Panel de tamaño de mesa ---
 const panelTamano = document.querySelector<HTMLDivElement>('#panel-tamano')!
@@ -850,19 +878,44 @@ function abrirCategoria(cat: string): void {
   if (cat === 'elementos' && !piGrid.childElementCount) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos() }
   if (cat === 'plantillas') renderPanelPlantillas()
   if (cat === 'marca') cargarPopularesGfonts()
+  if (cat === 'subir') mostrarSugerenciasImg()
 }
 function cerrarCategoria(): void {
   categoriaActiva = null
   panelLateral.hidden = true
   for (const b of Array.from(document.querySelectorAll<HTMLElement>('.rail-item'))) b.classList.remove('activo')
 }
+// "Dibujar" no abre el panel grande: solo un popover chico con las 2 opciones.
+const menuDibujar = document.querySelector<HTMLElement>('#menu-dibujar')!
+function cerrarMenuDibujar(): void {
+  menuDibujar.hidden = true
+  document.querySelector('.rail-item[data-cat="dibujar"]')?.classList.remove('activo')
+}
+function abrirMenuDibujar(item: HTMLElement): void {
+  cerrarCategoria() // si había un panel abierto, se cierra
+  const r = item.getBoundingClientRect()
+  menuDibujar.style.top = Math.round(r.top) + 'px'
+  menuDibujar.style.left = Math.round(r.right + 6) + 'px'
+  menuDibujar.hidden = false
+  item.classList.add('activo')
+}
+menuDibujar.addEventListener('click', () => cerrarMenuDibujar()) // al elegir Pluma/Nodos se cierra
 for (const b of Array.from(document.querySelectorAll<HTMLElement>('.rail-item'))) {
-  b.addEventListener('click', () => {
+  b.addEventListener('click', (e) => {
+    e.stopPropagation()
     const cat = b.dataset.cat!
+    if (cat === 'dibujar') { menuDibujar.hidden ? abrirMenuDibujar(b) : cerrarMenuDibujar(); return }
+    cerrarMenuDibujar()
     if (categoriaActiva === cat) cerrarCategoria(); else abrirCategoria(cat)
   })
 }
 document.querySelector('#pl-cerrar')!.addEventListener('click', cerrarCategoria)
+// Cerrar el popover de Dibujar al clic afuera.
+document.addEventListener('pointerdown', (e) => {
+  if (menuDibujar.hidden) return
+  const t = e.target as Element | null
+  if (t && !t.closest('#menu-dibujar') && !t.closest('.rail-item[data-cat="dibujar"]')) cerrarMenuDibujar()
+}, true)
 
 // Grilla de plantillas dentro del panel (misma idea que la pantalla de inicio).
 function renderPanelPlantillas(): void {
@@ -3560,6 +3613,17 @@ function dibujarSelGraf(): void {
   const stroke = swatch('Contorno', true, cs.stroke, '#000000', (v) => { for (const el of grafSeleccion) el.style.stroke = v })
   tools.append(fill, stroke)
 
+  // Grosor del contorno/trazo (en unidades del lienzo).
+  const grosor = document.createElement('label'); grosor.className = 'graf-grosor'; grosor.title = 'Grosor del contorno/trazo'
+  const gwi = document.createElement('input'); gwi.type = 'number'; gwi.min = '0'; gwi.max = '400'; gwi.step = '1'
+  const sw0 = parseFloat(getComputedStyle(grafSeleccion[0]).strokeWidth)
+  gwi.value = String(isNaN(sw0) ? 0 : Math.round(sw0))
+  gwi.addEventListener('input', () => { for (const el of grafSeleccion) el.style.strokeWidth = gwi.value })
+  gwi.addEventListener('change', () => { registrarHistorial(); autoguardar() })
+  gwi.addEventListener('pointerdown', (e) => e.stopPropagation())
+  grosor.append('〜', gwi)
+  tools.append(grosor)
+
   // Opacidad (0 = transparente, 1 = sólido). Aplica a toda la selección.
   const opac = document.createElement('label'); opac.className = 'graf-opac'; opac.title = 'Opacidad'
   const oi = document.createElement('input'); oi.type = 'range'; oi.min = '0'; oi.max = '1'; oi.step = '0.01'
@@ -4117,6 +4181,12 @@ function construirOverlays(): void {
   document.querySelectorAll('.foto-tools').forEach((n) => n.remove()) // foto-tools flotan en <body>
   zoomSlider = null
   dibujarReglas(); dibujarGuiasFijas() // se redibujan al cambiar zoom/modo/contenido
+  // Marco de la mesa SIEMPRE visible (para ver el límite aunque un elemento lo
+  // sobrepase). Se recrea acá porque aplicarSnapshot reemplaza el HTML del lienzo.
+  if (!lienzo.querySelector('.mesa-marco')) {
+    const m = document.createElement('div'); m.className = 'mesa-marco'; m.setAttribute('aria-hidden', 'true')
+    lienzo.appendChild(m)
+  }
   const base = lienzo.getBoundingClientRect()
   // 'plantilla' = restringido (texto + foto). 'completa' = todo: el texto, las
   // fotos (solo la mini-barra; los vectores se seleccionan por la capa del svg) y
@@ -7130,6 +7200,11 @@ document.querySelector('#zoom-mas')!.addEventListener('click', () => setZoom(zoo
 document.querySelector('#zoom-val')!.addEventListener('click', () => setZoom(1))
 document.querySelector('#zoom-fit')!.addEventListener('click', () => setZoom(1))
 document.querySelector('#btn-reglas')!.addEventListener('click', toggleReglas)
+// Recortar a la mesa: el svg pasa a overflow:hidden → lo que sobresale no se ve.
+document.querySelector('#btn-recorte')!.addEventListener('click', (e) => {
+  const on = lienzo.classList.toggle('recortar')
+  ;(e.currentTarget as HTMLElement).classList.toggle('activo', on)
+})
 escenario.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return // Ctrl + rueda = zoom
   e.preventDefault()
