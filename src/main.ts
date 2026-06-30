@@ -407,8 +407,13 @@ app.innerHTML = `
     </div>
     <div id="pt-presets" class="pt-presets"></div>
     <div class="pt-custom">
-      <input id="pt-w" type="number" min="16" max="8000" aria-label="Ancho"> ×
-      <input id="pt-h" type="number" min="16" max="8000" aria-label="Alto"> px
+      <input id="pt-w" type="number" min="0.1" max="20000" step="any" aria-label="Ancho"> ×
+      <input id="pt-h" type="number" min="0.1" max="20000" step="any" aria-label="Alto">
+      <select id="pt-unidad" class="unidad-sel" aria-label="Unidad">
+        <option value="px">px</option>
+        <option value="mm">mm</option>
+        <option value="cm">cm</option>
+      </select>
       <button id="pt-aplicar" class="ini-btn-acc">Aplicar</button>
     </div>
     <div class="pt-nota">Cambia el tamaño de la placa actual. El contenido queda en su lugar.</div>
@@ -783,32 +788,51 @@ function mostrarSugerenciasImg(): void {
 const panelTamano = document.querySelector<HTMLDivElement>('#panel-tamano')!
 const ptW = document.querySelector<HTMLInputElement>('#pt-w')!
 const ptH = document.querySelector<HTMLInputElement>('#pt-h')!
+const ptUnidad = document.querySelector<HTMLSelectElement>('#pt-unidad')!
+let ptUnidadPrev = 'px'
 function poblarPresetsTamano(): void {
   const cont = document.querySelector<HTMLDivElement>('#pt-presets')!
   if (cont.childElementCount) return
   for (const p of PRESETS_TAMANO) {
     const b = document.createElement('button'); b.className = 'pt-preset'
     b.innerHTML = `<span class="pt-preset-nom">${escAttr(p.nombre)}</span><span class="pt-preset-dim">${p.w}×${p.h}</span>`
-    b.addEventListener('click', () => { ptW.value = String(p.w); ptH.value = String(p.h); redimensionarMesa(p.w, p.h) })
+    b.addEventListener('click', () => { ptUnidad.value = 'px'; ptUnidadPrev = 'px'; ptW.value = String(p.w); ptH.value = String(p.h); redimensionarMesa(p.w, p.h) })
     cont.appendChild(b)
   }
 }
 function clampDim(v: number): number { return Math.max(16, Math.min(8000, Math.round(v) || 16)) }
 // Cuántos px vale 1 de la unidad (mm/cm a 300 DPI de impresión; 1 in = 25.4 mm = 300 px).
 function pxPorUnidad(u: string): number { return u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1 }
+// Mini-ícono SVG con la proporción real del formato (un rectángulo a escala).
+function iconoProporcion(w: number, h: number): string {
+  const max = 14
+  let rw = max, rh = max
+  if (w >= h) rh = Math.max(3, Math.round((max * h) / w)); else rw = Math.max(3, Math.round((max * w) / h))
+  const x = ((16 - rw) / 2).toFixed(1), y = ((16 - rh) / 2).toFixed(1)
+  return `<svg class="prop-ic" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="${x}" y="${y}" width="${rw}" height="${rh}" rx="1.5"/></svg>`
+}
 // El botón "Tamaño" vive en la tira de mesas (renderMesas lo crea y llama esto).
 function togglePanelTamano(): void {
   const abrir = panelTamano.hidden
   cerrarPanelesFlotantes(panelTamano)
   if (abrir && svgEl) {
     poblarPresetsTamano()
+    ptUnidad.value = 'px'; ptUnidadPrev = 'px'
     ptW.value = String(Math.round(svgEl.viewBox.baseVal.width)); ptH.value = String(Math.round(svgEl.viewBox.baseVal.height))
   }
   panelTamano.hidden = !abrir
 }
 document.querySelector('#pt-cerrar')!.addEventListener('click', () => { panelTamano.hidden = true })
+ptUnidad.addEventListener('change', () => {
+  const factor = pxPorUnidad(ptUnidadPrev) / pxPorUnidad(ptUnidad.value)
+  const dec = ptUnidad.value === 'px' ? 0 : 1
+  ptW.value = (parseFloat(ptW.value || '0') * factor).toFixed(dec)
+  ptH.value = (parseFloat(ptH.value || '0') * factor).toFixed(dec)
+  ptUnidadPrev = ptUnidad.value
+})
 document.querySelector('#pt-aplicar')!.addEventListener('click', () => {
-  redimensionarMesa(clampDim(+ptW.value), clampDim(+ptH.value))
+  const f = pxPorUnidad(ptUnidad.value)
+  redimensionarMesa(clampDim((parseFloat(ptW.value) || 0) * f), clampDim((parseFloat(ptH.value) || 0) * f))
 })
 panelTamano.addEventListener('click', (e) => e.stopPropagation())
 
@@ -7026,7 +7050,7 @@ function mostrarInicio(): void {
       ${PRESETS_TAMANO.filter((p) => p.grupo === g).map((p) =>
         `<button class="ini-preset" data-w="${p.w}" data-h="${p.h}">
            <span class="ini-preset-nom">${escAttr(p.nombre)}</span>
-           <span class="ini-preset-dim">${p.w}×${p.h}</span>
+           <span class="ini-preset-dim">${iconoProporcion(p.w, p.h)}${p.w}×${p.h}</span>
          </button>`).join('')}
     </div>`).join('')
 
@@ -7079,7 +7103,7 @@ function mostrarInicio(): void {
         <div class="ini-custom">
           <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho"> ×
           <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
-          <select id="ini-unidad" aria-label="Unidad">
+          <select id="ini-unidad" class="unidad-sel" aria-label="Unidad">
             <option value="px">px</option>
             <option value="mm">mm</option>
             <option value="cm">cm</option>
@@ -7090,12 +7114,15 @@ function mostrarInicio(): void {
       <section class="ini-seccion">
         <h3>Carrusel para redes</h3>
         <p class="ini-nota" style="margin:0 0 8px">Una sola mesa ancha para diseñar el carrusel de corrido. Al exportar se corta en una imagen por slide.</p>
+        <div class="carr-formatos">
+          ${[['1080x1080', 'Cuadrado', 1080, 1080], ['1080x1350', 'Retrato', 1080, 1350], ['1080x1920', 'Story', 1080, 1920]]
+            .map(([tam, nom, w, h], i) => `<button class="carr-fmt${i === 0 ? ' activo' : ''}" data-tam="${tam}">
+              ${iconoProporcion(w as number, h as number)}
+              <span class="carr-fmt-nom">${nom}</span>
+              <span class="carr-fmt-dim">${w}×${h}</span>
+            </button>`).join('')}
+        </div>
         <div class="ini-custom">
-          <select id="ini-carr-tam" aria-label="Tamaño de cada slide">
-            <option value="1080x1080">Cuadrado · 1080×1080</option>
-            <option value="1080x1350">Retrato · 1080×1350</option>
-            <option value="1080x1920">Story · 1080×1920</option>
-          </select>
           <input type="number" id="ini-carr-n" min="2" max="20" step="1" value="3" aria-label="Cantidad de slides">
           <span>slides</span>
           <button id="ini-crear-carr" class="ini-btn-acc">Crear carrusel</button>
@@ -7115,9 +7142,16 @@ function mostrarInicio(): void {
   ov.querySelector('#ini-cerrar')!.addEventListener('click', () => cerrarInicio())
   ov.querySelectorAll<HTMLButtonElement>('.ini-preset').forEach((b) =>
     b.addEventListener('click', () => { cerrarInicio(); nuevaPlacaEnBlanco(+b.dataset.w!, +b.dataset.h!) }))
+  // Selección del formato de carrusel (tarjetas tipo radio).
+  ov.querySelectorAll<HTMLButtonElement>('.carr-fmt').forEach((b) =>
+    b.addEventListener('click', () => {
+      ov.querySelectorAll('.carr-fmt').forEach((x) => x.classList.remove('activo'))
+      b.classList.add('activo')
+    }))
   // Crear carrusel (mesa ancha que se corta al exportar).
   ov.querySelector('#ini-crear-carr')!.addEventListener('click', () => {
-    const [sw, sh] = (ov.querySelector<HTMLSelectElement>('#ini-carr-tam')!.value).split('x').map(Number)
+    const fmt = ov.querySelector<HTMLButtonElement>('.carr-fmt.activo') ?? ov.querySelector<HTMLButtonElement>('.carr-fmt')!
+    const [sw, sh] = (fmt.dataset.tam || '1080x1080').split('x').map(Number)
     const n = Math.max(2, Math.min(20, Math.round(+ov.querySelector<HTMLInputElement>('#ini-carr-n')!.value || 3)))
     cerrarInicio(); crearCarrusel(sw, sh, n)
   })

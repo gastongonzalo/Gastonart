@@ -1496,7 +1496,10 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .ini-preset:hover { border-color: var(--accent); }
 .ini-preset-nom { font-size: 13px; }
-.ini-preset-dim { font-size: 11px; color: var(--dim); }
+.ini-preset-dim { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); }
+/* Mini-ícono con la proporción del formato. */
+.prop-ic { flex: none; display: inline-block; vertical-align: middle; }
+.prop-ic rect { fill: var(--accent); opacity: 0.9; }
 .ini-custom { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); }
 .ini-custom input[type='number'] {
   width: 76px;
@@ -1507,6 +1510,29 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   padding: 6px 8px;
   font-size: 13px;
 }
+/* Selector de unidad (px/mm/cm) lindo, con flecha propia. */
+.unidad-sel {
+  appearance: none; -webkit-appearance: none;
+  padding: 6px 26px 6px 10px;
+  background: var(--inset) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23667085' fill='none' stroke-width='1.5' stroke-linecap='round'/></svg>") no-repeat right 9px center;
+  border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.unidad-sel:hover { border-color: var(--accent); }
+.unidad-sel:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.18); }
+/* Tarjetas de formato de carrusel (en vez de un <select>). */
+.carr-formatos { display: flex; gap: 10px; margin-bottom: 10px; }
+.carr-fmt {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 12px 8px; background: var(--inset); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text); cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.carr-fmt:hover { border-color: var(--accent); }
+.carr-fmt.activo { border-color: var(--accent); background: rgba(2, 132, 199, 0.08); box-shadow: inset 0 0 0 1px var(--accent); }
+.carr-fmt .prop-ic { width: 30px; height: 30px; }
+.carr-fmt-nom { font-size: 13px; font-weight: 600; }
+.carr-fmt-dim { font-size: 11px; color: var(--dim); }
 .ini-plantillas { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 .ini-plantilla-wrap { position: relative; display: flex; }
 .ini-plantilla, .ini-reciente {
