@@ -508,6 +508,7 @@ app.innerHTML = `
       <a id="pe-descargar" class="pe-dl" download>⬇ PNG</a>
       <button id="pe-svg" class="pe-dl mini" title="Descargar SVG (vectorial, reabre en Illustrator/Figma)">⬇ SVG</button>
       <button id="pe-pdf" class="pe-dl mini" title="Descargar PDF vectorial">⬇ PDF</button>
+      <button id="pe-carrusel" class="pe-dl" title="Cortar el carrusel en una imagen por slide (ZIP)" hidden>⬇ Carrusel (ZIP)</button>
       <button id="pe-cerrar" class="mini">Cerrar</button>
     </div>
     <img id="pe-img" alt="Vista previa del PNG exportado">
@@ -522,6 +523,7 @@ const inFoto = document.querySelector<HTMLInputElement>('#in-foto')!
 const panelExport = document.querySelector<HTMLDivElement>('#panel-export')!
 const peImg = document.querySelector<HTMLImageElement>('#pe-img')!
 const peDescargar = document.querySelector<HTMLAnchorElement>('#pe-descargar')!
+const peCarrusel = document.querySelector<HTMLButtonElement>('#pe-carrusel')!
 const peTransparente = document.querySelector<HTMLInputElement>('#pe-transparente')!
 const inImgNueva = document.querySelector<HTMLInputElement>('#in-img-nueva')!
 const barraTexto = document.querySelector<HTMLDivElement>('#barra-texto')!
@@ -4071,6 +4073,9 @@ function limpiarGuias(): void {
 // (en unidades del viewBox). Las reglas son una preferencia global de la vista.
 let mostrarReglas = false
 let guiasFijas: { v: number[]; h: number[] } = { v: [], h: [] }
+// Carrusel: cantidad de slides de la mesa activa (0 = no es carrusel). Es ancho =
+// slideW × slides; al exportar se corta en una imagen por slide.
+let carruselSlides = 0
 const ANCHO_REGLA = 18
 
 // Paso "lindo" (1/2/5 ×10ⁿ) ≥ al mínimo dado, para los rótulos de la regla.
@@ -4151,6 +4156,28 @@ function dibujarGuiasFijas(): void {
   guiasFijas.h.forEach((y, i) => crear(true, i, y))
 }
 
+// Guías de carrusel: líneas verticales (no arrastrables) en cada límite de slide,
+// con el número de slide. Solo visuales: no se exportan.
+function dibujarGuiasCarrusel(): void {
+  lienzo.querySelectorAll('.guia-carrusel, .slide-num').forEach((n) => n.remove())
+  if (!svgEl || carruselSlides < 2) return
+  const vb = svgEl.viewBox.baseVal
+  const W = lienzo.clientWidth, H = svgEl.clientHeight
+  const kg = W / (vb.width || 1080)
+  const sliceWv = (vb.width || 1080) / carruselSlides
+  for (let i = 1; i < carruselSlides; i++) {
+    const d = document.createElement('div'); d.className = 'guia-carrusel'
+    Object.assign(d.style, { left: sliceWv * i * kg + 'px', top: '0', height: H + 'px' })
+    lienzo.appendChild(d)
+  }
+  for (let i = 0; i < carruselSlides; i++) {
+    const t = document.createElement('div'); t.className = 'slide-num'
+    t.textContent = String(i + 1)
+    t.style.left = (sliceWv * i + sliceWv / 2) * kg + 'px'
+    lienzo.appendChild(t)
+  }
+}
+
 // Coord. de usuario (unidad de la placa) bajo el puntero, en el eje de la guía.
 function unidadGuia(ev: PointerEvent, horizontal: boolean): number {
   const base = lienzo.getBoundingClientRect()
@@ -4194,15 +4221,26 @@ function toggleReglas(): void {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle, .mesa-size-handle').forEach((n) => n.remove())
   document.querySelectorAll('.foto-tools').forEach((n) => n.remove()) // foto-tools flotan en <body>
   zoomSlider = null
-  dibujarReglas(); dibujarGuiasFijas() // se redibujan al cambiar zoom/modo/contenido
+  dibujarReglas(); dibujarGuiasFijas(); dibujarGuiasCarrusel() // se redibujan al cambiar zoom/modo/contenido
   // Marco de la mesa SIEMPRE visible (para ver el límite aunque un elemento lo
   // sobrepase). Se recrea acá porque aplicarSnapshot reemplaza el HTML del lienzo.
   if (!lienzo.querySelector('.mesa-marco')) {
     const m = document.createElement('div'); m.className = 'mesa-marco'; m.setAttribute('aria-hidden', 'true')
     lienzo.appendChild(m)
+  }
+  // Tiradores para redimensionar la mesa (solo en edición completa): borde derecho
+  // (ancho), borde inferior (alto), esquina (ambos).
+  if (modoEdicion === 'completa') {
+    for (const modo of ['e', 's', 'se'] as const) {
+      const hdl = document.createElement('div')
+      hdl.className = 'mesa-size-handle mesa-size-' + modo
+      hdl.title = 'Arrastrar para cambiar el tamaño de la mesa'
+      hdl.addEventListener('pointerdown', (ev) => arrastrarTamanoMesa(ev, modo))
+      lienzo.appendChild(hdl)
+    }
   }
   const base = lienzo.getBoundingClientRect()
   // 'plantilla' = restringido (texto + foto). 'completa' = todo: el texto, las
@@ -5991,6 +6029,8 @@ async function exportarPNG(): Promise<void> {
     peImg.src = url
     peDescargar.href = url
     peDescargar.setAttribute('download', `${nombreArchivo()}${transp ? '-transparente' : ''}.png`)
+    peCarrusel.hidden = carruselSlides < 2
+    if (carruselSlides >= 2) peCarrusel.textContent = `⬇ Carrusel (${carruselSlides} imágenes)`
     panelExport.hidden = false
     estado.textContent = transp ? 'PNG exportado (fondo transparente).' : 'PNG exportado.'
   } catch (err) {
@@ -6099,6 +6139,7 @@ async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
 }
 document.querySelector('#pe-svg')!.addEventListener('click', descargarSVG)
 document.querySelector('#pe-pdf')!.addEventListener('click', (e) => void exportarPDF(e.currentTarget as HTMLButtonElement))
+peCarrusel.addEventListener('click', () => void exportarCarrusel())
 // Re-render al cambiar el modo transparente (si el panel ya está abierto).
 peTransparente.addEventListener('change', () => { if (!panelExport.hidden) void exportarPNG() })
 
@@ -6136,6 +6177,35 @@ function crearZip(archivos: { nombre: string; datos: Uint8Array }[]): Blob {
   eocd.setUint16(8, archivos.length, true); eocd.setUint16(10, archivos.length, true)
   eocd.setUint32(12, centralSize, true); eocd.setUint32(16, offset, true)
   return new Blob([...partes, ...central, eocd.buffer], { type: 'application/zip' })
+}
+
+// Carrusel: renderiza la mesa ancha completa a PNG y la corta en N imágenes
+// (una por slide), que se bajan en un ZIP (slide-1.png, slide-2.png…).
+async function exportarCarrusel(): Promise<void> {
+  if (!svgEl || carruselSlides < 2) return
+  cerrarEditor()
+  const n = carruselSlides
+  estado.textContent = `Cortando carrusel en ${n} imágenes…`
+  try {
+    const svg = svgParaExportar(peTransparente.checked)
+    const sliceWv = (svgEl.viewBox.baseVal.width || 1080) / n
+    const objetivoSlide = Math.round(Math.min(2000, Math.max(1080, sliceWv)))
+    const blobFull = await renderResvg(svg, facesPack.map((f) => f.bytes), objetivoSlide * n)
+    const bmp = await createImageBitmap(blobFull)
+    const sw = Math.round(bmp.width / n), sh = bmp.height
+    const archivos: { nombre: string; datos: Uint8Array }[] = []
+    for (let i = 0; i < n; i++) {
+      const cv = document.createElement('canvas'); cv.width = sw; cv.height = sh
+      cv.getContext('2d')!.drawImage(bmp, i * sw, 0, sw, sh, 0, 0, sw, sh)
+      const b = await new Promise<Blob>((res) => cv.toBlob((x) => res(x!), 'image/png'))
+      archivos.push({ nombre: `slide-${i + 1}.png`, datos: new Uint8Array(await b.arrayBuffer()) })
+    }
+    descargar(crearZip(archivos), `${nombreArchivo()}-carrusel.zip`)
+    estado.textContent = `Carrusel exportado: ${n} imágenes (ZIP).`
+  } catch (err) {
+    estado.textContent = '❌ No se pudo exportar el carrusel'
+    console.error('exportarCarrusel:', err)
+  }
 }
 
 // Exporta TODAS las mesas a PNG y las baja en un ZIP.
@@ -6187,6 +6257,7 @@ interface Proyecto {
   svg: string
   modoEdicion?: ModoEdicion // 'completa' | 'plantilla' (opcional: saves viejos → completa)
   guias?: { v: number[]; h: number[] } // guías fijas por mesa (unidades del viewBox)
+  carrusel?: { slides: number } // si está, la mesa es un carrusel ancho: se corta en N slides al exportar
 }
 
 function snapshotProyecto(): Proyecto {
@@ -6199,6 +6270,7 @@ function snapshotProyecto(): Proyecto {
     svg: svgEl ? new XMLSerializer().serializeToString(svgEl) : '',
     modoEdicion,
     guias: { v: [...guiasFijas.v], h: [...guiasFijas.h] },
+    carrusel: carruselSlides >= 2 ? { slides: carruselSlides } : undefined,
   }
 }
 
@@ -6225,6 +6297,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   contadorAgregados = p.contador ?? 0
   modoEdicion = p.modoEdicion ?? 'completa'
   guiasFijas = p.guias ? { v: [...(p.guias.v ?? [])], h: [...(p.guias.h ?? [])] } : { v: [], h: [] }
+  carruselSlides = p.carrusel?.slides ?? 0
 
   svgActual = p.svg
   lienzo.innerHTML = p.svg
@@ -6519,6 +6592,7 @@ function leerRecientes(): Reciente[] {
 function nuevoProyecto(): void {
   proyectoActualId = genIdProyecto()
   inNombre.value = ''
+  carruselSlides = 0 // por defecto el proyecto nuevo no es carrusel
   try { localStorage.setItem('gastonart-nombre', '') } catch { /* ignorar */ }
 }
 // Guarda/actualiza el proyecto actual en la lista de recientes (datos por id,
@@ -6658,11 +6732,22 @@ function nuevaPlacaEnBlanco(w: number, h: number, fondo = '#ffffff'): void {
   void montarPlantilla().then(() => { estado.textContent = `Lienzo ${w}×${h} px` })
 }
 
-// Cambia el tamaño de la mesa actual (viewBox) preservando el contenido. Si hay
-// un rect de fondo que cubría toda la placa, también se redimensiona.
-function redimensionarMesa(w: number, h: number): void {
+// Crea un carrusel: UNA mesa ancha (slideW × slides) que se diseña como una sola
+// pieza continua, con guías marcando cada slide. Al exportar se corta en N imágenes.
+function crearCarrusel(slideW: number, slideH: number, slides: number): void {
+  nuevoProyecto()
+  carruselSlides = slides
+  svgActual = svgEnBlanco(slideW * slides, slideH)
+  plantillaActual = `carrusel-${slideW}x${slideH}x${slides}`
+  valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
+  modoEdicion = 'completa'
+  void montarPlantilla().then(() => { estado.textContent = `Carrusel: ${slides} slides de ${slideW}×${slideH}` })
+}
+
+// Núcleo del redimensionado: ajusta el viewBox y, si hay un rect de fondo que
+// cubría toda la placa, lo reescala. NO toca display/historial (eso lo hace quien llama).
+function setTamanoMesa(w: number, h: number): void {
   if (!svgEl) return
-  cerrarEditor()
   const vb = svgEl.viewBox.baseVal
   const oldW = vb.width || 1080, oldH = vb.height || 1350
   for (const rect of Array.from(svgEl.querySelectorAll<SVGRectElement>('rect'))) {
@@ -6674,9 +6759,46 @@ function redimensionarMesa(w: number, h: number): void {
   }
   svgEl.setAttribute('viewBox', `0 0 ${w} ${h}`)
   svgEl.removeAttribute('width'); svgEl.removeAttribute('height')
+}
+
+// Cambia el tamaño de la mesa actual (viewBox) preservando el contenido.
+function redimensionarMesa(w: number, h: number): void {
+  if (!svgEl) return
+  cerrarEditor()
+  setTamanoMesa(w, h)
   aplicarZoom() // recalcula el ancho de display + overlays con el nuevo viewBox
   registrarHistorial(); autoguardar()
   estado.textContent = `Mesa: ${w}×${h} px`
+}
+
+// Arrastre de un tirador del borde de la mesa: redimensiona en vivo (el lienzo
+// crece/encoge a escala) y al soltar confirma + re-encaja. modo: 'e' ancho,
+// 's' alto, 'se' ambos.
+function arrastrarTamanoMesa(e: PointerEvent, modo: 'e' | 's' | 'se'): void {
+  e.preventDefault(); e.stopPropagation()
+  if (!svgEl) return
+  cerrarEditor()
+  const vb = svgEl.viewBox.baseVal
+  const vbW0 = vb.width || 1080, vbH0 = vb.height || 1350
+  const k0 = lienzo.clientWidth / vbW0 // px por unidad fijo durante el arrastre
+  const x0 = e.clientX, y0 = e.clientY
+  let w = vbW0, h = vbH0
+  const onMove = (ev: PointerEvent) => {
+    if (modo !== 's') w = Math.max(50, Math.round(vbW0 + (ev.clientX - x0) / k0))
+    if (modo !== 'e') h = Math.max(50, Math.round(vbH0 + (ev.clientY - y0) / k0))
+    setTamanoMesa(w, h)
+    lienzo.style.width = Math.round(w * k0) + 'px' // display proporcional → arrastre visible
+    construirOverlays()
+    estado.textContent = `${w} × ${h} px`
+  }
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove)
+    aplicarZoom() // re-encaja al ancho fijo del escenario
+    registrarHistorial(); autoguardar()
+    estado.textContent = `Mesa: ${w}×${h} px`
+  }
+  document.addEventListener('pointermove', onMove)
+  document.addEventListener('pointerup', onUp, { once: true })
 }
 
 // Monta una plantilla del paquete por su clave (ruta).
@@ -6892,6 +7014,20 @@ function mostrarInicio(): void {
         </div>
       </section>
       <section class="ini-seccion">
+        <h3>Carrusel para redes</h3>
+        <p class="ini-nota" style="margin:0 0 8px">Una sola mesa ancha para diseñar el carrusel de corrido. Al exportar se corta en una imagen por slide.</p>
+        <div class="ini-custom">
+          <select id="ini-carr-tam" aria-label="Tamaño de cada slide">
+            <option value="1080x1080">Cuadrado · 1080×1080</option>
+            <option value="1080x1350">Retrato · 1080×1350</option>
+            <option value="1080x1920">Story · 1080×1920</option>
+          </select>
+          <input type="number" id="ini-carr-n" min="2" max="20" step="1" value="3" aria-label="Cantidad de slides">
+          <span>slides</span>
+          <button id="ini-crear-carr" class="ini-btn-acc">Crear carrusel</button>
+        </div>
+      </section>
+      <section class="ini-seccion">
         ${seguirHtml}
         <h3>Plantillas y guardados</h3>
         <div class="ini-plantillas">${opcionesPlantilla}</div>
@@ -6905,6 +7041,12 @@ function mostrarInicio(): void {
   ov.querySelector('#ini-cerrar')!.addEventListener('click', () => cerrarInicio())
   ov.querySelectorAll<HTMLButtonElement>('.ini-preset').forEach((b) =>
     b.addEventListener('click', () => { cerrarInicio(); nuevaPlacaEnBlanco(+b.dataset.w!, +b.dataset.h!) }))
+  // Crear carrusel (mesa ancha que se corta al exportar).
+  ov.querySelector('#ini-crear-carr')!.addEventListener('click', () => {
+    const [sw, sh] = (ov.querySelector<HTMLSelectElement>('#ini-carr-tam')!.value).split('x').map(Number)
+    const n = Math.max(2, Math.min(20, Math.round(+ov.querySelector<HTMLInputElement>('#ini-carr-n')!.value || 3)))
+    cerrarInicio(); crearCarrusel(sw, sh, n)
+  })
   // Abrir un proyecto reciente.
   ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
     b.addEventListener('click', async () => {

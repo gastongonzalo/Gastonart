@@ -590,6 +590,15 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   border: 1px solid rgba(0, 0, 0, 0.18); border-radius: 4px;
 }
 #lienzo.recortar .mesa-marco { border-color: var(--accent); }
+/* Tiradores para redimensionar la mesa (borde der., borde inf., esquina). */
+.mesa-size-handle {
+  position: absolute; z-index: 8; background: var(--accent);
+  border: 1.5px solid #fff; border-radius: 3px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  width: 12px; height: 12px;
+}
+.mesa-size-e { right: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; height: 26px; border-radius: 5px; }
+.mesa-size-s { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; width: 26px; border-radius: 5px; }
+.mesa-size-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
 
 /* --- Vista carrusel: todas las mesas pegadas --- */
 #vista-carrusel {
@@ -991,6 +1000,16 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .guia-fija-h { height: 1px; cursor: ns-resize; }
 .guia-fija-v::before { content: ''; position: absolute; left: -3px; top: 0; width: 7px; height: 100%; }
 .guia-fija-h::before { content: ''; position: absolute; top: -3px; left: 0; height: 7px; width: 100%; }
+/* Guías de carrusel: límites de slide (no arrastrables, no se exportan). */
+.guia-carrusel {
+  position: absolute; top: 0; width: 0; z-index: 7; pointer-events: none;
+  border-left: 1px dashed var(--accent);
+}
+.slide-num {
+  position: absolute; top: 4px; transform: translateX(-50%); z-index: 7;
+  pointer-events: none; font-size: 11px; font-weight: 700; color: var(--on-accent);
+  background: var(--accent); border-radius: 9px; padding: 1px 7px; opacity: 0.85;
+}
 
 /* Menú de figuras */
 .add-wrap { position: relative; display: inline-flex; }
