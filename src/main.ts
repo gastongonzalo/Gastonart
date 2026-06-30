@@ -2492,9 +2492,10 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  // La barra flotante vive en <body>; el resto de overlays, en el lienzo.
-  document.querySelectorAll('.graf-tools').forEach((n) => n.remove())
-  lienzo.querySelectorAll('.foto-tools, .graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
+  // Las barras flotantes (graf-tools, foto-tools) viven en <body>; el resto de
+  // overlays (cajas, tiradores, marquee) en el lienzo.
+  document.querySelectorAll('.graf-tools, .foto-tools').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
   actualizarPanelProps()
 }
@@ -4110,7 +4111,8 @@ function toggleReglas(): void {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .foto-tools, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle').forEach((n) => n.remove())
+  document.querySelectorAll('.foto-tools').forEach((n) => n.remove()) // foto-tools flotan en <body>
   zoomSlider = null
   dibujarReglas(); dibujarGuiasFijas() // se redibujan al cambiar zoom/modo/contenido
   const base = lienzo.getBoundingClientRect()
@@ -4510,7 +4512,7 @@ function construirFotoTools(id: string): void {
     qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, reaplicar, qf))
     tools.appendChild(qf)
   }
-  lienzo.appendChild(tools)
+  document.body.appendChild(tools) // flota libre (fixed), como la barra de selección
   // Posicionar la barra encima del marco visible del hueco.
   const base = lienzo.getBoundingClientRect()
   let rect = imgFoto ? rectFotoVisible(imgFoto, base) : null
@@ -4601,8 +4603,8 @@ function abrirEditor(nombre: string): void {
 
   editorActivo = { nombre, ta, valorPrevio, tocado: false, els }
   sincronizarBarra(nombre)
-  // La barra de formato flota encima del texto en edición (estilo Express).
-  lienzo.appendChild(barraTexto)
+  // La barra de formato flota encima del texto en edición (fixed, en <body>).
+  document.body.appendChild(barraTexto)
   posicionarFlotante(barraTexto, r)
   ta.addEventListener('input', () => {
     editorActivo!.tocado = true

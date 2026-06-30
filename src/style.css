@@ -1078,7 +1078,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  max-width: 560px;
+  max-width: min(560px, calc(100vw - 16px)); /* nunca más ancha que la ventana */
   padding: 6px 8px;
   background: var(--panel);
   border: 1px solid var(--border-strong);
@@ -1338,12 +1338,13 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 
 /* --- Mini-barra de la foto --- */
 .foto-tools {
-  position: absolute;
-  z-index: 12;
+  position: fixed; /* flota libre (en <body>), como la barra de selección */
+  z-index: 60;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  max-width: min(560px, calc(100vw - 16px));
   padding: 6px 10px;
   background: var(--panel);
   border: 1px solid var(--border-strong);
@@ -1362,10 +1363,10 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 
 /* La barra de formato de texto, cuando flota sobre el texto en edición. */
 #barra-texto:not([hidden]) {
-  position: absolute;
-  z-index: 13;
+  position: fixed; /* flota libre (en <body>), coords de viewport */
+  z-index: 60;
   flex-wrap: wrap;
-  max-width: 560px;
+  max-width: min(560px, calc(100vw - 16px));
   padding: 6px 8px;
   background: var(--panel);
   border: 1px solid var(--border-strong);
