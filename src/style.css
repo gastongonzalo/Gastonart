@@ -445,11 +445,21 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   flex: 1;
   overflow: auto;
   display: flex;
-  justify-content: center;
+  justify-content: safe center; /* centra si entra; si no, alinea al inicio (scroll lateral) */
   align-items: flex-start;
   padding: 28px 16px 60px;
   background: var(--workspace); /* mesa de trabajo gris (no negro) */
 }
+/* Tira horizontal de mesas: la activa (lienzo) + vistas previas, pegadas. */
+#tira-lienzos { display: flex; align-items: flex-start; gap: 16px; }
+.mesa-preview {
+  flex: none; align-self: flex-start; padding: 0; overflow: hidden;
+  background: #fff; border: 1px solid var(--border); border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1); cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.mesa-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mesa-preview:hover { border-color: var(--accent); box-shadow: 0 6px 22px rgba(2, 132, 199, 0.22); }
 /* Panel de propiedades (derecha): muestra los controles de lo seleccionado. */
 #panel-props {
   width: 264px;
