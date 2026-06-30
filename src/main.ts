@@ -354,22 +354,25 @@ app.innerHTML = `
         ${rutasPlantilla.map((r) => `<option value="${escAttr(r)}">${escAttr(nombreCorto(r))}</option>`).join('')}
       </select>
     </div>
-    <span class="estado" id="estado"></span>
+    <div class="tb-centro">
+      <button id="btn-deshacer" class="tb-icono" title="Deshacer (Ctrl+Z)" disabled>↶</button>
+      <button id="btn-rehacer" class="tb-icono" title="Rehacer (Ctrl+Y)" disabled>↷</button>
+      <span class="tb-div"></span>
+      <button id="btn-copiar" class="tb-icono" title="Copiar (Ctrl+C)" disabled>⧉</button>
+      <button id="btn-pegar" class="tb-icono" title="Pegar (Ctrl+V)" disabled>📋</button>
+    </div>
     <div class="tb-acciones">
-      <button id="btn-tamano" class="mini" title="Cambiar el tamaño de la mesa de trabajo">📐 Tamaño</button>
-      <div class="modo-switch" role="group" title="Modo de edición">
-        <button data-modo="completa" class="activo" title="Edición completa: todo disponible">✎ Completa</button>
-        <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">🗂 Plantilla</button>
+      <div class="modo-wrap">
+        <span class="modo-tit">Modo de trabajo</span>
+        <div class="modo-switch" role="group">
+          <button data-modo="completa" class="activo" title="Edición completa: todo disponible">✎ Completo</button>
+          <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">🗂 Plantilla</button>
+        </div>
       </div>
-      <span class="tb-div"></span>
-      <button id="btn-deshacer" class="mini" title="Deshacer (Ctrl+Z)" disabled>↶</button>
-      <button id="btn-rehacer" class="mini" title="Rehacer (Ctrl+Y)" disabled>↷</button>
-      <button id="btn-copiar" class="mini" title="Copiar (Ctrl+C)" disabled>⧉</button>
-      <button id="btn-pegar" class="mini" title="Pegar (Ctrl+V)" disabled>📋</button>
-      <span class="tb-div"></span>
       <button id="btn-export" class="tb-export">⬇ Descargar</button>
     </div>
   </header>
+  <span class="estado" id="estado" hidden></span>
   <input type="file" id="in-proyecto" accept=".json,application/json" hidden>
 
   <div id="barra-texto" class="barra-formato" hidden>
@@ -567,7 +570,8 @@ function mostrarIconosFavoritos(): void {
   piGrid.innerHTML = ''
   for (const raw of Object.values(iconosPack)) {
     const b = document.createElement('button'); b.className = 'pi-item'; b.innerHTML = raw
-    const svg = b.querySelector('svg'); if (svg) { svg.setAttribute('stroke', '#1d2330') }
+    // color oscuro vía `color` → resuelve currentColor de stroke Y de fill.
+    const svg = b.querySelector('svg'); if (svg) (svg as SVGElement).style.color = '#1d2330'
     b.addEventListener('click', () => insertarIcono(raw))
     piGrid.appendChild(b)
   }
@@ -636,22 +640,26 @@ function traducirBusqueda(q: string): string {
   return q.trim().split(/\s+/).map((w) => DIC_ICONOS[norm(w)] ?? w).join(' ')
 }
 
+let buscarIcoToken = 0
 async function buscarIconos(q: string): Promise<void> {
   q = q.trim()
   if (!q) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos(); return }
   const consulta = traducirBusqueda(q)
+  const token = ++buscarIcoToken
   piEstado.textContent = 'Buscando…'; piGrid.innerHTML = ''
   let iconos: string[] = []
   try {
     const data = await (await fetchTimeout(`https://api.iconify.design/search?query=${encodeURIComponent(consulta)}&limit=120`)).json()
     iconos = (data as { icons?: string[] }).icons ?? []
-  } catch { piEstado.textContent = 'No se pudo buscar (¿sin conexión?)'; return }
+  } catch { if (token === buscarIcoToken) piEstado.textContent = 'No se pudo buscar (¿sin conexión?)'; return }
+  if (token !== buscarIcoToken) return
   if (!iconos.length) { piEstado.textContent = `Sin resultados para «${q}»`; return }
   piEstado.textContent = `${iconos.length} resultado(s)`
+  piGrid.innerHTML = ''
   for (const nombre of iconos) {
     const b = document.createElement('button'); b.className = 'pi-item'; b.title = nombre
     const img = document.createElement('img')
-    img.src = `https://api.iconify.design/${nombre}.svg?height=26&color=%23e6edf6`
+    img.src = `https://api.iconify.design/${nombre}.svg?height=26&color=%231d2330`
     img.loading = 'lazy'; img.alt = nombre
     b.appendChild(img)
     b.addEventListener('click', () => void insertarIconoIconify(nombre))
@@ -668,6 +676,15 @@ async function insertarIconoIconify(nombre: string): Promise<void> {
 }
 document.querySelector('#pi-buscar')!.addEventListener('click', () => void buscarIconos(piInput.value))
 piInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarIconos(piInput.value) })
+// Búsqueda EN VIVO de íconos: filtra al tipear desde la 3.ª letra; con <3 vuelve
+// a Favoritos.
+let tBuscarIco: number | undefined
+piInput.addEventListener('input', () => {
+  clearTimeout(tBuscarIco)
+  const q = piInput.value.trim()
+  if (q.length < 3) { if (!q) { piEstado.textContent = 'Favoritos'; mostrarIconosFavoritos() } return }
+  tBuscarIco = window.setTimeout(() => void buscarIconos(q), 350)
+})
 
 // --- Vista de imagen: subir del dispositivo o banco de imágenes libres (Openverse) ---
 const pmInput = document.querySelector<HTMLInputElement>('#pm-input')!
@@ -756,8 +773,8 @@ function poblarPresetsTamano(): void {
   }
 }
 function clampDim(v: number): number { return Math.max(16, Math.min(8000, Math.round(v) || 16)) }
-document.querySelector('#btn-tamano')!.addEventListener('click', (e) => {
-  e.stopPropagation()
+// El botón "Tamaño" vive en la tira de mesas (renderMesas lo crea y llama esto).
+function togglePanelTamano(): void {
   const abrir = panelTamano.hidden
   cerrarPanelesFlotantes(panelTamano)
   if (abrir && svgEl) {
@@ -765,7 +782,7 @@ document.querySelector('#btn-tamano')!.addEventListener('click', (e) => {
     ptW.value = String(Math.round(svgEl.viewBox.baseVal.width)); ptH.value = String(Math.round(svgEl.viewBox.baseVal.height))
   }
   panelTamano.hidden = !abrir
-})
+}
 document.querySelector('#pt-cerrar')!.addEventListener('click', () => { panelTamano.hidden = true })
 document.querySelector('#pt-aplicar')!.addEventListener('click', () => {
   redimensionarMesa(clampDim(+ptW.value), clampDim(+ptH.value))
@@ -6355,7 +6372,9 @@ function renderMesas(): void {
   add.addEventListener('click', () => void agregarMesa(false))
   const dup = document.createElement('button'); dup.className = 'mesa-btn'; dup.textContent = '⧉'; dup.title = 'Duplicar mesa actual'
   dup.addEventListener('click', () => void agregarMesa(true))
-  tira.append(add, dup)
+  const tam = document.createElement('button'); tam.id = 'btn-tamano'; tam.className = 'mesa-btn'; tam.textContent = '📐'; tam.title = 'Tamaño de la mesa de trabajo'
+  tam.addEventListener('click', (e) => { e.stopPropagation(); togglePanelTamano() })
+  tira.append(add, dup, tam)
   if (mesas.length > 1) {
     const carr = document.createElement('button'); carr.className = 'mesa-btn' + (vistaCarrusel ? ' activa' : ''); carr.textContent = '▦'; carr.title = 'Ver todas las mesas (carrusel)'
     carr.addEventListener('click', () => toggleCarrusel())
@@ -6480,8 +6499,44 @@ function autoguardar(): void {
       // evita saturar localStorage y pisar un proyecto chico bueno.
       if (json.length > 8_000_000) return
       localStorage.setItem('gastonart-proyecto', json)
+      guardarReciente(json)
     } catch { /* quota: ignorar */ }
   }, 600)
+}
+
+// ---------------------------------------------------------------
+//  Proyectos recientes (lista por id + datos por proyecto)
+// ---------------------------------------------------------------
+const LS_RECIENTES = 'gastonart-recientes'
+const MAX_RECIENTES = 6
+interface Reciente { id: string; nombre: string; fecha: number; thumb: string }
+let proyectoActualId: string | null = null
+function genIdProyecto(): string { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7) }
+function leerRecientes(): Reciente[] {
+  try { return JSON.parse(localStorage.getItem(LS_RECIENTES) || '[]') as Reciente[] } catch { return [] }
+}
+// Arranca un proyecto NUEVO: id propio + nombre en blanco (lo nombra el usuario).
+function nuevoProyecto(): void {
+  proyectoActualId = genIdProyecto()
+  inNombre.value = ''
+  try { localStorage.setItem('gastonart-nombre', '') } catch { /* ignorar */ }
+}
+// Guarda/actualiza el proyecto actual en la lista de recientes (datos por id,
+// con miniatura). Maneja la cuota expulsando los más viejos.
+function guardarReciente(json: string): void {
+  if (!proyectoActualId) proyectoActualId = genIdProyecto()
+  const svgMini = mesas.length ? (mesas[mesaActiva]?.svg || '') : (svgEl ? new XMLSerializer().serializeToString(svgEl) : '')
+  const thumb = svgMini ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(miniaturaSvg(svgMini)) : ''
+  let lista = leerRecientes().filter((r) => r.id !== proyectoActualId)
+  lista.unshift({ id: proyectoActualId, nombre: (inNombre.value || '').trim(), fecha: Date.now(), thumb })
+  for (const sob of lista.slice(MAX_RECIENTES)) { try { localStorage.removeItem('gastonart-proy-' + sob.id) } catch { /* ignorar */ } }
+  lista = lista.slice(0, MAX_RECIENTES)
+  const guardarDatos = () => localStorage.setItem('gastonart-proy-' + proyectoActualId, json)
+  try { guardarDatos() } catch {
+    // Cuota: ir descartando los más viejos hasta que entre.
+    while (lista.length > 1) { const v = lista.pop()!; try { localStorage.removeItem('gastonart-proy-' + v.id) } catch { /* */ } try { guardarDatos(); break } catch { /* sigue */ } }
+  }
+  try { localStorage.setItem(LS_RECIENTES, JSON.stringify(lista)) } catch { /* ignorar */ }
 }
 
 document.querySelector('#btn-guardar')!.addEventListener('click', () => {
@@ -6512,7 +6567,12 @@ document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () =
   const nombre = prompt('Nombre de la plantilla:', sug || 'Mi plantilla')
   if (nombre) guardarComoPlantilla(nombre)
 })
-document.querySelector('#btn-nuevo')!.addEventListener('click', () => mostrarInicio())
+document.querySelector('#btn-nuevo')!.addEventListener('click', () => {
+  // Si el proyecto actual tiene cambios pero NO tiene nombre, avisar antes de salir.
+  if (proyectoActualId && !inNombre.value.trim() && histIdx > 0 &&
+      !confirm('Este proyecto no tiene nombre. ¿Salir igual? Va a quedar en "Recientes" como «Sin nombre».')) return
+  mostrarInicio()
+})
 document.querySelector('#btn-deshacer')!.addEventListener('click', () => void deshacer())
 document.querySelector('#btn-rehacer')!.addEventListener('click', () => void rehacer())
 
@@ -6590,7 +6650,7 @@ function svgEnBlanco(w: number, h: number, fondo = '#ffffff'): string {
 
 // Monta un lienzo "de cero" con el tamaño dado.
 function nuevaPlacaEnBlanco(w: number, h: number, fondo = '#ffffff'): void {
-  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  nuevoProyecto() // proyecto nuevo: id propio + nombre en blanco
   svgActual = svgEnBlanco(w, h, fondo)
   plantillaActual = `enblanco-${w}x${h}`
   valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
@@ -6621,7 +6681,7 @@ function redimensionarMesa(w: number, h: number): void {
 
 // Monta una plantilla del paquete por su clave (ruta).
 function usarPlantilla(ruta: string): void {
-  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  nuevoProyecto() // proyecto nuevo: id propio + nombre en blanco
   plantillaActual = ruta
   svgActual = plantillas[ruta]
   if ([...selPlantilla.options].some((o) => o.value === ruta)) selPlantilla.value = ruta
@@ -6738,7 +6798,7 @@ function usarSvgImportado(texto: string, nombre: string): void {
     estado.textContent = '❌ El archivo no es un SVG válido'
     return
   }
-  try { localStorage.removeItem('gastonart-proyecto') } catch { /* ignorar */ }
+  nuevoProyecto() // proyecto nuevo: id propio + nombre en blanco
   plantillaActual = registrarPlantilla(nombre, texto)
   svgActual = texto
   selPlantilla.value = plantillaActual
@@ -6790,6 +6850,22 @@ function mostrarInicio(): void {
   const autosave = (() => { try { const g = localStorage.getItem('gastonart-proyecto'); return g && g.length <= 4_000_000 ? g : null } catch { return null } })()
   const seguirHtml = autosave ? `<button id="ini-seguir" class="ini-btn-acc ini-seguir">▶ Seguir editando lo último</button>` : ''
 
+  // Proyectos recientes (guardados automáticamente).
+  const recientes = leerRecientes()
+  const recientesHtml = recientes.length ? `
+      <section class="ini-seccion">
+        <h3>Proyectos recientes</h3>
+        <div class="ini-plantillas">
+          ${recientes.map((r) => `<span class="ini-plantilla-wrap">
+            <button class="ini-reciente" data-id="${escAttr(r.id)}" title="Abrir «${escAttr(r.nombre || 'Sin nombre')}»">
+              <span class="ini-plantilla-thumb">${r.thumb ? `<img src="${escAttr(r.thumb)}" alt="" loading="lazy">` : ''}</span>
+              <span class="ini-plantilla-nom">${escHtml(r.nombre || 'Sin nombre')}</span>
+            </button>
+            <button class="ini-reciente-del" data-id="${escAttr(r.id)}" title="Quitar de recientes">✕</button>
+          </span>`).join('')}
+        </div>
+      </section>` : ''
+
   const ov = document.createElement('div')
   ov.id = 'pantalla-inicio'
   ov.innerHTML = `
@@ -6799,6 +6875,7 @@ function mostrarInicio(): void {
         <span>¿Cómo querés empezar?</span>
         <button id="ini-cerrar" class="mini" title="Cerrar">✕</button>
       </div>
+      ${recientesHtml}
       <section class="ini-seccion">
         <h3>Imagen en blanco</h3>
         ${seccionesTamano}
@@ -6828,6 +6905,28 @@ function mostrarInicio(): void {
   ov.querySelector('#ini-cerrar')!.addEventListener('click', () => cerrarInicio())
   ov.querySelectorAll<HTMLButtonElement>('.ini-preset').forEach((b) =>
     b.addEventListener('click', () => { cerrarInicio(); nuevaPlacaEnBlanco(+b.dataset.w!, +b.dataset.h!) }))
+  // Abrir un proyecto reciente.
+  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const id = b.dataset.id!
+      const raw = (() => { try { return localStorage.getItem('gastonart-proy-' + id) } catch { return null } })()
+      if (!raw) { alert('No se encontró ese proyecto (puede haberse borrado por espacio).'); return }
+      cerrarInicio()
+      proyectoActualId = id
+      const r = leerRecientes().find((x) => x.id === id)
+      try { await restaurarGuardado(JSON.parse(raw)) } catch { estado.textContent = '❌ No se pudo abrir el proyecto'; return }
+      inNombre.value = r?.nombre || ''
+      try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* ignorar */ }
+      estado.textContent = 'Proyecto abierto.'
+    }))
+  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente-del').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const id = b.dataset.id!
+      try { localStorage.removeItem('gastonart-proy-' + id) } catch { /* ignorar */ }
+      try { localStorage.setItem(LS_RECIENTES, JSON.stringify(leerRecientes().filter((x) => x.id !== id))) } catch { /* ignorar */ }
+      mostrarInicio()
+    }))
   // Unidades: px directo; mm/cm a 300 DPI (impresión). 1 in = 25.4 mm = 300 px.
   // pxPorUnidad = cuántos px vale 1 de la unidad.
   const pxPorUnidad = (u: string) => u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1

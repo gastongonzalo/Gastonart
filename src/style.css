@@ -142,8 +142,8 @@
 /* --- Panel de tamaño de mesa --- */
 #panel-tamano {
   position: fixed;
-  top: 70px;
-  left: 18px;
+  bottom: 64px;
+  left: 96px;
   z-index: 60;
   width: 320px;
   max-height: 76vh;
@@ -216,6 +216,18 @@ body {
 body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .tb-acciones { display: flex; align-items: center; gap: 8px; }
 .tb-div { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+/* Centro de la barra: deshacer/rehacer/copiar/pegar (íconos grandes). */
+.tb-centro { flex: 1; display: flex; justify-content: center; align-items: center; gap: 4px; }
+.tb-icono {
+  height: 40px; min-width: 40px; padding: 0 10px;
+  background: transparent; border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text); font-size: 21px; line-height: 1; cursor: pointer;
+}
+.tb-icono:hover:not(:disabled) { background: var(--inset-hover); border-color: var(--border-strong); }
+.tb-icono:disabled { opacity: 0.4; cursor: default; }
+/* "Modo de trabajo" + switch */
+.modo-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.modo-tit { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .topbar label {
   display: flex;
   align-items: center;
@@ -322,10 +334,14 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 #panel-lateral {
   width: 248px;
   flex: 0 0 248px;
+  align-self: flex-start; /* abraza su contenido: no estira hasta abajo */
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-bottom-right-radius: 12px;
   overflow: hidden;
 }
 #panel-lateral[hidden] { display: none; }
@@ -341,7 +357,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   padding: 12px 14px 8px;
 }
 .pl-head strong { font-size: 17px; }
-.pl-body { flex: 1; overflow-y: auto; padding: 0 14px 24px; display: flex; flex-direction: column; gap: 10px; }
+.pl-body { flex: 0 1 auto; overflow-y: auto; padding: 0 14px 18px; display: flex; flex-direction: column; gap: 10px; }
 .pl-view[hidden] { display: none; }
 .pl-view { display: flex; flex-direction: column; gap: 10px; }
 .pl-sub { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-top: 4px; }
@@ -1452,7 +1468,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .ini-plantillas { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 .ini-plantilla-wrap { position: relative; display: flex; }
-.ini-plantilla {
+.ini-plantilla, .ini-reciente {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -1474,10 +1490,10 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .ini-plantilla-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .ini-plantilla-nom { font-size: 12px; font-weight: 600; text-align: center; padding-bottom: 2px; }
-.ini-plantilla:hover { border-color: var(--accent); transform: translateY(-1px); }
+.ini-plantilla:hover, .ini-reciente:hover { border-color: var(--accent); transform: translateY(-1px); }
 .ini-nota { margin: 8px 2px 0; font-size: 11px; line-height: 1.4; color: var(--muted, var(--muted)); }
 .ini-nota strong { color: var(--text); }
-.ini-plantilla-del {
+.ini-plantilla-del, .ini-reciente-del {
   position: absolute;
   top: -6px;
   right: -6px;
@@ -1494,7 +1510,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   opacity: 0;
   transition: opacity 0.12s;
 }
-.ini-plantilla-wrap:hover .ini-plantilla-del { opacity: 1; }
+.ini-plantilla-wrap:hover .ini-plantilla-del, .ini-plantilla-wrap:hover .ini-reciente-del { opacity: 1; }
 .ini-btn-acc {
   background: var(--accent);
   color: var(--on-accent);
