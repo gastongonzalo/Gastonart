@@ -7049,8 +7049,11 @@ function mostrarInicio(): void {
     <div class="ini-presets">
       ${PRESETS_TAMANO.filter((p) => p.grupo === g).map((p) =>
         `<button class="ini-preset" data-w="${p.w}" data-h="${p.h}">
-           <span class="ini-preset-nom">${escAttr(p.nombre)}</span>
-           <span class="ini-preset-dim">${iconoProporcion(p.w, p.h)}${p.w}×${p.h}</span>
+           <span class="ini-preset-top">
+             <span class="ini-preset-nom">${escAttr(p.nombre)}</span>
+             ${iconoProporcion(p.w, p.h)}
+           </span>
+           <span class="ini-preset-dim">${p.w}×${p.h}</span>
          </button>`).join('')}
     </div>`).join('')
 

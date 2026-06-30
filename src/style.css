@@ -1495,8 +1495,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   text-align: left;
 }
 .ini-preset:hover { border-color: var(--accent); }
+.ini-preset-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .ini-preset-nom { font-size: 13px; }
-.ini-preset-dim { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); }
+.ini-preset-dim { font-size: 11px; color: var(--dim); }
 /* Mini-ícono con la proporción del formato. */
 .prop-ic { flex: none; display: inline-block; vertical-align: middle; }
 .prop-ic rect { fill: var(--accent); opacity: 0.9; }
