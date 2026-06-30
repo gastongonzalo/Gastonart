@@ -155,6 +155,19 @@
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
 }
 #panel-tamano[hidden] { display: none; }
+/* Diálogo "Nueva mesa": misma medida o una nueva, con unidad px/mm/cm. */
+#panel-nueva-mesa {
+  position: fixed;
+  z-index: 60;
+  width: 280px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+}
+#panel-nueva-mesa[hidden] { display: none; }
+#panel-nueva-mesa .nm-igual { width: 100%; }
 .pt-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
 .pt-preset {
   display: flex; flex-direction: column; gap: 2px;
@@ -599,6 +612,15 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .mesa-size-e { right: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; height: 26px; border-radius: 5px; }
 .mesa-size-s { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; width: 26px; border-radius: 5px; }
 .mesa-size-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+/* Regla de medidas: chip abajo de la mesa que muestra el tamaño y activa los tiradores. */
+.mesa-medidas {
+  position: absolute; left: 50%; bottom: -34px; transform: translateX(-50%); z-index: 8;
+  padding: 2px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  color: var(--text); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 999px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.mesa-medidas:hover { border-color: var(--accent); }
+.mesa-medidas.activo { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
 /* --- Vista carrusel: todas las mesas pegadas --- */
 #vista-carrusel {

@@ -414,6 +414,25 @@ app.innerHTML = `
     <div class="pt-nota">Cambia el tamaño de la placa actual. El contenido queda en su lugar.</div>
   </div>
 
+  <div id="panel-nueva-mesa" hidden>
+    <div class="pg-head">
+      <strong>Nueva mesa</strong>
+      <button id="nm-cerrar" class="mini" title="Cerrar">✕</button>
+    </div>
+    <button id="nm-igual" class="ini-btn-acc nm-igual">Igual que la actual (<span id="nm-actual"></span>)</button>
+    <div class="pt-nota" style="margin:10px 0 4px">…o de otra medida:</div>
+    <div class="pt-custom">
+      <input id="nm-w" type="number" min="0.1" max="20000" step="any" aria-label="Ancho"> ×
+      <input id="nm-h" type="number" min="0.1" max="20000" step="any" aria-label="Alto">
+      <select id="nm-unidad" aria-label="Unidad">
+        <option value="px">px</option>
+        <option value="mm">mm</option>
+        <option value="cm">cm</option>
+      </select>
+      <button id="nm-crear" class="ini-btn-acc">Crear</button>
+    </div>
+  </div>
+
   <div class="cuerpo">
     <nav class="rail" aria-label="Categorías">
       <button class="rail-item" data-cat="plantillas" title="Plantillas"><span class="rail-ic">▦</span><span>Plantillas</span></button>
@@ -554,7 +573,7 @@ for (const tipo of TIPOS_FIGURA) {
 }
 // Cierra los paneles FLOTANTES que quedan (solo Tamaño) excepto uno.
 function cerrarPanelesFlotantes(excepto?: Element): void {
-  for (const sel of ['#panel-tamano']) {
+  for (const sel of ['#panel-tamano', '#panel-nueva-mesa']) {
     const p = document.querySelector<HTMLElement>(sel)
     if (p && p !== excepto) {
       if (p.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
@@ -775,6 +794,8 @@ function poblarPresetsTamano(): void {
   }
 }
 function clampDim(v: number): number { return Math.max(16, Math.min(8000, Math.round(v) || 16)) }
+// Cuántos px vale 1 de la unidad (mm/cm a 300 DPI de impresión; 1 in = 25.4 mm = 300 px).
+function pxPorUnidad(u: string): number { return u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1 }
 // El botón "Tamaño" vive en la tira de mesas (renderMesas lo crea y llama esto).
 function togglePanelTamano(): void {
   const abrir = panelTamano.hidden
@@ -790,6 +811,45 @@ document.querySelector('#pt-aplicar')!.addEventListener('click', () => {
   redimensionarMesa(clampDim(+ptW.value), clampDim(+ptH.value))
 })
 panelTamano.addEventListener('click', (e) => e.stopPropagation())
+
+// --- Diálogo "Nueva mesa": misma medida que la actual o una nueva (px/mm/cm) ---
+const panelNuevaMesa = document.querySelector<HTMLDivElement>('#panel-nueva-mesa')!
+const nmW = document.querySelector<HTMLInputElement>('#nm-w')!
+const nmH = document.querySelector<HTMLInputElement>('#nm-h')!
+const nmUnidad = document.querySelector<HTMLSelectElement>('#nm-unidad')!
+let nmUnidadPrev = 'px'
+function abrirNuevaMesa(disparador: HTMLElement): void {
+  const abrir = panelNuevaMesa.hidden
+  cerrarPanelesFlotantes(panelNuevaMesa)
+  if (!abrir) { panelNuevaMesa.hidden = true; return }
+  const w = svgEl ? Math.round(svgEl.viewBox.baseVal.width) : 1080
+  const h = svgEl ? Math.round(svgEl.viewBox.baseVal.height) : 1080
+  document.querySelector('#nm-actual')!.textContent = `${w} × ${h} px`
+  nmUnidad.value = 'px'; nmUnidadPrev = 'px'
+  nmW.value = String(w); nmH.value = String(h)
+  // Posicionar el panel cerca del botón "＋".
+  const r = disparador.getBoundingClientRect()
+  panelNuevaMesa.style.left = Math.round(r.left) + 'px'
+  panelNuevaMesa.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px'
+  panelNuevaMesa.hidden = false
+}
+// Al cambiar de unidad, convertir los valores mostrados (igual que en la pantalla de inicio).
+nmUnidad.addEventListener('change', () => {
+  const factor = pxPorUnidad(nmUnidadPrev) / pxPorUnidad(nmUnidad.value)
+  const dec = nmUnidad.value === 'px' ? 0 : 1
+  nmW.value = (parseFloat(nmW.value || '0') * factor).toFixed(dec)
+  nmH.value = (parseFloat(nmH.value || '0') * factor).toFixed(dec)
+  nmUnidadPrev = nmUnidad.value
+})
+document.querySelector('#nm-cerrar')!.addEventListener('click', () => { panelNuevaMesa.hidden = true })
+document.querySelector('#nm-igual')!.addEventListener('click', () => { panelNuevaMesa.hidden = true; void agregarMesa(false) })
+document.querySelector('#nm-crear')!.addEventListener('click', () => {
+  const f = pxPorUnidad(nmUnidad.value)
+  const w = clampDim((parseFloat(nmW.value) || 0) * f), h = clampDim((parseFloat(nmH.value) || 0) * f)
+  panelNuevaMesa.hidden = true
+  void agregarMesa(false, w, h)
+})
+panelNuevaMesa.addEventListener('click', (e) => e.stopPropagation())
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
   grafSeleccion = []; limpiarGraf() // la pluma pone su propia capa por encima
@@ -815,8 +875,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('.modo-switch butto
 // Cerrar los paneles flotantes al hacer clic fuera de ellos (si no, el input de
 // búsqueda queda con foco y su cursor parpadea arriba a la izquierda). Se excluye
 // cada panel y su botón disparador para no cerrarlos en el mismo clic que los abre.
-const SEL_PANELES = '#panel-tamano'
-const SEL_DISPARADORES = '#btn-tamano'
+const SEL_PANELES = '#panel-tamano, #panel-nueva-mesa'
+const SEL_DISPARADORES = '#btn-tamano, #btn-nueva-mesa'
 document.addEventListener('pointerdown', (e) => {
   const t = e.target as Element | null
   if (!t || t.closest(SEL_PANELES) || t.closest(SEL_DISPARADORES)) return
@@ -4076,6 +4136,9 @@ let guiasFijas: { v: number[]; h: number[] } = { v: [], h: [] }
 // Carrusel: cantidad de slides de la mesa activa (0 = no es carrusel). Es ancho =
 // slideW × slides; al exportar se corta en una imagen por slide.
 let carruselSlides = 0
+// Los tiradores para redimensionar la mesa solo aparecen tras clic en la regla de
+// medidas (evita redimensionados accidentales). Se apaga al cambiar de mesa.
+let mesaResizeActivo = false
 const ANCHO_REGLA = 18
 
 // Paso "lindo" (1/2/5 ×10ⁿ) ≥ al mínimo dado, para los rótulos de la regla.
@@ -4221,7 +4284,7 @@ function toggleReglas(): void {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle, .mesa-size-handle').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle, .mesa-size-handle, .mesa-medidas').forEach((n) => n.remove())
   document.querySelectorAll('.foto-tools').forEach((n) => n.remove()) // foto-tools flotan en <body>
   zoomSlider = null
   dibujarReglas(); dibujarGuiasFijas(); dibujarGuiasCarrusel() // se redibujan al cambiar zoom/modo/contenido
@@ -4231,15 +4294,25 @@ function construirOverlays(): void {
     const m = document.createElement('div'); m.className = 'mesa-marco'; m.setAttribute('aria-hidden', 'true')
     lienzo.appendChild(m)
   }
-  // Tiradores para redimensionar la mesa (solo en edición completa): borde derecho
-  // (ancho), borde inferior (alto), esquina (ambos).
-  if (modoEdicion === 'completa') {
-    for (const modo of ['e', 's', 'se'] as const) {
-      const hdl = document.createElement('div')
-      hdl.className = 'mesa-size-handle mesa-size-' + modo
-      hdl.title = 'Arrastrar para cambiar el tamaño de la mesa'
-      hdl.addEventListener('pointerdown', (ev) => arrastrarTamanoMesa(ev, modo))
-      lienzo.appendChild(hdl)
+  // Regla de medidas: chip clickeable abajo de la mesa que muestra el tamaño y
+  // ACTIVA los tiradores (así no se redimensiona sin querer). Solo en completa.
+  if (modoEdicion === 'completa' && svgEl) {
+    const vbR = svgEl.viewBox.baseVal
+    const medidas = document.createElement('button')
+    medidas.className = 'mesa-medidas' + (mesaResizeActivo ? ' activo' : '')
+    medidas.textContent = `${Math.round(vbR.width)} × ${Math.round(vbR.height)} px`
+    medidas.title = mesaResizeActivo ? 'Clic: ocultar tiradores' : 'Clic: mostrar tiradores para redimensionar'
+    medidas.addEventListener('click', (ev) => { ev.stopPropagation(); mesaResizeActivo = !mesaResizeActivo; construirOverlays() })
+    lienzo.appendChild(medidas)
+    // Tiradores: borde derecho (ancho), borde inferior (alto), esquina (ambos).
+    if (mesaResizeActivo) {
+      for (const modo of ['e', 's', 'se'] as const) {
+        const hdl = document.createElement('div')
+        hdl.className = 'mesa-size-handle mesa-size-' + modo
+        hdl.title = 'Arrastrar para cambiar el tamaño de la mesa'
+        hdl.addEventListener('pointerdown', (ev) => arrastrarTamanoMesa(ev, modo))
+        lienzo.appendChild(hdl)
+      }
     }
   }
   const base = lienzo.getBoundingClientRect()
@@ -6298,6 +6371,7 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   modoEdicion = p.modoEdicion ?? 'completa'
   guiasFijas = p.guias ? { v: [...(p.guias.v ?? [])], h: [...(p.guias.h ?? [])] } : { v: [], h: [] }
   carruselSlides = p.carrusel?.slides ?? 0
+  mesaResizeActivo = false // cada mesa arranca sin los tiradores de tamaño activos
 
   svgActual = p.svg
   lienzo.innerHTML = p.svg
@@ -6368,10 +6442,10 @@ async function irAMesa(i: number): Promise<void> {
   aplicarZoom()
   renderMesas()
 }
-async function agregarMesa(duplicar: boolean): Promise<void> {
+async function agregarMesa(duplicar: boolean, anchoNuevo?: number, altoNuevo?: number): Promise<void> {
   guardarMesaActiva(); guardarHistorialActivo()
-  const w = svgEl ? Math.round(svgEl.viewBox.baseVal.width) : 1080
-  const h = svgEl ? Math.round(svgEl.viewBox.baseVal.height) : 1080
+  const w = anchoNuevo ?? (svgEl ? Math.round(svgEl.viewBox.baseVal.width) : 1080)
+  const h = altoNuevo ?? (svgEl ? Math.round(svgEl.viewBox.baseVal.height) : 1080)
   const nueva: Proyecto = duplicar
     ? JSON.parse(JSON.stringify(mesas[mesaActiva]))
     : { v: 2, plantilla: `enblanco-${w}x${h}`, valores: {}, estilos: {}, bloqueado: {}, cajaAlto: {}, metricas: {}, fotos: {}, encuadres: {}, contador: 0, svg: svgEnBlanco(w, h) }
@@ -6441,8 +6515,8 @@ function renderMesas(): void {
     }
     tira.appendChild(tab)
   })
-  const add = document.createElement('button'); add.className = 'mesa-btn'; add.textContent = '＋'; add.title = 'Nueva mesa en blanco'
-  add.addEventListener('click', () => void agregarMesa(false))
+  const add = document.createElement('button'); add.id = 'btn-nueva-mesa'; add.className = 'mesa-btn'; add.textContent = '＋'; add.title = 'Nueva mesa'
+  add.addEventListener('click', (e) => { e.stopPropagation(); abrirNuevaMesa(add) })
   const dup = document.createElement('button'); dup.className = 'mesa-btn'; dup.textContent = '⧉'; dup.title = 'Duplicar mesa actual'
   dup.addEventListener('click', () => void agregarMesa(true))
   const tam = document.createElement('button'); tam.id = 'btn-tamano'; tam.className = 'mesa-btn'; tam.textContent = '📐'; tam.title = 'Tamaño de la mesa de trabajo'
