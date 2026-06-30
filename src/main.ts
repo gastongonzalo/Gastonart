@@ -3451,12 +3451,14 @@ let barraSelFirma: SVGElement | null = null
 // La barra flota en coordenadas de VIEWPORT (position: fixed, anexada a <body>),
 // así puede salir de la mesa de trabajo y moverse libre por toda la pantalla.
 // `target` viene en coords relativas al lienzo → se convierte a viewport.
-function posicionarFlotante(el: HTMLElement, target: Rect): void {
+function posicionarFlotante(el: HTMLElement, target: Rect, align: 'center' | 'left' = 'center'): void {
   const lr = lienzo.getBoundingClientRect()
   const tx = target.left + lr.left, ty = target.top + lr.top
   const bw = el.offsetWidth, bh = el.offsetHeight
   const W = window.innerWidth, H = window.innerHeight
-  let left = tx + target.width / 2 - bw / 2
+  // 'left': el borde izq de la barra arranca en el del elemento (queda "pegada"
+  // al inicio del texto, como Canva). 'center': centrada sobre el elemento.
+  let left = align === 'left' ? tx : tx + target.width / 2 - bw / 2
   // Preferimos ARRIBA del elemento; si no entra, DEBAJO (no tapar el contenido);
   // si tampoco, pegada al borde superior.
   let top = ty - bh - 10
@@ -4603,9 +4605,10 @@ function abrirEditor(nombre: string): void {
 
   editorActivo = { nombre, ta, valorPrevio, tocado: false, els }
   sincronizarBarra(nombre)
-  // La barra de formato flota encima del texto en edición (fixed, en <body>).
+  // La barra de formato flota encima del texto en edición (fixed, en <body>),
+  // alineada al inicio del texto (no centrada en una caja ancha → no "corrida").
   document.body.appendChild(barraTexto)
-  posicionarFlotante(barraTexto, r)
+  posicionarFlotante(barraTexto, r, 'left')
   ta.addEventListener('input', () => {
     editorActivo!.tocado = true
     valores[nombre] = ta.value
