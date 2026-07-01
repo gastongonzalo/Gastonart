@@ -444,6 +444,18 @@ app.innerHTML = `
     </div>
   </div>
 
+  <div id="panel-collage" hidden>
+    <div class="pg-head"><strong>Estilo del collage</strong><button id="pc-cerrar" class="mini" title="Cerrar">✕</button></div>
+    <div class="mc-grupo"><div class="mc-tit">Distribución</div><div id="pc-layouts" class="mc-layouts"></div></div>
+    <div class="mc-grupo">
+      <div class="mc-tit">Estilo</div>
+      <label class="mc-row"><input type="checkbox" id="pc-linea"> Línea entre las fotos</label>
+      <label class="mc-row" id="pc-gap-row">Grosor <input type="range" id="pc-gap" min="2" max="60"></label>
+      <label class="mc-row"><input type="checkbox" id="pc-round"> Bordes redondeados</label>
+      <div class="mc-row">Color <div id="pc-colores" class="mc-colores"></div></div>
+    </div>
+  </div>
+
   <!-- Sidebar flotante derecha: aloja la barra contextual de lo seleccionado. -->
   <aside id="panel-props" hidden></aside>
 
@@ -567,7 +579,7 @@ const btItalic = document.querySelector<HTMLButtonElement>('#bt-italic')!
 const btFamily = document.querySelector<HTMLSelectElement>('#bt-family')!
 const btWeight = document.querySelector<HTMLSelectElement>('#bt-weight')!
 const btColor = document.querySelector<HTMLInputElement>('#bt-color')!
-document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true })
+document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true; refrescarPanelProps() })
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
 const menuFigura = document.querySelector<HTMLDivElement>('#menu-figura')!
 // Tipos de figura disponibles (orden del selector).
@@ -587,7 +599,7 @@ for (const tipo of TIPOS_FIGURA) {
 }
 // Cierra los paneles FLOTANTES que quedan (solo Tamaño) excepto uno.
 function cerrarPanelesFlotantes(excepto?: Element): void {
-  for (const sel of ['#panel-tamano', '#panel-nueva-mesa']) {
+  for (const sel of ['#panel-tamano', '#panel-nueva-mesa', '#panel-collage']) {
     const p = document.querySelector<HTMLElement>(sel)
     if (p && p !== excepto) {
       if (p.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
@@ -908,6 +920,65 @@ document.querySelector('#nm-crear')!.addEventListener('click', () => {
   void agregarMesa(false, w, h)
 })
 panelNuevaMesa.addEventListener('click', (e) => e.stopPropagation())
+
+// --- Panel "Estilo del collage": re-estila (distribución/línea/redondeo/color) sin re-cargar fotos ---
+const panelCollage = document.querySelector<HTMLDivElement>('#panel-collage')!
+const pcLinea = document.querySelector<HTMLInputElement>('#pc-linea')!
+const pcGap = document.querySelector<HTMLInputElement>('#pc-gap')!
+const pcRound = document.querySelector<HTMLInputElement>('#pc-round')!
+function pcRenderLayouts(): void {
+  const cont = document.querySelector('#pc-layouts')!; if (!collageActual) return
+  const n = collageActual.celdas.length
+  cont.innerHTML = (LAYOUTS_COLLAGE[n] || []).map((cel, i) => `<button class="mc-layout${i === collageActual!.layout ? ' activo' : ''}" data-i="${i}">${miniLayout(cel)}</button>`).join('')
+  cont.querySelectorAll<HTMLButtonElement>('.mc-layout').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (!collageActual) return
+      collageActual.layout = +b.dataset.i!
+      collageActual.celdas = LAYOUTS_COLLAGE[collageActual.celdas.length][collageActual.layout]
+      cont.querySelectorAll('.mc-layout').forEach((x) => x.classList.toggle('activo', x === b))
+      aplicarEstiloCollage(true)
+    }))
+}
+function pcRenderColores(): void {
+  const cont = document.querySelector('#pc-colores')!; if (!collageActual) return
+  cont.innerHTML = MC_COLORES.map((c) => `<button class="mc-color${c === collageActual!.opts.color ? ' activo' : ''}" data-c="${c}" style="background:${c}" title="${c}"></button>`).join('')
+  cont.querySelectorAll<HTMLButtonElement>('.mc-color').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (!collageActual) return
+      collageActual.opts.color = b.dataset.c!
+      cont.querySelectorAll('.mc-color').forEach((x) => x.classList.toggle('activo', x === b))
+      aplicarEstiloCollage(true)
+    }))
+}
+function togglePanelCollage(): void {
+  const abrir = panelCollage.hidden
+  cerrarPanelesFlotantes(panelCollage)
+  if (abrir && collageActual) {
+    const conLinea = collageActual.opts.gap > 0
+    pcLinea.checked = conLinea
+    pcGap.value = String(conLinea ? collageActual.opts.gap : 14)
+    document.querySelector('#pc-gap-row')!.classList.toggle('mc-off', !conLinea)
+    pcRound.checked = collageActual.opts.radio > 0
+    pcRenderLayouts(); pcRenderColores()
+  }
+  panelCollage.hidden = !abrir
+}
+pcLinea.addEventListener('change', () => {
+  if (!collageActual) return
+  collageActual.opts.gap = pcLinea.checked ? (+pcGap.value || 14) : 0
+  document.querySelector('#pc-gap-row')!.classList.toggle('mc-off', !pcLinea.checked)
+  aplicarEstiloCollage(true)
+})
+pcGap.addEventListener('input', () => { if (collageActual) { collageActual.opts.gap = +pcGap.value; aplicarEstiloCollage(false) } })
+pcGap.addEventListener('change', () => { if (collageActual) { collageActual.opts.gap = +pcGap.value; aplicarEstiloCollage(true) } })
+pcRound.addEventListener('change', () => {
+  if (!collageActual) return
+  collageActual.opts.radio = pcRound.checked ? Math.round(Math.min(collageActual.W, collageActual.H) * 0.05) : 0
+  aplicarEstiloCollage(true)
+})
+document.querySelector('#pc-cerrar')!.addEventListener('click', () => { panelCollage.hidden = true })
+panelCollage.addEventListener('click', (e) => e.stopPropagation())
+
 document.querySelector('#btn-pluma')!.addEventListener('click', (e) => {
   e.stopPropagation()
   grafSeleccion = []; limpiarGraf() // la pluma pone su propia capa por encima
@@ -933,8 +1004,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('.modo-switch butto
 // Cerrar los paneles flotantes al hacer clic fuera de ellos (si no, el input de
 // búsqueda queda con foco y su cursor parpadea arriba a la izquierda). Se excluye
 // cada panel y su botón disparador para no cerrarlos en el mismo clic que los abre.
-const SEL_PANELES = '#panel-tamano, #panel-nueva-mesa'
-const SEL_DISPARADORES = '#btn-tamano, #btn-nueva-mesa'
+const SEL_PANELES = '#panel-tamano, #panel-nueva-mesa, #panel-collage'
+const SEL_DISPARADORES = '#btn-tamano, #btn-nueva-mesa, #btn-collage'
 document.addEventListener('pointerdown', (e) => {
   const t = e.target as Element | null
   if (!t || t.closest(SEL_PANELES) || t.closest(SEL_DISPARADORES)) return
@@ -3643,7 +3714,10 @@ function alojarEnPanel(el: HTMLElement, exclusivo = true): void {
   panelProps.hidden = false
 }
 // Muestra la sidebar solo si tiene alguna barra adentro (si no, se esconde).
+// Mientras el panel de Exportar está abierto se mantiene oculta (comparten la
+// esquina superior derecha y se superponían).
 function refrescarPanelProps(): void {
+  if (!panelExport.hidden) { panelProps.hidden = true; return }
   const hayTexto = panelProps.contains(barraTexto) && !barraTexto.hidden
   panelProps.hidden = !(panelProps.querySelector('.graf-tools, .foto-tools') || hayTexto)
 }
@@ -6113,6 +6187,7 @@ async function exportarPNG(): Promise<void> {
     peCarrusel.hidden = carruselSlides < 2
     if (carruselSlides >= 2) peCarrusel.textContent = `⬇ Carrusel (${carruselSlides} imágenes)`
     panelExport.hidden = false
+    panelProps.hidden = true // no solapar la sidebar contextual con el panel de export
     estado.textContent = transp ? 'PNG exportado (fondo transparente).' : 'PNG exportado.'
   } catch (err) {
     estado.textContent = '❌ ' + (err instanceof Error ? err.message : String(err))
@@ -6339,7 +6414,7 @@ interface Proyecto {
   modoEdicion?: ModoEdicion // 'completa' | 'plantilla' (opcional: saves viejos → completa)
   guias?: { v: number[]; h: number[] } // guías fijas por mesa (unidades del viewBox)
   carrusel?: { slides: number } // si está, la mesa es un carrusel ancho: se corta en N slides al exportar
-  collage?: { W: number; H: number; celdas: CeldaFrac[]; opts: CollageOpts } // config del collage (para re-estilar)
+  collage?: { W: number; H: number; celdas: CeldaFrac[]; opts: CollageOpts; layout: number } // config del collage (para re-estilar)
 }
 
 function snapshotProyecto(): Proyecto {
@@ -6534,6 +6609,11 @@ function renderMesas(): void {
   const tam = document.createElement('button'); tam.id = 'btn-tamano'; tam.className = 'mesa-btn'; tam.textContent = '📐'; tam.title = 'Tamaño de la mesa de trabajo'
   tam.addEventListener('click', (e) => { e.stopPropagation(); togglePanelTamano() })
   tira.append(add, dup, tam)
+  if (collageActual) {
+    const col = document.createElement('button'); col.id = 'btn-collage'; col.className = 'mesa-btn'; col.textContent = '🎨'; col.title = 'Estilo del collage (separación, redondeo, distribución)'
+    col.addEventListener('click', (e) => { e.stopPropagation(); togglePanelCollage() })
+    tira.append(col)
+  }
   if (mesas.length > 1) {
     const carr = document.createElement('button'); carr.className = 'mesa-btn' + (vistaCarrusel ? ' activa' : ''); carr.textContent = '▦'; carr.title = 'Ver todas las mesas (carrusel)'
     carr.addEventListener('click', () => toggleCarrusel())
@@ -6880,17 +6960,42 @@ function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, h
     return `<g clip-path="url(#clc${i})">${inner}</g>`
   }).join('')
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${W} ${H}">` +
-    `<rect x="0" y="0" width="${W}" height="${H}" fill="${o.color}"/><defs>${clips}</defs>${imgs}</svg>`
+    `<rect class="collage-bg" x="0" y="0" width="${W}" height="${H}" fill="${o.color}"/><defs>${clips}</defs>${imgs}</svg>`
+}
+// Re-aplica el estilo del collage (separación, redondeo, color, layout) sobre el
+// SVG vivo, SIN remontar: mueve los rects de recorte y reencuadra las fotos con
+// sus encuadres actuales. No toca historial (lo decide quien llama).
+function aplicarEstiloCollage(commit: boolean): void {
+  if (!collageActual || !svgEl) return
+  const { W, H, celdas, opts } = collageActual
+  const g = opts.gap
+  const bg = svgEl.querySelector('.collage-bg'); if (bg) bg.setAttribute('fill', opts.color)
+  celdas.forEach((c, i) => {
+    const rect = svgEl!.querySelector(`#clc${i} rect`)
+    if (!rect) return
+    rect.setAttribute('x', (c.x * W + g / 2).toFixed(1)); rect.setAttribute('y', (c.y * H + g / 2).toFixed(1))
+    rect.setAttribute('width', Math.max(1, c.w * W - g).toFixed(1)); rect.setAttribute('height', Math.max(1, c.h * H - g).toFixed(1))
+    rect.setAttribute('rx', String(opts.radio)); rect.setAttribute('ry', String(opts.radio))
+  })
+  for (const id of idsFoto()) {
+    const fr = frameVisibleUser(id); if (!fr) continue
+    framesFoto[id] = fr
+    const f = fotos[id]; if (!f) continue
+    const enc = encuadreDe(id); const c = aplicarFotoDom(svgEl, id, f, fr, enc); enc.ox = c.ox; enc.oy = c.oy
+  }
+  // Al soltar el control: reubica los hits (con registro de historial + autoguardado
+  // que hace construirOverlays). Durante el arrastre no, para no saturar.
+  if (commit) construirOverlays()
 }
 // Config del collage actual (para re-estilar sin perder fotos/encuadres).
-let collageActual: { W: number; H: number; celdas: CeldaFrac[]; opts: CollageOpts } | null = null
+let collageActual: { W: number; H: number; celdas: CeldaFrac[]; opts: CollageOpts; layout: number } | null = null
 // Celda del collage seleccionada: solo esa muestra sus controles en la sidebar
 // (si no, se apilarían N barras y taparían el collage). null = ninguna.
 let collageHueco: string | null = null
 // Crea una placa collage con las fotos dadas (modo plantilla → pan/zoom por celda).
-function crearCollage(W: number, H: number, celdas: CeldaFrac[], opts: CollageOpts, fotosArr: Foto[]): void {
+function crearCollage(W: number, H: number, celdas: CeldaFrac[], opts: CollageOpts, fotosArr: Foto[], layout = 0): void {
   nuevoProyecto()
-  collageActual = { W, H, celdas, opts }
+  collageActual = { W, H, celdas, opts, layout }
   svgActual = svgCollage(W, H, celdas, opts)
   plantillaActual = `collage-${W}x${H}`
   valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
@@ -7017,7 +7122,7 @@ function abrirCollage(): void {
     const s = MC_SIZES[mcSize]
     const celdas = LAYOUTS_COLLAGE[mcFotos.length][mcLayout] || LAYOUTS_COLLAGE[mcFotos.length][0]
     ov.remove(); cerrarInicio()
-    crearCollage(s.W, s.H, celdas, mcOpts(s), mcFotos.slice())
+    crearCollage(s.W, s.H, celdas, mcOpts(s), mcFotos.slice(), mcLayout)
   })
   mcRenderFotos(ov); mcRenderLayouts(ov); mcRefrescar()
 }
