@@ -4369,7 +4369,7 @@ function toggleReglas(): void {
 
 function construirOverlays(): void {
   if (!svgEl) return
-  lienzo.querySelectorAll('.hit, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle, .mesa-size-handle, .mesa-medidas').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.hit, .btn-eliminar, .btn-quitarfondo, .resize-handle, .btn-candado, .resize-ancho, .resize-caja, .guia, .swatch-figura, .mascara-wrap, .mask-handle, .mesa-size-handle, .mesa-medidas, .collage-div').forEach((n) => n.remove())
   document.querySelectorAll('.foto-tools').forEach((n) => n.remove()) // foto-tools flotan en <body>
   zoomSlider = null
   dibujarReglas(); dibujarGuiasFijas(); dibujarGuiasCarrusel() // se redibujan al cambiar zoom/modo/contenido
@@ -4535,6 +4535,7 @@ function construirOverlays(): void {
   // Barras de las fotos de la plantilla en la sidebar (se borraron arriba; rebuild
   // al final para que sobrevivan al clear).
   if (!grafSeleccion.length) actualizarPanelProps()
+  if (collageActual) dibujarDivisoresCollage() // tiradores para redimensionar celdas
   refrescarPanelProps() // ajusta la visibilidad de la sidebar
   registrarHistorial()
   autoguardar()
@@ -7046,6 +7047,104 @@ function aplicarEstiloCollage(commit: boolean): void {
   // que hace construirOverlays). Durante el arrastre no, para no saturar.
   if (commit) construirOverlays()
 }
+// --- Divisores arrastrables del collage (redimensionar celdas como InShot) ---
+// Une intervalos [a,b] que se tocan/solapan; sirve para saber si un lado del
+// borde cubre un tramo contiguo.
+function mergeRangos(rs: [number, number][]): [number, number][] {
+  const eps = 0.004
+  const out: [number, number][] = []
+  for (const [a, b] of rs.slice().sort((p, q) => p[0] - q[0])) {
+    const last = out[out.length - 1]
+    if (last && a <= last[1] + eps) last[1] = Math.max(last[1], b); else out.push([a, b])
+  }
+  return out
+}
+interface DivV { pos: number; a: number; b: number; left: number[]; right: number[] }
+interface DivH { pos: number; a: number; b: number; top: number[]; bottom: number[] }
+// Un borde es arrastrable SOLO si las celdas de cada lado cubren EXACTAMENTE el
+// mismo tramo (si una celda sobresale, movería un escalón → no se permite).
+function dividersCollage(celdas: CeldaFrac[]): { vert: DivV[]; horiz: DivH[] } {
+  const eps = 0.006
+  const vert: DivV[] = [], horiz: DivH[] = []
+  const idx = celdas.map((c, i) => ({ c, i }))
+  const xs = [...new Set(celdas.flatMap((c) => [c.x, c.x + c.w]))].filter((x) => x > eps && x < 1 - eps)
+  for (const xb of xs) {
+    const L = idx.filter((o) => Math.abs(o.c.x + o.c.w - xb) < eps)
+    const R = idx.filter((o) => Math.abs(o.c.x - xb) < eps)
+    if (!L.length || !R.length) continue
+    const yL = mergeRangos(L.map((o): [number, number] => [o.c.y, o.c.y + o.c.h]))
+    const yR = mergeRangos(R.map((o): [number, number] => [o.c.y, o.c.y + o.c.h]))
+    if (yL.length === 1 && yR.length === 1 && Math.abs(yL[0][0] - yR[0][0]) < eps && Math.abs(yL[0][1] - yR[0][1]) < eps)
+      vert.push({ pos: xb, a: yL[0][0], b: yL[0][1], left: L.map((o) => o.i), right: R.map((o) => o.i) })
+  }
+  const ys = [...new Set(celdas.flatMap((c) => [c.y, c.y + c.h]))].filter((y) => y > eps && y < 1 - eps)
+  for (const yb of ys) {
+    const T = idx.filter((o) => Math.abs(o.c.y + o.c.h - yb) < eps)
+    const B = idx.filter((o) => Math.abs(o.c.y - yb) < eps)
+    if (!T.length || !B.length) continue
+    const xT = mergeRangos(T.map((o): [number, number] => [o.c.x, o.c.x + o.c.w]))
+    const xB = mergeRangos(B.map((o): [number, number] => [o.c.x, o.c.x + o.c.w]))
+    if (xT.length === 1 && xB.length === 1 && Math.abs(xT[0][0] - xB[0][0]) < eps && Math.abs(xT[0][1] - xB[0][1]) < eps)
+      horiz.push({ pos: yb, a: xT[0][0], b: xT[0][1], top: T.map((o) => o.i), bottom: B.map((o) => o.i) })
+  }
+  return { vert, horiz }
+}
+// Dibuja los tiradores de los divisores sobre el lienzo (overlays).
+function dibujarDivisoresCollage(): void {
+  if (!collageActual || !svgEl) return
+  const W = lienzo.clientWidth, H = svgEl.clientHeight
+  const { vert, horiz } = dividersCollage(collageActual.celdas)
+  for (const d of vert) {
+    const el = document.createElement('div'); el.className = 'collage-div collage-div-v'
+    el.title = 'Arrastrá para cambiar el ancho'
+    Object.assign(el.style, { left: d.pos * W + 'px', top: d.a * H + 'px', height: (d.b - d.a) * H + 'px' })
+    el.addEventListener('pointerdown', (e) => arrastrarDivisor(e, d, null))
+    lienzo.appendChild(el)
+  }
+  for (const d of horiz) {
+    const el = document.createElement('div'); el.className = 'collage-div collage-div-h'
+    el.title = 'Arrastrá para cambiar el alto'
+    Object.assign(el.style, { top: d.pos * H + 'px', left: d.a * W + 'px', width: (d.b - d.a) * W + 'px' })
+    el.addEventListener('pointerdown', (e) => arrastrarDivisor(e, null, d))
+    lienzo.appendChild(el)
+  }
+}
+// Arrastre de un divisor: mueve el borde y reparte el cambio entre las celdas de
+// ambos lados. Vive en `collageActual.celdas` (marca el layout como custom).
+function arrastrarDivisor(e: PointerEvent, dv: DivV | null, dh: DivH | null): void {
+  e.preventDefault(); e.stopPropagation()
+  if (!collageActual || !svgEl) return
+  const cel = collageActual.celdas
+  const vertical = !!dv
+  const dim = vertical ? lienzo.clientWidth : svgEl.clientHeight
+  const start = vertical ? e.clientX : e.clientY
+  const minF = 0.06
+  const handle = e.currentTarget as HTMLElement
+  const lado1 = vertical ? dv!.left : dh!.top // crecen su w/h
+  const lado2 = vertical ? dv!.right : dh!.bottom // se mueve su x/y
+  const edge2 = lado2.map((i) => vertical ? cel[i].x + cel[i].w : cel[i].y + cel[i].h) // arista lejana fija
+  const lo = Math.max(...lado1.map((i) => vertical ? cel[i].x : cel[i].y)) + minF
+  const hi = Math.min(...edge2) - minF
+  const onMove = (ev: PointerEvent) => {
+    let np = (vertical ? dv!.pos : dh!.pos) + ((vertical ? ev.clientX : ev.clientY) - start) / dim
+    np = Math.max(lo, Math.min(hi, np))
+    if (vertical) {
+      for (const i of lado1) cel[i].w = np - cel[i].x
+      lado2.forEach((i, k) => { cel[i].x = np; cel[i].w = edge2[k] - np })
+      handle.style.left = np * lienzo.clientWidth + 'px'
+    } else {
+      for (const i of lado1) cel[i].h = np - cel[i].y
+      lado2.forEach((i, k) => { cel[i].y = np; cel[i].h = edge2[k] - np })
+      handle.style.top = np * (svgEl!.clientHeight) + 'px'
+    }
+    collageActual!.layout = -1 // layout personalizado
+    aplicarEstiloCollage(false)
+  }
+  const onUp = () => { document.removeEventListener('pointermove', onMove); aplicarEstiloCollage(true) }
+  document.addEventListener('pointermove', onMove)
+  document.addEventListener('pointerup', onUp, { once: true })
+}
+
 // Config del collage actual (para re-estilar sin perder fotos/encuadres).
 let collageActual: { W: number; H: number; celdas: CeldaFrac[]; opts: CollageOpts; layout: number } | null = null
 // Celda del collage seleccionada: solo esa muestra sus controles en la sidebar

@@ -1601,6 +1601,17 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 #mc-crear { margin-top: 4px; }
 /* Celda de collage seleccionada (se ajusta en la sidebar). */
 .hit-foto-activa { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: 4px; }
+/* Divisores arrastrables del collage (redimensionar celdas). */
+.collage-div { position: absolute; z-index: 9; touch-action: none; }
+.collage-div-v { width: 14px; transform: translateX(-7px); cursor: ew-resize; }
+.collage-div-h { height: 14px; transform: translateY(-7px); cursor: ns-resize; }
+.collage-div::after {
+  content: ''; position: absolute; background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28); border-radius: 4px; opacity: 0.75; transition: opacity 0.1s, background 0.1s;
+}
+.collage-div-v::after { left: 5px; top: 50%; margin-top: -15px; width: 4px; height: 30px; }
+.collage-div-h::after { top: 5px; left: 50%; margin-left: -15px; height: 4px; width: 30px; }
+.collage-div:hover::after, .collage-div:active::after { opacity: 1; background: var(--accent); }
 @media (max-width: 720px) {
   .mc-body { flex-direction: column; overflow-y: auto; }
   .mc-controls { flex-basis: auto; max-width: none; }
