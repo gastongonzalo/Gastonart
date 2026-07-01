@@ -450,7 +450,8 @@ app.innerHTML = `
     <div class="mc-grupo">
       <div class="mc-tit">Estilo</div>
       <label class="mc-row"><input type="checkbox" id="pc-linea"> Línea entre las fotos</label>
-      <label class="mc-row" id="pc-gap-row">Grosor <input type="range" id="pc-gap" min="2" max="60"></label>
+      <label class="mc-row" id="pc-gap-row">Separación <input type="range" id="pc-gap" min="2" max="60"></label>
+      <label class="mc-row">Margen exterior <input type="range" id="pc-margen" min="0" max="160"></label>
       <label class="mc-row"><input type="checkbox" id="pc-round"> Bordes redondeados</label>
       <label class="mc-row"><input type="checkbox" id="pc-fit"> Mostrar la foto completa (sin recortar)</label>
       <div class="mc-row">Fondo <div id="pc-colores" class="mc-colores"></div><button type="button" id="pc-bg-foto" class="mc-bg-btn" title="Foto de fondo">🖼</button></div>
@@ -928,6 +929,7 @@ panelNuevaMesa.addEventListener('click', (e) => e.stopPropagation())
 const panelCollage = document.querySelector<HTMLDivElement>('#panel-collage')!
 const pcLinea = document.querySelector<HTMLInputElement>('#pc-linea')!
 const pcGap = document.querySelector<HTMLInputElement>('#pc-gap')!
+const pcMargen = document.querySelector<HTMLInputElement>('#pc-margen')!
 const pcRound = document.querySelector<HTMLInputElement>('#pc-round')!
 const pcFit = document.querySelector<HTMLInputElement>('#pc-fit')!
 const pcBgBlur = document.querySelector<HTMLInputElement>('#pc-bg-blur')!
@@ -964,6 +966,7 @@ function togglePanelCollage(): void {
     const conLinea = collageActual.opts.gap > 0
     pcLinea.checked = conLinea
     pcGap.value = String(conLinea ? collageActual.opts.gap : 14)
+    pcMargen.value = String(collageActual.opts.margen ?? collageActual.opts.gap)
     document.querySelector('#pc-gap-row')!.classList.toggle('mc-off', !conLinea)
     pcRound.checked = collageActual.opts.radio > 0
     pcFit.checked = collageActual.opts.ajuste === 'fit'
@@ -981,6 +984,8 @@ pcLinea.addEventListener('change', () => {
 })
 pcGap.addEventListener('input', () => { if (collageActual) { collageActual.opts.gap = +pcGap.value; aplicarEstiloCollage(false) } })
 pcGap.addEventListener('change', () => { if (collageActual) { collageActual.opts.gap = +pcGap.value; aplicarEstiloCollage(true) } })
+pcMargen.addEventListener('input', () => { if (collageActual) { collageActual.opts.margen = +pcMargen.value; aplicarEstiloCollage(false) } })
+pcMargen.addEventListener('change', () => { if (collageActual) { collageActual.opts.margen = +pcMargen.value; aplicarEstiloCollage(true) } })
 pcRound.addEventListener('change', () => {
   if (!collageActual) return
   collageActual.opts.radio = pcRound.checked ? Math.round(Math.min(collageActual.W, collageActual.H) * 0.05) : 0
@@ -6958,7 +6963,8 @@ interface CeldaFrac { x: number; y: number; w: number; h: number } // fracciones
 // muestra la foto COMPLETA centrada (deja ver todo, con fondo alrededor).
 // bgFoto: dataUrl de una foto de fondo (se ve en márgenes/separaciones); bgBlur:
 // desenfocarla. Si no hay bgFoto, el fondo es el color.
-interface CollageOpts { gap: number; radio: number; color: string; ajuste?: 'cover' | 'fit'; bgFoto?: string; bgBlur?: boolean }
+// gap = separación entre fotos; margen = margen exterior (si no está, = gap → uniforme).
+interface CollageOpts { gap: number; radio: number; color: string; ajuste?: 'cover' | 'fit'; bgFoto?: string; bgBlur?: boolean; margen?: number }
 // Tilea un sub-rectángulo (en fracciones) en cols×rows celdas.
 function gridEn(X: number, Y: number, W: number, H: number, cols: number, rows: number): CeldaFrac[] {
   const c: CeldaFrac[] = []
@@ -7018,12 +7024,12 @@ const LAYOUTS_COLLAGE: Record<number, CeldaFrac[][]> = {
 // lleva el gap completo y los bordes INTERIORES gap/2 por lado → así la separación
 // entre fotos (gap/2 + gap/2 = gap) queda IGUAL al margen exterior (gap), en vez de
 // duplicarse.
-function celdaRectPx(c: CeldaFrac, W: number, H: number, g: number): { x: number; y: number; w: number; h: number } {
+function celdaRectPx(c: CeldaFrac, W: number, H: number, g: number, m: number): { x: number; y: number; w: number; h: number } {
   const e = 0.004
-  const izq = c.x <= e ? g : g / 2
-  const der = c.x + c.w >= 1 - e ? g : g / 2
-  const arr = c.y <= e ? g : g / 2
-  const aba = c.y + c.h >= 1 - e ? g : g / 2
+  const izq = c.x <= e ? m : g / 2 // borde exterior = margen (m); interior = gap/2
+  const der = c.x + c.w >= 1 - e ? m : g / 2
+  const arr = c.y <= e ? m : g / 2
+  const aba = c.y + c.h >= 1 - e ? m : g / 2
   return { x: c.x * W + izq, y: c.y * H + arr, w: Math.max(1, c.w * W - izq - der), h: Math.max(1, c.h * H - arr - aba) }
 }
 // Fondo del collage: foto (opcionalmente desenfocada, agrandada para que el blur
@@ -7039,8 +7045,8 @@ function fondoCollageSvg(W: number, H: number, o: CollageOpts): { defs: string; 
   return { defs: '', bg: `<rect class="collage-bg" x="0" y="0" width="${W}" height="${H}" fill="${o.color}"/>` }
 }
 function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, hrefs?: string[]): string {
-  const g = o.gap
-  const celdaPx = (c: CeldaFrac) => celdaRectPx(c, W, H, g)
+  const g = o.gap, m = o.margen ?? g
+  const celdaPx = (c: CeldaFrac) => celdaRectPx(c, W, H, g, m)
   const clips = celdas.map((c, i) => {
     const p = celdaPx(c)
     return `<clipPath id="clc${i}"><rect x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" rx="${o.radio}" ry="${o.radio}"/></clipPath>`
@@ -7098,12 +7104,12 @@ function ponerFondoCollage(): void {
 function aplicarEstiloCollage(commit: boolean): void {
   if (!collageActual || !svgEl) return
   const { W, H, celdas, opts } = collageActual
-  const g = opts.gap
+  const g = opts.gap, m = opts.margen ?? g
   ponerFondoCollage() // rect de color o imagen de fondo (con/ sin blur)
   celdas.forEach((c, i) => {
     const rect = svgEl!.querySelector(`#clc${i} rect`)
     if (!rect) return
-    const p = celdaRectPx(c, W, H, g)
+    const p = celdaRectPx(c, W, H, g, m)
     rect.setAttribute('x', p.x.toFixed(1)); rect.setAttribute('y', p.y.toFixed(1))
     rect.setAttribute('width', p.w.toFixed(1)); rect.setAttribute('height', p.h.toFixed(1))
     rect.setAttribute('rx', String(opts.radio)); rect.setAttribute('ry', String(opts.radio))
@@ -7258,10 +7264,10 @@ const MC_SIZES = [
 const MC_COLORES = ['#ffffff', '#000000', '#e5e7eb', '#0284c7']
 let mcFotos: Foto[] = []
 let mcSize = 0, mcLayout = 0, mcGap = 14
-let mcConLinea = true, mcRound = false, mcColor = '#ffffff', mcFit = false
+let mcConLinea = true, mcRound = false, mcColor = '#ffffff', mcFit = false, mcMargen = 14
 let mcBgFoto: string | undefined, mcBgBlur = true
 function mcOpts(s: { W: number; H: number }): CollageOpts {
-  return { gap: mcConLinea ? mcGap : 0, radio: mcRound ? Math.round(Math.min(s.W, s.H) * 0.05) : 0, color: mcColor, ajuste: mcFit ? 'fit' : 'cover', bgFoto: mcBgFoto, bgBlur: mcBgBlur }
+  return { gap: mcConLinea ? mcGap : 0, margen: mcMargen, radio: mcRound ? Math.round(Math.min(s.W, s.H) * 0.05) : 0, color: mcColor, ajuste: mcFit ? 'fit' : 'cover', bgFoto: mcBgFoto, bgBlur: mcBgBlur }
 }
 // Mini-ícono de un layout (celdas rellenas con separación).
 function miniLayout(celdas: CeldaFrac[]): string {
@@ -7312,7 +7318,7 @@ function mcRefrescar(): void {
   }
 }
 function abrirCollage(): void {
-  mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'; mcFit = false; mcBgFoto = undefined; mcBgBlur = true
+  mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcMargen = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'; mcFit = false; mcBgFoto = undefined; mcBgBlur = true
   const ov = document.createElement('div'); ov.id = 'modal-collage'
   ov.innerHTML = `
     <div class="mc-wrap">
@@ -7337,7 +7343,8 @@ function abrirCollage(): void {
           <div class="mc-grupo">
             <div class="mc-tit">Estilo</div>
             <label class="mc-row"><input type="checkbox" id="mc-linea" checked> Línea entre las fotos</label>
-            <label class="mc-row" id="mc-gap-row">Grosor <input type="range" id="mc-gap" min="2" max="60" value="14"></label>
+            <label class="mc-row" id="mc-gap-row">Separación <input type="range" id="mc-gap" min="2" max="60" value="14"></label>
+            <label class="mc-row">Margen exterior <input type="range" id="mc-margen" min="0" max="160" value="14"></label>
             <label class="mc-row"><input type="checkbox" id="mc-round"> Bordes redondeados</label>
             <label class="mc-row"><input type="checkbox" id="mc-fit"> Mostrar la foto completa (sin recortar)</label>
             <div class="mc-row">Fondo <div id="mc-colores" class="mc-colores"></div><button type="button" id="mc-bg-foto" class="mc-bg-btn" title="Foto de fondo">🖼</button></div>
@@ -7383,6 +7390,7 @@ function abrirCollage(): void {
   const round = ov.querySelector<HTMLInputElement>('#mc-round')!
   linea.addEventListener('change', () => { mcConLinea = linea.checked; ov.querySelector('#mc-gap-row')!.classList.toggle('mc-off', !mcConLinea); mcRefrescar() })
   gap.addEventListener('input', () => { mcGap = +gap.value; mcRefrescar() })
+  ov.querySelector<HTMLInputElement>('#mc-margen')!.addEventListener('input', (e) => { mcMargen = +(e.target as HTMLInputElement).value; mcRefrescar() })
   round.addEventListener('change', () => { mcRound = round.checked; mcRefrescar() })
   ov.querySelector<HTMLInputElement>('#mc-fit')!.addEventListener('change', (e) => { mcFit = (e.target as HTMLInputElement).checked; mcRefrescar() })
   ov.querySelector('#mc-cerrar')!.addEventListener('click', () => ov.remove())
