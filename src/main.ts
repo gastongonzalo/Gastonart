@@ -407,14 +407,17 @@ app.innerHTML = `
     </div>
     <div id="pt-presets" class="pt-presets"></div>
     <div class="pt-custom">
-      <input id="pt-w" type="number" min="0.1" max="20000" step="any" aria-label="Ancho"> ×
-      <input id="pt-h" type="number" min="0.1" max="20000" step="any" aria-label="Alto">
-      <select id="pt-unidad" class="unidad-sel" aria-label="Unidad">
-        <option value="px">px</option>
-        <option value="mm">mm</option>
-        <option value="cm">cm</option>
-      </select>
-      <button id="pt-aplicar" class="ini-btn-acc">Aplicar</button>
+      <div class="dim-group">
+        <input id="pt-w" type="number" min="0.1" max="20000" step="any" aria-label="Ancho">
+        <span class="dim-x">×</span>
+        <input id="pt-h" type="number" min="0.1" max="20000" step="any" aria-label="Alto">
+      </div>
+      <div class="unidad-seg" id="pt-unidad-seg" role="group" aria-label="Unidad">
+        <button type="button" data-u="px" class="activo">px</button>
+        <button type="button" data-u="mm">mm</button>
+        <button type="button" data-u="cm">cm</button>
+      </div>
+      <button id="pt-aplicar" class="ini-btn-acc pt-aplicar">Aplicar</button>
     </div>
     <div class="pt-nota">Cambia el tamaño de la placa actual. El contenido queda en su lugar.</div>
   </div>
@@ -427,14 +430,17 @@ app.innerHTML = `
     <button id="nm-igual" class="ini-btn-acc nm-igual">Igual que la actual (<span id="nm-actual"></span>)</button>
     <div class="pt-nota" style="margin:10px 0 4px">…o de otra medida:</div>
     <div class="pt-custom">
-      <input id="nm-w" type="number" min="0.1" max="20000" step="any" aria-label="Ancho"> ×
-      <input id="nm-h" type="number" min="0.1" max="20000" step="any" aria-label="Alto">
-      <select id="nm-unidad" aria-label="Unidad">
-        <option value="px">px</option>
-        <option value="mm">mm</option>
-        <option value="cm">cm</option>
-      </select>
-      <button id="nm-crear" class="ini-btn-acc">Crear</button>
+      <div class="dim-group">
+        <input id="nm-w" type="number" min="0.1" max="20000" step="any" aria-label="Ancho">
+        <span class="dim-x">×</span>
+        <input id="nm-h" type="number" min="0.1" max="20000" step="any" aria-label="Alto">
+      </div>
+      <div class="unidad-seg" id="nm-unidad-seg" role="group" aria-label="Unidad">
+        <button type="button" data-u="px" class="activo">px</button>
+        <button type="button" data-u="mm">mm</button>
+        <button type="button" data-u="cm">cm</button>
+      </div>
+      <button id="nm-crear" class="ini-btn-acc pt-aplicar">Crear</button>
     </div>
   </div>
 
@@ -788,21 +794,44 @@ function mostrarSugerenciasImg(): void {
 const panelTamano = document.querySelector<HTMLDivElement>('#panel-tamano')!
 const ptW = document.querySelector<HTMLInputElement>('#pt-w')!
 const ptH = document.querySelector<HTMLInputElement>('#pt-h')!
-const ptUnidad = document.querySelector<HTMLSelectElement>('#pt-unidad')!
-let ptUnidadPrev = 'px'
+const ptUnidadCtrl = segUnidad(document.querySelector<HTMLElement>('#pt-unidad-seg')!, (nueva, prev) => {
+  const factor = pxPorUnidad(prev) / pxPorUnidad(nueva)
+  const dec = nueva === 'px' ? 0 : 1
+  ptW.value = (parseFloat(ptW.value || '0') * factor).toFixed(dec)
+  ptH.value = (parseFloat(ptH.value || '0') * factor).toFixed(dec)
+})
 function poblarPresetsTamano(): void {
   const cont = document.querySelector<HTMLDivElement>('#pt-presets')!
   if (cont.childElementCount) return
   for (const p of PRESETS_TAMANO) {
     const b = document.createElement('button'); b.className = 'pt-preset'
     b.innerHTML = `<span class="pt-preset-nom">${escAttr(p.nombre)}</span><span class="pt-preset-dim">${p.w}×${p.h}</span>`
-    b.addEventListener('click', () => { ptUnidad.value = 'px'; ptUnidadPrev = 'px'; ptW.value = String(p.w); ptH.value = String(p.h); redimensionarMesa(p.w, p.h) })
+    b.addEventListener('click', () => { ptUnidadCtrl.set('px'); ptW.value = String(p.w); ptH.value = String(p.h); redimensionarMesa(p.w, p.h) })
     cont.appendChild(b)
   }
 }
 function clampDim(v: number): number { return Math.max(16, Math.min(8000, Math.round(v) || 16)) }
 // Cuántos px vale 1 de la unidad (mm/cm a 300 DPI de impresión; 1 in = 25.4 mm = 300 px).
 function pxPorUnidad(u: string): number { return u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1 }
+// Markup del control segmentado de unidad (px | mm | cm).
+const SEG_UNIDAD = `<div class="unidad-seg" role="group" aria-label="Unidad">
+  <button type="button" data-u="px" class="activo">px</button>
+  <button type="button" data-u="mm">mm</button>
+  <button type="button" data-u="cm">cm</button>
+</div>`
+// Cablea un control segmentado de unidad. Devuelve get()/set(); onChange(nueva, prev).
+function segUnidad(el: HTMLElement, onChange?: (nueva: string, prev: string) => void): { get: () => string; set: (u: string) => void } {
+  let val = el.querySelector<HTMLElement>('.activo')?.dataset.u || 'px'
+  const marcar = (u: string) => el.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('activo', b.dataset.u === u))
+  el.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
+    b.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation()
+      const nueva = b.dataset.u!
+      if (nueva === val) return
+      const prev = val; val = nueva; marcar(nueva); onChange?.(nueva, prev)
+    }))
+  return { get: () => val, set: (u: string) => { val = u; marcar(u) } }
+}
 // Mini-ícono SVG con la proporción real del formato: marco con contorno de color y
 // adentro líneas grises tipo "texto" (más o menos según el alto disponible), como
 // el preview de una plantilla.
@@ -830,21 +859,14 @@ function togglePanelTamano(): void {
   cerrarPanelesFlotantes(panelTamano)
   if (abrir && svgEl) {
     poblarPresetsTamano()
-    ptUnidad.value = 'px'; ptUnidadPrev = 'px'
+    ptUnidadCtrl.set('px')
     ptW.value = String(Math.round(svgEl.viewBox.baseVal.width)); ptH.value = String(Math.round(svgEl.viewBox.baseVal.height))
   }
   panelTamano.hidden = !abrir
 }
 document.querySelector('#pt-cerrar')!.addEventListener('click', () => { panelTamano.hidden = true })
-ptUnidad.addEventListener('change', () => {
-  const factor = pxPorUnidad(ptUnidadPrev) / pxPorUnidad(ptUnidad.value)
-  const dec = ptUnidad.value === 'px' ? 0 : 1
-  ptW.value = (parseFloat(ptW.value || '0') * factor).toFixed(dec)
-  ptH.value = (parseFloat(ptH.value || '0') * factor).toFixed(dec)
-  ptUnidadPrev = ptUnidad.value
-})
 document.querySelector('#pt-aplicar')!.addEventListener('click', () => {
-  const f = pxPorUnidad(ptUnidad.value)
+  const f = pxPorUnidad(ptUnidadCtrl.get())
   redimensionarMesa(clampDim((parseFloat(ptW.value) || 0) * f), clampDim((parseFloat(ptH.value) || 0) * f))
 })
 panelTamano.addEventListener('click', (e) => e.stopPropagation())
@@ -853,8 +875,12 @@ panelTamano.addEventListener('click', (e) => e.stopPropagation())
 const panelNuevaMesa = document.querySelector<HTMLDivElement>('#panel-nueva-mesa')!
 const nmW = document.querySelector<HTMLInputElement>('#nm-w')!
 const nmH = document.querySelector<HTMLInputElement>('#nm-h')!
-const nmUnidad = document.querySelector<HTMLSelectElement>('#nm-unidad')!
-let nmUnidadPrev = 'px'
+const nmUnidadCtrl = segUnidad(document.querySelector<HTMLElement>('#nm-unidad-seg')!, (nueva, prev) => {
+  const factor = pxPorUnidad(prev) / pxPorUnidad(nueva)
+  const dec = nueva === 'px' ? 0 : 1
+  nmW.value = (parseFloat(nmW.value || '0') * factor).toFixed(dec)
+  nmH.value = (parseFloat(nmH.value || '0') * factor).toFixed(dec)
+})
 function abrirNuevaMesa(disparador: HTMLElement): void {
   const abrir = panelNuevaMesa.hidden
   cerrarPanelesFlotantes(panelNuevaMesa)
@@ -862,7 +888,7 @@ function abrirNuevaMesa(disparador: HTMLElement): void {
   const w = svgEl ? Math.round(svgEl.viewBox.baseVal.width) : 1080
   const h = svgEl ? Math.round(svgEl.viewBox.baseVal.height) : 1080
   document.querySelector('#nm-actual')!.textContent = `${w} × ${h} px`
-  nmUnidad.value = 'px'; nmUnidadPrev = 'px'
+  nmUnidadCtrl.set('px')
   nmW.value = String(w); nmH.value = String(h)
   // Posicionar el panel cerca del botón "＋".
   const r = disparador.getBoundingClientRect()
@@ -870,18 +896,10 @@ function abrirNuevaMesa(disparador: HTMLElement): void {
   panelNuevaMesa.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px'
   panelNuevaMesa.hidden = false
 }
-// Al cambiar de unidad, convertir los valores mostrados (igual que en la pantalla de inicio).
-nmUnidad.addEventListener('change', () => {
-  const factor = pxPorUnidad(nmUnidadPrev) / pxPorUnidad(nmUnidad.value)
-  const dec = nmUnidad.value === 'px' ? 0 : 1
-  nmW.value = (parseFloat(nmW.value || '0') * factor).toFixed(dec)
-  nmH.value = (parseFloat(nmH.value || '0') * factor).toFixed(dec)
-  nmUnidadPrev = nmUnidad.value
-})
 document.querySelector('#nm-cerrar')!.addEventListener('click', () => { panelNuevaMesa.hidden = true })
 document.querySelector('#nm-igual')!.addEventListener('click', () => { panelNuevaMesa.hidden = true; void agregarMesa(false) })
 document.querySelector('#nm-crear')!.addEventListener('click', () => {
-  const f = pxPorUnidad(nmUnidad.value)
+  const f = pxPorUnidad(nmUnidadCtrl.get())
   const w = clampDim((parseFloat(nmW.value) || 0) * f), h = clampDim((parseFloat(nmH.value) || 0) * f)
   panelNuevaMesa.hidden = true
   void agregarMesa(false, w, h)
@@ -7117,13 +7135,12 @@ function mostrarInicio(): void {
         ${seccionesTamano}
         <div class="ini-grupo-tit">Personalizado</div>
         <div class="ini-custom">
-          <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho"> ×
-          <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
-          <select id="ini-unidad" class="unidad-sel" aria-label="Unidad">
-            <option value="px">px</option>
-            <option value="mm">mm</option>
-            <option value="cm">cm</option>
-          </select>
+          <div class="dim-group">
+            <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho">
+            <span class="dim-x">×</span>
+            <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
+          </div>
+          ${SEG_UNIDAD}
           <button id="ini-crear-custom" class="ini-btn-acc">Crear</button>
         </div>
       </section>
@@ -7198,20 +7215,17 @@ function mostrarInicio(): void {
   const pxPorUnidad = (u: string) => u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1
   const inpW = ov.querySelector<HTMLInputElement>('#ini-w')!
   const inpH = ov.querySelector<HTMLInputElement>('#ini-h')!
-  const selU = ov.querySelector<HTMLSelectElement>('#ini-unidad')!
-  let unidadPrev = selU.value
   // Al cambiar de unidad, convertir los valores actuales a la nueva medida.
-  selU.addEventListener('change', () => {
-    const factor = pxPorUnidad(unidadPrev) / pxPorUnidad(selU.value)
+  const iniUnidadCtrl = segUnidad(ov.querySelector<HTMLElement>('.unidad-seg')!, (nueva, prev) => {
+    const factor = pxPorUnidad(prev) / pxPorUnidad(nueva)
     const conv = (inp: HTMLInputElement) => {
       const v = (+inp.value || 0) * factor
-      inp.value = String(selU.value === 'px' ? Math.round(v) : Math.round(v * 100) / 100)
+      inp.value = String(nueva === 'px' ? Math.round(v) : Math.round(v * 100) / 100)
     }
     conv(inpW); conv(inpH)
-    unidadPrev = selU.value
   })
   ov.querySelector('#ini-crear-custom')!.addEventListener('click', () => {
-    const aPx = (v: number) => Math.max(16, Math.min(20000, Math.round(v * pxPorUnidad(selU.value))))
+    const aPx = (v: number) => Math.max(16, Math.min(20000, Math.round(v * pxPorUnidad(iniUnidadCtrl.get()))))
     const w = aPx(+inpW.value || 1080)
     const h = aPx(+inpH.value || 1080)
     cerrarInicio(); nuevaPlacaEnBlanco(w, h)
