@@ -1598,6 +1598,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .mc-colores { display: flex; gap: 6px; }
 .mc-color { width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 1px solid var(--border); cursor: pointer; }
 .mc-color.activo { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
+.mc-bg-btn { width: 28px; height: 28px; padding: 0; margin-left: 4px; border-radius: 8px; border: 1px solid var(--border); background: var(--inset); cursor: pointer; font-size: 14px; line-height: 1; }
+.mc-bg-btn:hover { border-color: var(--accent); }
+.mc-bg-btn.activo { border-color: var(--accent); background: rgba(2, 132, 199, 0.12); box-shadow: 0 0 0 1px var(--accent); }
 #mc-crear { margin-top: 4px; }
 /* Celda de collage seleccionada (se ajusta en la sidebar). */
 .hit-foto-activa { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: 4px; }

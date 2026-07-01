@@ -453,7 +453,9 @@ app.innerHTML = `
       <label class="mc-row" id="pc-gap-row">Grosor <input type="range" id="pc-gap" min="2" max="60"></label>
       <label class="mc-row"><input type="checkbox" id="pc-round"> Bordes redondeados</label>
       <label class="mc-row"><input type="checkbox" id="pc-fit"> Mostrar la foto completa (sin recortar)</label>
-      <div class="mc-row">Color <div id="pc-colores" class="mc-colores"></div></div>
+      <div class="mc-row">Fondo <div id="pc-colores" class="mc-colores"></div><button type="button" id="pc-bg-foto" class="mc-bg-btn" title="Foto de fondo">🖼</button></div>
+      <label class="mc-row"><input type="checkbox" id="pc-bg-blur"> Desenfocar el fondo (si es foto)</label>
+      <input id="pc-bg-file" type="file" accept="image/*" hidden>
     </div>
   </div>
 
@@ -928,6 +930,8 @@ const pcLinea = document.querySelector<HTMLInputElement>('#pc-linea')!
 const pcGap = document.querySelector<HTMLInputElement>('#pc-gap')!
 const pcRound = document.querySelector<HTMLInputElement>('#pc-round')!
 const pcFit = document.querySelector<HTMLInputElement>('#pc-fit')!
+const pcBgBlur = document.querySelector<HTMLInputElement>('#pc-bg-blur')!
+const pcBgFile = document.querySelector<HTMLInputElement>('#pc-bg-file')!
 function pcRenderLayouts(): void {
   const cont = document.querySelector('#pc-layouts')!; if (!collageActual) return
   const n = collageActual.celdas.length
@@ -947,7 +951,8 @@ function pcRenderColores(): void {
   cont.querySelectorAll<HTMLButtonElement>('.mc-color').forEach((b) =>
     b.addEventListener('click', () => {
       if (!collageActual) return
-      collageActual.opts.color = b.dataset.c!
+      collageActual.opts.color = b.dataset.c!; collageActual.opts.bgFoto = undefined // color quita la foto de fondo
+      document.querySelector('#pc-bg-foto')!.classList.remove('activo')
       cont.querySelectorAll('.mc-color').forEach((x) => x.classList.toggle('activo', x === b))
       aplicarEstiloCollage(true)
     }))
@@ -962,6 +967,8 @@ function togglePanelCollage(): void {
     document.querySelector('#pc-gap-row')!.classList.toggle('mc-off', !conLinea)
     pcRound.checked = collageActual.opts.radio > 0
     pcFit.checked = collageActual.opts.ajuste === 'fit'
+    pcBgBlur.checked = collageActual.opts.bgBlur !== false
+    document.querySelector('#pc-bg-foto')!.classList.toggle('activo', !!collageActual.opts.bgFoto)
     pcRenderLayouts(); pcRenderColores()
   }
   panelCollage.hidden = !abrir
@@ -984,6 +991,20 @@ pcFit.addEventListener('change', () => {
   collageActual.opts.ajuste = pcFit.checked ? 'fit' : 'cover'
   aplicarEstiloCollage(true)
 })
+document.querySelector('#pc-bg-foto')!.addEventListener('click', () => pcBgFile.click())
+pcBgFile.addEventListener('change', async () => {
+  const f = pcBgFile.files?.[0]
+  if (f && collageActual) {
+    try {
+      collageActual.opts.bgFoto = (await leerFoto(f)).dataUrl
+      document.querySelector('#pc-bg-foto')!.classList.add('activo')
+      document.querySelectorAll('#pc-colores .mc-color').forEach((x) => x.classList.remove('activo'))
+      aplicarEstiloCollage(true)
+    } catch { /* ignorar */ }
+  }
+  pcBgFile.value = ''
+})
+pcBgBlur.addEventListener('change', () => { if (collageActual) { collageActual.opts.bgBlur = pcBgBlur.checked; aplicarEstiloCollage(true) } })
 document.querySelector('#pc-cerrar')!.addEventListener('click', () => { panelCollage.hidden = true })
 panelCollage.addEventListener('click', (e) => e.stopPropagation())
 
@@ -6935,7 +6956,9 @@ function crearCarrusel(slideW: number, slideH: number, slides: number): void {
 interface CeldaFrac { x: number; y: number; w: number; h: number } // fracciones 0..1 del lienzo
 // ajuste: 'cover' recorta para llenar la celda (default, con pan/zoom); 'fit'
 // muestra la foto COMPLETA centrada (deja ver todo, con fondo alrededor).
-interface CollageOpts { gap: number; radio: number; color: string; ajuste?: 'cover' | 'fit' }
+// bgFoto: dataUrl de una foto de fondo (se ve en márgenes/separaciones); bgBlur:
+// desenfocarla. Si no hay bgFoto, el fondo es el color.
+interface CollageOpts { gap: number; radio: number; color: string; ajuste?: 'cover' | 'fit'; bgFoto?: string; bgBlur?: boolean }
 // Tilea un sub-rectángulo (en fracciones) en cols×rows celdas.
 function gridEn(X: number, Y: number, W: number, H: number, cols: number, rows: number): CeldaFrac[] {
   const c: CeldaFrac[] = []
@@ -7003,6 +7026,18 @@ function celdaRectPx(c: CeldaFrac, W: number, H: number, g: number): { x: number
   const aba = c.y + c.h >= 1 - e ? g : g / 2
   return { x: c.x * W + izq, y: c.y * H + arr, w: Math.max(1, c.w * W - izq - der), h: Math.max(1, c.h * H - arr - aba) }
 }
+// Fondo del collage: foto (opcionalmente desenfocada, agrandada para que el blur
+// no deje bordes vacíos) o, si no hay foto, un rect del color elegido.
+function fondoCollageSvg(W: number, H: number, o: CollageOpts): { defs: string; bg: string } {
+  if (o.bgFoto) {
+    const ox = W * 0.08, oy = H * 0.08
+    const filtro = o.bgBlur ? `filter="url(#clg-blur)"` : ''
+    const defs = o.bgBlur ? `<filter id="clg-blur" x="-15%" y="-15%" width="130%" height="130%"><feGaussianBlur stdDeviation="${Math.round(Math.min(W, H) * 0.04)}"/></filter>` : ''
+    const bg = `<image class="collage-bg" data-fondo="1" x="${(-ox).toFixed(1)}" y="${(-oy).toFixed(1)}" width="${(W + 2 * ox).toFixed(1)}" height="${(H + 2 * oy).toFixed(1)}" preserveAspectRatio="xMidYMid slice" href="${o.bgFoto}" xlink:href="${o.bgFoto}" ${filtro}/>`
+    return { defs, bg }
+  }
+  return { defs: '', bg: `<rect class="collage-bg" x="0" y="0" width="${W}" height="${H}" fill="${o.color}"/>` }
+}
 function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, hrefs?: string[]): string {
   const g = o.gap
   const celdaPx = (c: CeldaFrac) => celdaRectPx(c, W, H, g)
@@ -7024,8 +7059,38 @@ function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, h
   }).join('')
   // width/height dan proporción intrínseca (para que el preview escale bien por
   // alto); en el editor, montarPlantilla les saca el width/height igual.
+  const fondo = fondoCollageSvg(W, H, o)
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
-    `<rect class="collage-bg" x="0" y="0" width="${W}" height="${H}" fill="${o.color}"/><defs>${clips}</defs>${imgs}</svg>`
+    `${fondo.bg}<defs>${fondo.defs}${clips}</defs>${imgs}</svg>`
+}
+// (Re)construye el elemento de fondo del collage en el SVG vivo: rect de color, o
+// imagen (opcionalmente con blur). Se pone como primer hijo (detrás de todo).
+function ponerFondoCollage(): void {
+  if (!collageActual || !svgEl) return
+  const { W, H, opts } = collageActual
+  svgEl.querySelectorAll('.collage-bg').forEach((n) => n.remove())
+  svgEl.querySelector('#clg-blur')?.remove()
+  if (opts.bgFoto) {
+    const defs = svgEl.querySelector('defs')
+    if (opts.bgBlur && defs) {
+      const f = document.createElementNS(SVGNS, 'filter'); f.id = 'clg-blur'
+      f.setAttribute('x', '-15%'); f.setAttribute('y', '-15%'); f.setAttribute('width', '130%'); f.setAttribute('height', '130%')
+      const gb = document.createElementNS(SVGNS, 'feGaussianBlur'); gb.setAttribute('stdDeviation', String(Math.round(Math.min(W, H) * 0.04)))
+      f.appendChild(gb); defs.appendChild(f)
+    }
+    const img = document.createElementNS(SVGNS, 'image'); img.setAttribute('class', 'collage-bg'); img.setAttribute('data-fondo', '1')
+    const ox = W * 0.08, oy = H * 0.08
+    img.setAttribute('x', String(-ox)); img.setAttribute('y', String(-oy)); img.setAttribute('width', String(W + 2 * ox)); img.setAttribute('height', String(H + 2 * oy))
+    img.setAttribute('preserveAspectRatio', 'xMidYMid slice')
+    img.setAttribute('href', opts.bgFoto); img.setAttributeNS(XLINK, 'xlink:href', opts.bgFoto)
+    if (opts.bgBlur) img.setAttribute('filter', 'url(#clg-blur)')
+    svgEl.insertBefore(img, svgEl.firstChild)
+  } else {
+    const rect = document.createElementNS(SVGNS, 'rect'); rect.setAttribute('class', 'collage-bg')
+    rect.setAttribute('x', '0'); rect.setAttribute('y', '0'); rect.setAttribute('width', String(W)); rect.setAttribute('height', String(H))
+    rect.setAttribute('fill', opts.color)
+    svgEl.insertBefore(rect, svgEl.firstChild)
+  }
 }
 // Re-aplica el estilo del collage (separación, redondeo, color, layout) sobre el
 // SVG vivo, SIN remontar: mueve los rects de recorte y reencuadra las fotos con
@@ -7034,7 +7099,7 @@ function aplicarEstiloCollage(commit: boolean): void {
   if (!collageActual || !svgEl) return
   const { W, H, celdas, opts } = collageActual
   const g = opts.gap
-  const bg = svgEl.querySelector('.collage-bg'); if (bg) bg.setAttribute('fill', opts.color)
+  ponerFondoCollage() // rect de color o imagen de fondo (con/ sin blur)
   celdas.forEach((c, i) => {
     const rect = svgEl!.querySelector(`#clc${i} rect`)
     if (!rect) return
@@ -7194,8 +7259,9 @@ const MC_COLORES = ['#ffffff', '#000000', '#e5e7eb', '#0284c7']
 let mcFotos: Foto[] = []
 let mcSize = 0, mcLayout = 0, mcGap = 14
 let mcConLinea = true, mcRound = false, mcColor = '#ffffff', mcFit = false
+let mcBgFoto: string | undefined, mcBgBlur = true
 function mcOpts(s: { W: number; H: number }): CollageOpts {
-  return { gap: mcConLinea ? mcGap : 0, radio: mcRound ? Math.round(Math.min(s.W, s.H) * 0.05) : 0, color: mcColor, ajuste: mcFit ? 'fit' : 'cover' }
+  return { gap: mcConLinea ? mcGap : 0, radio: mcRound ? Math.round(Math.min(s.W, s.H) * 0.05) : 0, color: mcColor, ajuste: mcFit ? 'fit' : 'cover', bgFoto: mcBgFoto, bgBlur: mcBgBlur }
 }
 // Mini-ícono de un layout (celdas rellenas con separación).
 function miniLayout(celdas: CeldaFrac[]): string {
@@ -7246,7 +7312,7 @@ function mcRefrescar(): void {
   }
 }
 function abrirCollage(): void {
-  mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'; mcFit = false
+  mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'; mcFit = false; mcBgFoto = undefined; mcBgBlur = true
   const ov = document.createElement('div'); ov.id = 'modal-collage'
   ov.innerHTML = `
     <div class="mc-wrap">
@@ -7274,7 +7340,9 @@ function abrirCollage(): void {
             <label class="mc-row" id="mc-gap-row">Grosor <input type="range" id="mc-gap" min="2" max="60" value="14"></label>
             <label class="mc-row"><input type="checkbox" id="mc-round"> Bordes redondeados</label>
             <label class="mc-row"><input type="checkbox" id="mc-fit"> Mostrar la foto completa (sin recortar)</label>
-            <div class="mc-row">Color <div id="mc-colores" class="mc-colores"></div></div>
+            <div class="mc-row">Fondo <div id="mc-colores" class="mc-colores"></div><button type="button" id="mc-bg-foto" class="mc-bg-btn" title="Foto de fondo">🖼</button></div>
+            <label class="mc-row"><input type="checkbox" id="mc-bg-blur" checked> Desenfocar el fondo (si es foto)</label>
+            <input id="mc-bg-file" type="file" accept="image/*" hidden>
           </div>
           <button id="mc-crear" class="ini-btn-acc" disabled>Crear collage</button>
         </div>
@@ -7288,7 +7356,20 @@ function abrirCollage(): void {
   const colEl = ov.querySelector('#mc-colores')!
   colEl.innerHTML = MC_COLORES.map((c, i) => `<button class="mc-color${i === 0 ? ' activo' : ''}" data-c="${c}" style="background:${c}" title="${c}"></button>`).join('')
   colEl.querySelectorAll<HTMLButtonElement>('.mc-color').forEach((b) =>
-    b.addEventListener('click', () => { mcColor = b.dataset.c!; colEl.querySelectorAll('.mc-color').forEach((x) => x.classList.toggle('activo', x === b)); mcRefrescar() }))
+    b.addEventListener('click', () => {
+      mcColor = b.dataset.c!; mcBgFoto = undefined // elegir un color quita la foto de fondo
+      ov.querySelector('#mc-bg-foto')!.classList.remove('activo')
+      colEl.querySelectorAll('.mc-color').forEach((x) => x.classList.toggle('activo', x === b)); mcRefrescar()
+    }))
+  const bgFile = ov.querySelector<HTMLInputElement>('#mc-bg-file')!
+  const bgBtn = ov.querySelector<HTMLButtonElement>('#mc-bg-foto')!
+  bgBtn.addEventListener('click', () => bgFile.click())
+  bgFile.addEventListener('change', async () => {
+    const f = bgFile.files?.[0]
+    if (f) { try { mcBgFoto = (await leerFoto(f)).dataUrl; bgBtn.classList.add('activo'); colEl.querySelectorAll('.mc-color').forEach((x) => x.classList.remove('activo')) } catch { /* ignorar */ } }
+    bgFile.value = ''; mcRefrescar()
+  })
+  ov.querySelector<HTMLInputElement>('#mc-bg-blur')!.addEventListener('change', (e) => { mcBgBlur = (e.target as HTMLInputElement).checked; mcRefrescar() })
   const file = ov.querySelector<HTMLInputElement>('#mc-file')!
   ov.querySelector('#mc-add')!.addEventListener('click', () => file.click())
   file.addEventListener('change', async () => {
