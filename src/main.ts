@@ -6991,9 +6991,21 @@ const LAYOUTS_COLLAGE: Record<number, CeldaFrac[][]> = {
 }
 // SVG del collage. Sin `hrefs` → imágenes vacías que llena aplicarFotoDom (editor).
 // Con `hrefs` → cada foto en cover (preserveAspectRatio slice) para la vista previa.
+// Rect (px) de una celda con la separación aplicada. El borde EXTERIOR de la placa
+// lleva el gap completo y los bordes INTERIORES gap/2 por lado → así la separación
+// entre fotos (gap/2 + gap/2 = gap) queda IGUAL al margen exterior (gap), en vez de
+// duplicarse.
+function celdaRectPx(c: CeldaFrac, W: number, H: number, g: number): { x: number; y: number; w: number; h: number } {
+  const e = 0.004
+  const izq = c.x <= e ? g : g / 2
+  const der = c.x + c.w >= 1 - e ? g : g / 2
+  const arr = c.y <= e ? g : g / 2
+  const aba = c.y + c.h >= 1 - e ? g : g / 2
+  return { x: c.x * W + izq, y: c.y * H + arr, w: Math.max(1, c.w * W - izq - der), h: Math.max(1, c.h * H - arr - aba) }
+}
 function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, hrefs?: string[]): string {
   const g = o.gap
-  const celdaPx = (c: CeldaFrac) => ({ x: c.x * W + g / 2, y: c.y * H + g / 2, w: Math.max(1, c.w * W - g), h: Math.max(1, c.h * H - g) })
+  const celdaPx = (c: CeldaFrac) => celdaRectPx(c, W, H, g)
   const clips = celdas.map((c, i) => {
     const p = celdaPx(c)
     return `<clipPath id="clc${i}"><rect x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" rx="${o.radio}" ry="${o.radio}"/></clipPath>`
@@ -7026,8 +7038,9 @@ function aplicarEstiloCollage(commit: boolean): void {
   celdas.forEach((c, i) => {
     const rect = svgEl!.querySelector(`#clc${i} rect`)
     if (!rect) return
-    rect.setAttribute('x', (c.x * W + g / 2).toFixed(1)); rect.setAttribute('y', (c.y * H + g / 2).toFixed(1))
-    rect.setAttribute('width', Math.max(1, c.w * W - g).toFixed(1)); rect.setAttribute('height', Math.max(1, c.h * H - g).toFixed(1))
+    const p = celdaRectPx(c, W, H, g)
+    rect.setAttribute('x', p.x.toFixed(1)); rect.setAttribute('y', p.y.toFixed(1))
+    rect.setAttribute('width', p.w.toFixed(1)); rect.setAttribute('height', p.h.toFixed(1))
     rect.setAttribute('rx', String(opts.radio)); rect.setAttribute('ry', String(opts.radio))
   })
   const fit = opts.ajuste === 'fit'
