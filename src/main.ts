@@ -444,6 +444,9 @@ app.innerHTML = `
     </div>
   </div>
 
+  <!-- Sidebar flotante derecha: aloja la barra contextual de lo seleccionado. -->
+  <aside id="panel-props" hidden></aside>
+
   <div class="cuerpo">
     <nav class="rail" aria-label="Categorías">
       <button class="rail-item" data-cat="plantillas" title="Plantillas"><span class="rail-ic">▦</span><span>Plantillas</span></button>
@@ -2679,12 +2682,13 @@ function grafKey(e: KeyboardEvent): void {
 }
 
 function limpiarGraf(): void {
-  // Las barras flotantes (graf-tools, foto-tools) viven en <body>; el resto de
-  // overlays (cajas, tiradores, marquee) en el lienzo.
+  // Las barras (graf-tools, foto-tools) viven en la sidebar #panel-props; el resto
+  // de overlays (cajas, tiradores, marquee) en el lienzo.
   document.querySelectorAll('.graf-tools, .foto-tools').forEach((n) => n.remove())
   lienzo.querySelectorAll('.graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
   actualizarBotonesEdicion()
-  actualizarPanelProps()
+  actualizarPanelProps() // sin selección: muestra las foto-tools de los huecos
+  refrescarPanelProps() // esconde la sidebar si no quedó ninguna barra
 }
 
 // Panel de propiedades (derecha): contextual según lo seleccionado. Fase 1:
@@ -3624,78 +3628,27 @@ function construirOrdenarCont(): HTMLElement {
   return cont
 }
 
-// Dibuja recuadro(s) de selección + mini-barra (relleno, contorno, agrupar/desagrupar, borrar).
-// ============ Barra contextual flotante (estilo Express) ============
-// Reemplaza al panel de propiedades: los controles del elemento seleccionado
-// (o del texto en edición) flotan en una barra ENCIMA del elemento.
-// Centra `el` arriba de `target` (px del lienzo); si no entra arriba va abajo /
-// pegado al borde superior, y se clampa al ancho del lienzo.
-// Desplazamiento manual de la barra flotante (si el usuario la arrastró).
-// Se reinicia al cambiar de selección (ver dibujarSelGraf).
-let barraOffset = { dx: 0, dy: 0 }
-let barraSelFirma: SVGElement | null = null
-
-// La barra flota en coordenadas de VIEWPORT (position: fixed, anexada a <body>),
-// así puede salir de la mesa de trabajo y moverse libre por toda la pantalla.
-// `target` viene en coords relativas al lienzo → se convierte a viewport.
-function posicionarFlotante(el: HTMLElement, target: Rect, align: 'center' | 'left' = 'center'): void {
-  const lr = lienzo.getBoundingClientRect()
-  const tx = target.left + lr.left, ty = target.top + lr.top
-  const bw = el.offsetWidth, bh = el.offsetHeight
-  const W = window.innerWidth, H = window.innerHeight
-  // 'left': el borde izq de la barra arranca en el del elemento (queda "pegada"
-  // al inicio del texto, como Canva). 'center': centrada sobre el elemento.
-  let left = align === 'left' ? tx : tx + target.width / 2 - bw / 2
-  // Preferimos ARRIBA del elemento; si no entra, DEBAJO (no tapar el contenido);
-  // si tampoco, pegada al borde superior.
-  let top = ty - bh - 10
-  if (top < 4) {
-    const abajo = ty + target.height + 10
-    top = abajo + bh <= H - 4 ? abajo : Math.max(4, Math.min(ty + 6, H - bh - 4))
-  }
-  left = Math.max(4, Math.min(left, W - bw - 4))
-  // Guardamos la posición AUTOMÁTICA para medir el offset manual del arrastre.
-  el.dataset.autoLeft = String(Math.round(left))
-  el.dataset.autoTop = String(Math.round(top))
-  let fl = left + barraOffset.dx, ft = top + barraOffset.dy
-  fl = Math.max(4, Math.min(fl, W - bw - 4))
-  ft = Math.max(4, Math.min(ft, H - bh - 4))
-  el.style.left = Math.round(fl) + 'px'
-  el.style.top = Math.round(ft) + 'px'
+// ============ Sidebar contextual acoplada a la derecha (estilo Express) ============
+// Los controles del elemento seleccionado (o del texto en edición) se alojan en
+// #panel-props, una sidebar FLOTANTE fija a la derecha de la pantalla (más práctica
+// que la barra que flotaba encima del elemento y se movía / tapaba el contenido).
+const panelProps = document.querySelector<HTMLElement>('#panel-props')!
+// Aloja una barra en la sidebar. `exclusivo`: saca las otras barras (graf/foto)
+// antes (para mostrar un solo contexto); las foto-tools de varios huecos se apilan.
+function alojarEnPanel(el: HTMLElement, exclusivo = true): void {
+  if (exclusivo) panelProps.querySelectorAll('.graf-tools, .foto-tools').forEach((n) => { if (n !== el) n.remove() })
+  if (el.parentElement !== panelProps) panelProps.appendChild(el)
+  panelProps.hidden = false
 }
-
-// Arranca el arrastre de la barra flotante desde su manija (grip).
-function iniciarArrastreBarra(tools: HTMLElement, e: PointerEvent): void {
-  const startX = e.clientX, startY = e.clientY
-  const baseLeft = parseFloat(tools.style.left) || 0
-  const baseTop = parseFloat(tools.style.top) || 0
-  const autoLeft = parseFloat(tools.dataset.autoLeft || '0')
-  const autoTop = parseFloat(tools.dataset.autoTop || '0')
-  const onMove = (ev: PointerEvent) => {
-    const W = window.innerWidth, H = window.innerHeight
-    const bw = tools.offsetWidth, bh = tools.offsetHeight
-    let nl = baseLeft + (ev.clientX - startX)
-    let nt = baseTop + (ev.clientY - startY)
-    nl = Math.max(4, Math.min(nl, W - bw - 4))
-    nt = Math.max(4, Math.min(nt, H - bh - 4))
-    tools.style.left = Math.round(nl) + 'px'
-    tools.style.top = Math.round(nt) + 'px'
-    barraOffset = { dx: nl - autoLeft, dy: nt - autoTop }
-  }
-  const onUp = () => {
-    document.removeEventListener('pointermove', onMove)
-    document.removeEventListener('pointerup', onUp)
-  }
-  document.addEventListener('pointermove', onMove)
-  document.addEventListener('pointerup', onUp)
+// Muestra la sidebar solo si tiene alguna barra adentro (si no, se esconde).
+function refrescarPanelProps(): void {
+  const hayTexto = panelProps.contains(barraTexto) && !barraTexto.hidden
+  panelProps.hidden = !(panelProps.querySelector('.graf-tools, .foto-tools') || hayTexto)
 }
 
 function dibujarSelGraf(): void {
   limpiarGraf()
   if (!grafSeleccion.length || !svgEl) return
-  // Al cambiar de elemento seleccionado, la barra vuelve a su posición automática.
-  const firma = grafSeleccion[0] ?? null
-  if (firma !== barraSelFirma) { barraOffset = { dx: 0, dy: 0 }; barraSelFirma = firma }
   const base = lienzo.getBoundingClientRect()
   const rects = grafSeleccion.map((el) => {
     const rb = el.getBoundingClientRect()
@@ -3849,15 +3802,8 @@ function dibujarSelGraf(): void {
   const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '🗑'; del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
   tools.appendChild(del)
-  // Manija para mover la barra (queda primera, aunque otros botones hagan prepend).
-  const grip = document.createElement('button'); grip.className = 'graf-grip'; grip.textContent = '⠿'
-  grip.title = 'Arrastrá para mover esta barra'
-  grip.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); iniciarArrastreBarra(tools, e) })
-  grip.addEventListener('click', (e) => e.stopPropagation())
-  tools.prepend(grip)
-  // Los controles FLOTAN en una barra (fixed, en <body>) para poder moverse
-  // libres por toda la pantalla, fuera de la mesa de trabajo.
-  document.body.appendChild(tools); posicionarFlotante(tools, uni)
+  // Los controles van a la sidebar flotante de la derecha (#panel-props).
+  alojarEnPanel(tools)
 
   if (!multi) {
     // 8 tiradores: 4 esquinas (proporcional) + 4 lados (un eje).
@@ -4491,9 +4437,10 @@ function construirOverlays(): void {
     for (const c of ctrls) lienzo.appendChild(c)
     revelarAlHover(hit, ctrls)
   }
-  // Barras flotantes de las fotos de la plantilla (se borraron arriba; rebuild al
-  // final para que sobrevivan al clear y queden bien posicionadas tras el zoom).
+  // Barras de las fotos de la plantilla en la sidebar (se borraron arriba; rebuild
+  // al final para que sobrevivan al clear).
   if (!grafSeleccion.length) actualizarPanelProps()
+  refrescarPanelProps() // ajusta la visibilidad de la sidebar
   registrarHistorial()
   autoguardar()
 }
@@ -4767,12 +4714,8 @@ function construirFotoTools(id: string): void {
     qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, reaplicar, qf))
     tools.appendChild(qf)
   }
-  document.body.appendChild(tools) // flota libre (fixed), como la barra de selección
-  // Posicionar la barra encima del marco visible del hueco.
-  const base = lienzo.getBoundingClientRect()
-  let rect = imgFoto ? rectFotoVisible(imgFoto, base) : null
-  if (!rect && imgFoto) { const rb = imgFoto.getBoundingClientRect(); rect = { left: rb.left - base.left, top: rb.top - base.top, width: rb.width, height: rb.height } }
-  if (rect) posicionarFlotante(tools, rect)
+  // Los controles de la foto van a la sidebar (varios huecos → se apilan).
+  alojarEnPanel(tools, false)
 }
 
 // ---------------------------------------------------------------
@@ -4858,10 +4801,8 @@ function abrirEditor(nombre: string): void {
 
   editorActivo = { nombre, ta, valorPrevio, tocado: false, els }
   sincronizarBarra(nombre)
-  // La barra de formato flota encima del texto en edición (fixed, en <body>),
-  // alineada al inicio del texto (no centrada en una caja ancha → no "corrida").
-  document.body.appendChild(barraTexto)
-  posicionarFlotante(barraTexto, r, 'left')
+  // La barra de formato del texto en edición va a la sidebar flotante derecha.
+  alojarEnPanel(barraTexto)
   ta.addEventListener('input', () => {
     editorActivo!.tocado = true
     valores[nombre] = ta.value
@@ -5068,7 +5009,7 @@ function autoCrecer(ta: HTMLTextAreaElement, nombre = editorActivo?.nombre): voi
 
 function commitEditor(): void {
   if (!editorActivo) return
-  barraTexto.hidden = true
+  barraTexto.hidden = true; refrescarPanelProps()
   const { nombre, ta, tocado, els } = editorActivo
   editorActivo = null
   for (const el of els) (el as SVGElement).style.opacity = '' // restaurar SVG
@@ -5084,7 +5025,7 @@ function commitEditor(): void {
 
 function cancelarEditor(): void {
   if (!editorActivo) return
-  barraTexto.hidden = true
+  barraTexto.hidden = true; refrescarPanelProps()
   const { nombre, ta, valorPrevio, tocado, els } = editorActivo
   editorActivo = null
   ta.remove()

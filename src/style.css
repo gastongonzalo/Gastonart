@@ -470,18 +470,26 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   padding: 28px 16px 60px;
   background: var(--workspace); /* mesa de trabajo gris (no negro) */
 }
-/* Panel de propiedades (derecha): muestra los controles de lo seleccionado. */
+/* Sidebar contextual: FLOTA fija a la derecha y muestra los controles de lo
+   seleccionado (más práctica que la barra que flotaba encima del elemento). */
 #panel-props {
-  width: 264px;
-  flex: 0 0 264px;
+  position: fixed;
+  top: 72px;
+  right: 12px;
+  z-index: 55;
+  width: 250px;
+  max-height: calc(100vh - 150px);
   overflow-y: auto;
   background: var(--panel);
-  border-left: 1px solid var(--border);
-  padding: 14px 14px 40px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
+#panel-props[hidden] { display: none; }
 .pp-titulo { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--text); }
 .pp-sub { font-size: 11px; color: var(--muted, var(--muted)); margin-top: -8px; }
 .pp-grupo { display: flex; flex-direction: column; gap: 8px; }
