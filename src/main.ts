@@ -452,6 +452,7 @@ app.innerHTML = `
       <label class="mc-row"><input type="checkbox" id="pc-linea"> Línea entre las fotos</label>
       <label class="mc-row" id="pc-gap-row">Grosor <input type="range" id="pc-gap" min="2" max="60"></label>
       <label class="mc-row"><input type="checkbox" id="pc-round"> Bordes redondeados</label>
+      <label class="mc-row"><input type="checkbox" id="pc-fit"> Mostrar la foto completa (sin recortar)</label>
       <div class="mc-row">Color <div id="pc-colores" class="mc-colores"></div></div>
     </div>
   </div>
@@ -926,6 +927,7 @@ const panelCollage = document.querySelector<HTMLDivElement>('#panel-collage')!
 const pcLinea = document.querySelector<HTMLInputElement>('#pc-linea')!
 const pcGap = document.querySelector<HTMLInputElement>('#pc-gap')!
 const pcRound = document.querySelector<HTMLInputElement>('#pc-round')!
+const pcFit = document.querySelector<HTMLInputElement>('#pc-fit')!
 function pcRenderLayouts(): void {
   const cont = document.querySelector('#pc-layouts')!; if (!collageActual) return
   const n = collageActual.celdas.length
@@ -959,6 +961,7 @@ function togglePanelCollage(): void {
     pcGap.value = String(conLinea ? collageActual.opts.gap : 14)
     document.querySelector('#pc-gap-row')!.classList.toggle('mc-off', !conLinea)
     pcRound.checked = collageActual.opts.radio > 0
+    pcFit.checked = collageActual.opts.ajuste === 'fit'
     pcRenderLayouts(); pcRenderColores()
   }
   panelCollage.hidden = !abrir
@@ -974,6 +977,11 @@ pcGap.addEventListener('change', () => { if (collageActual) { collageActual.opts
 pcRound.addEventListener('change', () => {
   if (!collageActual) return
   collageActual.opts.radio = pcRound.checked ? Math.round(Math.min(collageActual.W, collageActual.H) * 0.05) : 0
+  aplicarEstiloCollage(true)
+})
+pcFit.addEventListener('change', () => {
+  if (!collageActual) return
+  collageActual.opts.ajuste = pcFit.checked ? 'fit' : 'cover'
   aplicarEstiloCollage(true)
 })
 document.querySelector('#pc-cerrar')!.addEventListener('click', () => { panelCollage.hidden = true })
@@ -4438,7 +4446,8 @@ function construirOverlays(): void {
     if (collageActual && id === collageHueco) hit.classList.add('hit-foto-activa')
     hit.title = collageActual ? 'Clic: ajustar esta foto · arrastrá para acomodarla' : (tieneFoto ? 'Tocá para editar · arrastrá para encuadrar' : 'Subir foto')
     lienzo.appendChild(hit)
-    if (tieneFoto && framesFoto[id]) habilitarPanZoom(hit, id)
+    const fitCollage = !!collageActual && collageActual.opts.ajuste === 'fit'
+    if (tieneFoto && framesFoto[id] && !fitCollage) habilitarPanZoom(hit, id)
   }
 
   for (const c of camposActuales) {
@@ -4765,13 +4774,15 @@ function construirFotoTools(id: string): void {
   tools.addEventListener('pointerdown', (e) => e.stopPropagation())
   const imgFoto = svgEl?.querySelector(`[data-foto="${id}"]`)
   const op0 = imgFoto?.getAttribute('opacity') ?? '1'
+  // En "foto completa" (fit) el zoom no aplica (se ve toda la foto).
+  const conZoom = !(collageActual && collageActual.opts.ajuste === 'fit')
   tools.innerHTML =
     `<button class="ft-cambiar mini">Cambiar foto</button>` +
-    `<label class="ft-zoom">Zoom <input class="ft-in-zoom" type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label>` +
+    (conZoom ? `<label class="ft-zoom">Zoom <input class="ft-in-zoom" type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label>` : '') +
     `<label class="ft-zoom" title="Opacidad">Opac. <input class="ft-in-opac" type="range" min="0" max="1" step="0.01" value="${op0}"></label>`
   tools.querySelector('.ft-cambiar')!.addEventListener('click', () => { fotoActiva = id; inFoto.click() })
-  const slider = tools.querySelector<HTMLInputElement>('.ft-in-zoom')!
-  slider.addEventListener('input', () => {
+  const slider = tools.querySelector<HTMLInputElement>('.ft-in-zoom')
+  slider?.addEventListener('input', () => {
     const foto = fotos[id], fr = framesFoto[id]
     if (!foto || !fr || !svgEl) return
     enc.zoom = parseFloat(slider.value)
@@ -6916,7 +6927,9 @@ function crearCarrusel(slideW: number, slideH: number, slides: number): void {
 //  con separación (línea), esquinas redondeadas y pan/zoom por celda.
 // ---------------------------------------------------------------
 interface CeldaFrac { x: number; y: number; w: number; h: number } // fracciones 0..1 del lienzo
-interface CollageOpts { gap: number; radio: number; color: string } // gap/radio en px del lienzo
+// ajuste: 'cover' recorta para llenar la celda (default, con pan/zoom); 'fit'
+// muestra la foto COMPLETA centrada (deja ver todo, con fondo alrededor).
+interface CollageOpts { gap: number; radio: number; color: string; ajuste?: 'cover' | 'fit' }
 // Tilea un sub-rectángulo (en fracciones) en cols×rows celdas.
 function gridEn(X: number, Y: number, W: number, H: number, cols: number, rows: number): CeldaFrac[] {
   const c: CeldaFrac[] = []
@@ -6926,18 +6939,29 @@ function gridEn(X: number, Y: number, W: number, H: number, cols: number, rows: 
 const grid = (cols: number, rows: number): CeldaFrac[] => gridEn(0, 0, 1, 1, cols, rows)
 // Layouts disponibles por cantidad de fotos (2..8). El 1.º de cada uno es el default.
 const LAYOUTS_COLLAGE: Record<number, CeldaFrac[][]> = {
-  2: [grid(2, 1), grid(1, 2)],
+  2: [grid(2, 1), grid(1, 2),
+    [{ x: 0, y: 0, w: .62, h: 1 }, { x: .62, y: 0, w: .38, h: 1 }], // asimétrico vertical
+    [{ x: 0, y: 0, w: 1, h: .6 }, { x: 0, y: .6, w: 1, h: .4 }]], // asimétrico horizontal
   3: [grid(3, 1), grid(1, 3),
-    [{ x: 0, y: 0, w: .5, h: 1 }, ...gridEn(.5, 0, .5, 1, 1, 2)],
-    [{ x: 0, y: 0, w: 1, h: .5 }, ...gridEn(0, .5, 1, .5, 2, 1)]],
+    [{ x: 0, y: 0, w: .55, h: 1 }, ...gridEn(.55, 0, .45, 1, 1, 2)], // grande izq + 2
+    [{ x: 0, y: 0, w: 1, h: .55 }, ...gridEn(0, .55, 1, .45, 2, 1)], // 1 arriba + 2 abajo
+    [...gridEn(0, 0, 1, .5, 2, 1), { x: 0, y: .5, w: 1, h: .5 }]], // 2 arriba + 1 abajo
   4: [grid(2, 2), grid(4, 1), grid(1, 4),
-    [{ x: 0, y: 0, w: .6, h: 1 }, ...gridEn(.6, 0, .4, 1, 1, 3)]],
-  5: [[...gridEn(0, 0, 1, .5, 2, 1), ...gridEn(0, .5, 1, .5, 3, 1)],
-    [{ x: 0, y: 0, w: .5, h: 1 }, ...gridEn(.5, 0, .5, 1, 2, 2)]],
-  6: [grid(3, 2), grid(2, 3)],
-  7: [[{ x: 0, y: 0, w: 1, h: .34 }, ...gridEn(0, .34, 1, .66, 3, 2)],
-    [...gridEn(0, 0, 1, .5, 3, 1), ...gridEn(0, .5, 1, .5, 4, 1)]],
-  8: [grid(4, 2), grid(2, 4)],
+    [{ x: 0, y: 0, w: .6, h: 1 }, ...gridEn(.6, 0, .4, 1, 1, 3)], // grande izq + 3
+    [{ x: 0, y: 0, w: 1, h: .55 }, ...gridEn(0, .55, 1, .45, 3, 1)], // 1 arriba + 3 abajo
+    [{ x: 0, y: 0, w: .62, h: .62 }, { x: .62, y: 0, w: .38, h: .62 }, { x: 0, y: .62, w: .38, h: .38 }, { x: .38, y: .62, w: .62, h: .38 }]], // molinete
+  5: [[...gridEn(0, 0, 1, .5, 2, 1), ...gridEn(0, .5, 1, .5, 3, 1)], // 2 + 3
+    [{ x: 0, y: 0, w: .5, h: 1 }, ...gridEn(.5, 0, .5, 1, 2, 2)], // grande izq + 2x2
+    [...gridEn(0, 0, 1, .5, 3, 1), ...gridEn(0, .5, 1, .5, 2, 1)], // 3 + 2
+    [{ x: 0, y: 0, w: 1, h: .4 }, ...gridEn(0, .4, 1, .6, 2, 2)]], // 1 arriba + 2x2
+  6: [grid(3, 2), grid(2, 3),
+    [...gridEn(0, 0, 1, .5, 2, 1), ...gridEn(0, .5, 1, .5, 4, 1)], // 2 + 4
+    [{ x: 0, y: 0, w: .66, h: .66 }, { x: .66, y: 0, w: .34, h: .5 }, { x: .66, y: .5, w: .34, h: .5 }, ...gridEn(0, .66, .66, .34, 3, 1)]], // grande + laterales
+  7: [[{ x: 0, y: 0, w: 1, h: .34 }, ...gridEn(0, .34, 1, .66, 3, 2)], // 1 + 3x2
+    [...gridEn(0, 0, 1, .5, 3, 1), ...gridEn(0, .5, 1, .5, 4, 1)], // 3 + 4
+    [{ x: 0, y: 0, w: .4, h: 1 }, ...gridEn(.4, 0, .6, 1, 2, 3)]], // grande izq + 2x3
+  8: [grid(4, 2), grid(2, 4),
+    [...gridEn(0, 0, 1, .34, 2, 1), ...gridEn(0, .34, 1, .66, 3, 2)]], // 2 + 3x2
 }
 // SVG del collage. Sin `hrefs` → imágenes vacías que llena aplicarFotoDom (editor).
 // Con `hrefs` → cada foto en cover (preserveAspectRatio slice) para la vista previa.
@@ -6951,11 +6975,12 @@ function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, h
   // El clip va en un <g> CONTENEDOR (no en la <image>): así el transform que
   // aplicarFotoDom le pone a la imagen no desalinea el recorte (el clip queda en
   // el espacio del lienzo). Es como arma los huecos una plantilla real.
+  const par = o.ajuste === 'fit' ? 'xMidYMid meet' : 'xMidYMid slice' // fit = foto completa
   const imgs = celdas.map((c, i) => {
     const p = celdaPx(c)
     const href = hrefs?.[i]
     const inner = href
-      ? `<image data-foto="${i}" x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" preserveAspectRatio="xMidYMid slice" href="${href}" xlink:href="${href}"/>`
+      ? `<image data-foto="${i}" x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" preserveAspectRatio="${par}" href="${href}" xlink:href="${href}"/>`
       : `<image data-foto="${i}" x="0" y="0" width="1" height="1"/>`
     return `<g clip-path="url(#clc${i})">${inner}</g>`
   }).join('')
@@ -6977,11 +7002,23 @@ function aplicarEstiloCollage(commit: boolean): void {
     rect.setAttribute('width', Math.max(1, c.w * W - g).toFixed(1)); rect.setAttribute('height', Math.max(1, c.h * H - g).toFixed(1))
     rect.setAttribute('rx', String(opts.radio)); rect.setAttribute('ry', String(opts.radio))
   })
+  const fit = opts.ajuste === 'fit'
   for (const id of idsFoto()) {
     const fr = frameVisibleUser(id); if (!fr) continue
     framesFoto[id] = fr
     const f = fotos[id]; if (!f) continue
-    const enc = encuadreDe(id); const c = aplicarFotoDom(svgEl, id, f, fr, enc); enc.ox = c.ox; enc.oy = c.oy
+    const im = svgEl.querySelector(`[data-foto="${id}"]`) as SVGImageElement | null; if (!im) continue
+    if (fit) {
+      // Foto COMPLETA centrada en la celda (meet), sin transform ni pan/zoom.
+      im.removeAttribute('transform')
+      im.setAttribute('x', fr.x.toFixed(1)); im.setAttribute('y', fr.y.toFixed(1))
+      im.setAttribute('width', fr.w.toFixed(1)); im.setAttribute('height', fr.h.toFixed(1))
+      im.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+      im.setAttribute('href', f.dataUrl); im.setAttributeNS(XLINK, 'xlink:href', f.dataUrl)
+    } else {
+      im.removeAttribute('preserveAspectRatio')
+      const enc = encuadreDe(id); const c = aplicarFotoDom(svgEl, id, f, fr, enc); enc.ox = c.ox; enc.oy = c.oy
+    }
   }
   // Al soltar el control: reubica los hits (con registro de historial + autoguardado
   // que hace construirOverlays). Durante el arrastre no, para no saturar.
@@ -7001,7 +7038,10 @@ function crearCollage(W: number, H: number, celdas: CeldaFrac[], opts: CollageOp
   valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
   celdas.forEach((_, i) => { fotos[String(i)] = fotosArr[i]; encuadres[String(i)] = { zoom: 1, ox: 0, oy: 0 } })
   modoEdicion = 'plantilla' // huecos de foto con pan/zoom (no edición de vectores)
-  void montarPlantilla().then(() => { estado.textContent = `Collage de ${fotosArr.length} fotos` })
+  void montarPlantilla().then(() => {
+    if (opts.ajuste === 'fit') aplicarEstiloCollage(true) // colocar las fotos completas (meet)
+    estado.textContent = `Collage de ${fotosArr.length} fotos`
+  })
 }
 
 // ---- Builder de collage (modal con vista previa en vivo) ----
@@ -7014,9 +7054,9 @@ const MC_SIZES = [
 const MC_COLORES = ['#ffffff', '#000000', '#e5e7eb', '#0284c7']
 let mcFotos: Foto[] = []
 let mcSize = 0, mcLayout = 0, mcGap = 14
-let mcConLinea = true, mcRound = false, mcColor = '#ffffff'
+let mcConLinea = true, mcRound = false, mcColor = '#ffffff', mcFit = false
 function mcOpts(s: { W: number; H: number }): CollageOpts {
-  return { gap: mcConLinea ? mcGap : 0, radio: mcRound ? Math.round(Math.min(s.W, s.H) * 0.05) : 0, color: mcColor }
+  return { gap: mcConLinea ? mcGap : 0, radio: mcRound ? Math.round(Math.min(s.W, s.H) * 0.05) : 0, color: mcColor, ajuste: mcFit ? 'fit' : 'cover' }
 }
 // Mini-ícono de un layout (celdas rellenas con separación).
 function miniLayout(celdas: CeldaFrac[]): string {
@@ -7060,7 +7100,7 @@ function mcRefrescar(): void {
   if (el) { el.removeAttribute('width'); el.removeAttribute('height'); el.style.maxWidth = '100%'; el.style.maxHeight = '100%' }
 }
 function abrirCollage(): void {
-  mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'
+  mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'; mcFit = false
   const ov = document.createElement('div'); ov.id = 'modal-collage'
   ov.innerHTML = `
     <div class="mc-wrap">
@@ -7087,6 +7127,7 @@ function abrirCollage(): void {
             <label class="mc-row"><input type="checkbox" id="mc-linea" checked> Línea entre las fotos</label>
             <label class="mc-row" id="mc-gap-row">Grosor <input type="range" id="mc-gap" min="2" max="60" value="14"></label>
             <label class="mc-row"><input type="checkbox" id="mc-round"> Bordes redondeados</label>
+            <label class="mc-row"><input type="checkbox" id="mc-fit"> Mostrar la foto completa (sin recortar)</label>
             <div class="mc-row">Color <div id="mc-colores" class="mc-colores"></div></div>
           </div>
           <button id="mc-crear" class="ini-btn-acc" disabled>Crear collage</button>
@@ -7116,6 +7157,7 @@ function abrirCollage(): void {
   linea.addEventListener('change', () => { mcConLinea = linea.checked; ov.querySelector('#mc-gap-row')!.classList.toggle('mc-off', !mcConLinea); mcRefrescar() })
   gap.addEventListener('input', () => { mcGap = +gap.value; mcRefrescar() })
   round.addEventListener('change', () => { mcRound = round.checked; mcRefrescar() })
+  ov.querySelector<HTMLInputElement>('#mc-fit')!.addEventListener('change', (e) => { mcFit = (e.target as HTMLInputElement).checked; mcRefrescar() })
   ov.querySelector('#mc-cerrar')!.addEventListener('click', () => ov.remove())
   ov.querySelector('#mc-crear')!.addEventListener('click', () => {
     if (mcFotos.length < 2) return
