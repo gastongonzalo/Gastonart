@@ -509,13 +509,21 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .pp-btn:hover { border-color: var(--accent); background: var(--inset); }
 .pp-btn .pp-ic { font-size: 17px; width: 20px; text-align: center; }
 .pp-vacio { font-size: 12px; line-height: 1.5; color: var(--muted, var(--muted)); padding: 6px 2px; }
-/* En pantallas medianas el panel se angosta pero SIGUE visible (antes desaparecía
-   <900px y no se podía editar nada). Solo se oculta en ancho de teléfono. */
+/* En pantallas medianas la sidebar se angosta pero sigue a la derecha. */
 @media (max-width: 900px) {
-  #panel-props { width: 208px; flex-basis: 208px; padding: 12px 10px 40px; gap: 10px; }
+  #panel-props { width: 208px; padding: 12px 10px; gap: 10px; }
   #panel-props .pp-btn { padding: 9px 10px; font-size: 13px; }
 }
-@media (max-width: 560px) { #panel-props { display: none; } }
+/* En teléfono la sidebar se ancla ABAJO (bottom sheet) a todo el ancho, en vez de
+   ocultarse: así los controles de lo seleccionado siguen accesibles. */
+@media (max-width: 560px) {
+  #panel-props {
+    top: auto; left: 0; right: 0; bottom: 0;
+    width: 100%; max-width: 100%; max-height: 46vh;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.18);
+  }
+}
 
 /* Controles de la selección (.graf-tools) re-housed dentro del panel: vertical,
    ancho completo, botones grandes. */
