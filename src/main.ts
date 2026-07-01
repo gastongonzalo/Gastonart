@@ -4380,8 +4380,8 @@ function construirOverlays(): void {
     lienzo.appendChild(m)
   }
   // Regla de medidas: chip clickeable abajo de la mesa que muestra el tamaño y
-  // ACTIVA los tiradores (así no se redimensiona sin querer). Solo en completa.
-  if (modoEdicion === 'completa' && svgEl) {
+  // ACTIVA los tiradores. Solo en completa y NO en un collage (su tamaño es fijo).
+  if (modoEdicion === 'completa' && svgEl && !collageActual) {
     const vbR = svgEl.viewBox.baseVal
     const medidas = document.createElement('button')
     medidas.className = 'mesa-medidas' + (mesaResizeActivo ? ' activo' : '')
@@ -6618,9 +6618,14 @@ function renderMesas(): void {
   add.addEventListener('click', (e) => { e.stopPropagation(); abrirNuevaMesa(add) })
   const dup = document.createElement('button'); dup.className = 'mesa-btn'; dup.textContent = '⧉'; dup.title = 'Duplicar mesa actual'
   dup.addEventListener('click', () => void agregarMesa(true))
-  const tam = document.createElement('button'); tam.id = 'btn-tamano'; tam.className = 'mesa-btn'; tam.textContent = '📐'; tam.title = 'Tamaño de la mesa de trabajo'
-  tam.addEventListener('click', (e) => { e.stopPropagation(); togglePanelTamano() })
-  tira.append(add, dup, tam)
+  tira.append(add, dup)
+  // El tamaño de la mesa NO se cambia dentro de un collage (lo define el formato y
+  // las celdas están atadas a él).
+  if (!collageActual) {
+    const tam = document.createElement('button'); tam.id = 'btn-tamano'; tam.className = 'mesa-btn'; tam.textContent = '📐'; tam.title = 'Tamaño de la mesa de trabajo'
+    tam.addEventListener('click', (e) => { e.stopPropagation(); togglePanelTamano() })
+    tira.append(tam)
+  }
   if (collageActual) {
     const col = document.createElement('button'); col.id = 'btn-collage'; col.className = 'mesa-btn'; col.textContent = '🎨'; col.title = 'Estilo del collage (separación, redondeo, distribución)'
     col.addEventListener('click', (e) => { e.stopPropagation(); togglePanelCollage() })
