@@ -6874,7 +6874,16 @@ document.addEventListener('pointerdown', (e) => {
 // --- Nombre del proyecto (editable en la barra; se usa para los archivos) ---
 const inNombre = document.querySelector<HTMLInputElement>('#tb-nombre')!
 inNombre.value = (() => { try { return localStorage.getItem('gastonart-nombre') || '' } catch { return '' } })()
-inNombre.addEventListener('input', () => { try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* quota */ } })
+inNombre.addEventListener('input', () => {
+  try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* quota */ }
+  // Actualizar el nombre en la metadata de recientes al toque (barato, aunque el
+  // proyecto sea grande) y disparar el autoguardado del proyecto completo.
+  if (proyectoActualId) {
+    const lista = leerRecientes(); const r = lista.find((x) => x.id === proyectoActualId)
+    if (r) { r.nombre = inNombre.value.trim(); try { localStorage.setItem(LS_RECIENTES, JSON.stringify(lista)) } catch { /* ignorar */ } }
+  }
+  autoguardar()
+})
 // Nombre de archivo (proyecto > plantilla), saneado.
 function nombreArchivo(): string {
   const n = (inNombre.value || '').trim() || nombreCorto(plantillaActual) || 'diseño'
