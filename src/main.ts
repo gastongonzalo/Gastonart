@@ -2699,6 +2699,8 @@ function limpiarGraf(): void {
 // placa (Tamaño / Guardar plantilla / Exportar) viven en la barra superior.
 function actualizarPanelProps(): void {
   if (!svgEl || grafSeleccion.length) return
+  // Collage: solo la celda seleccionada muestra sus controles (no las N juntas).
+  if (collageActual) { if (collageHueco != null && svgEl.querySelector(`[data-foto="${collageHueco}"]`)) construirFotoTools(collageHueco); return }
   const huecos = idsFoto().filter((id) => { const im = svgEl!.querySelector(`[data-foto="${id}"]`); return im && !im.closest('[data-recorte]') })
   for (const id of huecos) construirFotoTools(id)
 }
@@ -4348,9 +4350,19 @@ function construirOverlays(): void {
     // se pueden seleccionar.
     if (completa) continue
     const tieneFoto = !!fotos[id]
-    const hit = crearHit(r, 'foto', () => { if (!fotos[id]) { fotoActiva = id; inFoto.click() } })
+    const hit = crearHit(r, 'foto', () => {
+      if (!fotos[id]) { fotoActiva = id; inFoto.click(); return }
+      if (collageActual) { // celda del collage: resaltarla y mostrar SOLO sus controles
+        collageHueco = id
+        lienzo.querySelectorAll('.hit-foto-activa').forEach((n) => n.classList.remove('hit-foto-activa'))
+        hit.classList.add('hit-foto-activa')
+        panelProps.querySelectorAll('.foto-tools').forEach((n) => n.remove())
+        actualizarPanelProps(); refrescarPanelProps()
+      }
+    })
     hit.classList.add('hit-foto')
-    hit.title = tieneFoto ? 'Tocá para editar · arrastrá para encuadrar' : 'Subir foto'
+    if (collageActual && id === collageHueco) hit.classList.add('hit-foto-activa')
+    hit.title = collageActual ? 'Clic: ajustar esta foto · arrastrá para acomodarla' : (tieneFoto ? 'Tocá para editar · arrastrá para encuadrar' : 'Subir foto')
     lienzo.appendChild(hit)
     if (tieneFoto && framesFoto[id]) habilitarPanZoom(hit, id)
   }
@@ -6327,6 +6339,7 @@ interface Proyecto {
   modoEdicion?: ModoEdicion // 'completa' | 'plantilla' (opcional: saves viejos → completa)
   guias?: { v: number[]; h: number[] } // guías fijas por mesa (unidades del viewBox)
   carrusel?: { slides: number } // si está, la mesa es un carrusel ancho: se corta en N slides al exportar
+  collage?: { W: number; H: number; celdas: CeldaFrac[]; opts: CollageOpts } // config del collage (para re-estilar)
 }
 
 function snapshotProyecto(): Proyecto {
@@ -6340,6 +6353,7 @@ function snapshotProyecto(): Proyecto {
     modoEdicion,
     guias: { v: [...guiasFijas.v], h: [...guiasFijas.h] },
     carrusel: carruselSlides >= 2 ? { slides: carruselSlides } : undefined,
+    collage: collageActual ?? undefined,
   }
 }
 
@@ -6367,6 +6381,8 @@ async function aplicarSnapshot(p: Proyecto): Promise<void> {
   modoEdicion = p.modoEdicion ?? 'completa'
   guiasFijas = p.guias ? { v: [...(p.guias.v ?? [])], h: [...(p.guias.h ?? [])] } : { v: [], h: [] }
   carruselSlides = p.carrusel?.slides ?? 0
+  collageActual = p.collage ?? null
+  collageHueco = null
   mesaResizeActivo = false // cada mesa arranca sin los tiradores de tamaño activos
 
   svgActual = p.svg
@@ -6663,6 +6679,7 @@ function nuevoProyecto(): void {
   proyectoActualId = genIdProyecto()
   inNombre.value = ''
   carruselSlides = 0 // por defecto el proyecto nuevo no es carrusel
+  collageActual = null
   try { localStorage.setItem('gastonart-nombre', '') } catch { /* ignorar */ }
 }
 // Guarda/actualiza el proyecto actual en la lista de recientes (datos por id,
@@ -6812,6 +6829,197 @@ function crearCarrusel(slideW: number, slideH: number, slides: number): void {
   valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
   modoEdicion = 'completa'
   void montarPlantilla().then(() => { estado.textContent = `Carrusel: ${slides} slides de ${slideW}×${slideH}` })
+}
+
+// ---------------------------------------------------------------
+//  Collage de fotos (estilo InShot): N huecos recortados en grilla,
+//  con separación (línea), esquinas redondeadas y pan/zoom por celda.
+// ---------------------------------------------------------------
+interface CeldaFrac { x: number; y: number; w: number; h: number } // fracciones 0..1 del lienzo
+interface CollageOpts { gap: number; radio: number; color: string } // gap/radio en px del lienzo
+// Tilea un sub-rectángulo (en fracciones) en cols×rows celdas.
+function gridEn(X: number, Y: number, W: number, H: number, cols: number, rows: number): CeldaFrac[] {
+  const c: CeldaFrac[] = []
+  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) c.push({ x: X + (k / cols) * W, y: Y + (r / rows) * H, w: W / cols, h: H / rows })
+  return c
+}
+const grid = (cols: number, rows: number): CeldaFrac[] => gridEn(0, 0, 1, 1, cols, rows)
+// Layouts disponibles por cantidad de fotos (2..8). El 1.º de cada uno es el default.
+const LAYOUTS_COLLAGE: Record<number, CeldaFrac[][]> = {
+  2: [grid(2, 1), grid(1, 2)],
+  3: [grid(3, 1), grid(1, 3),
+    [{ x: 0, y: 0, w: .5, h: 1 }, ...gridEn(.5, 0, .5, 1, 1, 2)],
+    [{ x: 0, y: 0, w: 1, h: .5 }, ...gridEn(0, .5, 1, .5, 2, 1)]],
+  4: [grid(2, 2), grid(4, 1), grid(1, 4),
+    [{ x: 0, y: 0, w: .6, h: 1 }, ...gridEn(.6, 0, .4, 1, 1, 3)]],
+  5: [[...gridEn(0, 0, 1, .5, 2, 1), ...gridEn(0, .5, 1, .5, 3, 1)],
+    [{ x: 0, y: 0, w: .5, h: 1 }, ...gridEn(.5, 0, .5, 1, 2, 2)]],
+  6: [grid(3, 2), grid(2, 3)],
+  7: [[{ x: 0, y: 0, w: 1, h: .34 }, ...gridEn(0, .34, 1, .66, 3, 2)],
+    [...gridEn(0, 0, 1, .5, 3, 1), ...gridEn(0, .5, 1, .5, 4, 1)]],
+  8: [grid(4, 2), grid(2, 4)],
+}
+// SVG del collage. Sin `hrefs` → imágenes vacías que llena aplicarFotoDom (editor).
+// Con `hrefs` → cada foto en cover (preserveAspectRatio slice) para la vista previa.
+function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, hrefs?: string[]): string {
+  const g = o.gap
+  const celdaPx = (c: CeldaFrac) => ({ x: c.x * W + g / 2, y: c.y * H + g / 2, w: Math.max(1, c.w * W - g), h: Math.max(1, c.h * H - g) })
+  const clips = celdas.map((c, i) => {
+    const p = celdaPx(c)
+    return `<clipPath id="clc${i}"><rect x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" rx="${o.radio}" ry="${o.radio}"/></clipPath>`
+  }).join('')
+  // El clip va en un <g> CONTENEDOR (no en la <image>): así el transform que
+  // aplicarFotoDom le pone a la imagen no desalinea el recorte (el clip queda en
+  // el espacio del lienzo). Es como arma los huecos una plantilla real.
+  const imgs = celdas.map((c, i) => {
+    const p = celdaPx(c)
+    const href = hrefs?.[i]
+    const inner = href
+      ? `<image data-foto="${i}" x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}" preserveAspectRatio="xMidYMid slice" href="${href}" xlink:href="${href}"/>`
+      : `<image data-foto="${i}" x="0" y="0" width="1" height="1"/>`
+    return `<g clip-path="url(#clc${i})">${inner}</g>`
+  }).join('')
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${W} ${H}">` +
+    `<rect x="0" y="0" width="${W}" height="${H}" fill="${o.color}"/><defs>${clips}</defs>${imgs}</svg>`
+}
+// Config del collage actual (para re-estilar sin perder fotos/encuadres).
+let collageActual: { W: number; H: number; celdas: CeldaFrac[]; opts: CollageOpts } | null = null
+// Celda del collage seleccionada: solo esa muestra sus controles en la sidebar
+// (si no, se apilarían N barras y taparían el collage). null = ninguna.
+let collageHueco: string | null = null
+// Crea una placa collage con las fotos dadas (modo plantilla → pan/zoom por celda).
+function crearCollage(W: number, H: number, celdas: CeldaFrac[], opts: CollageOpts, fotosArr: Foto[]): void {
+  nuevoProyecto()
+  collageActual = { W, H, celdas, opts }
+  svgActual = svgCollage(W, H, celdas, opts)
+  plantillaActual = `collage-${W}x${H}`
+  valores = {}; estilos = {}; fotos = {}; encuadres = {}; fotoActiva = null
+  celdas.forEach((_, i) => { fotos[String(i)] = fotosArr[i]; encuadres[String(i)] = { zoom: 1, ox: 0, oy: 0 } })
+  modoEdicion = 'plantilla' // huecos de foto con pan/zoom (no edición de vectores)
+  void montarPlantilla().then(() => { estado.textContent = `Collage de ${fotosArr.length} fotos` })
+}
+
+// ---- Builder de collage (modal con vista previa en vivo) ----
+const MC_SIZES = [
+  { nom: 'Cuadrado', W: 1080, H: 1080 },
+  { nom: 'Historia', W: 1080, H: 1920 },
+  { nom: 'Retrato', W: 1080, H: 1350 },
+  { nom: 'Horizontal', W: 1350, H: 1080 },
+]
+const MC_COLORES = ['#ffffff', '#000000', '#e5e7eb', '#0284c7']
+let mcFotos: Foto[] = []
+let mcSize = 0, mcLayout = 0, mcGap = 14
+let mcConLinea = true, mcRound = false, mcColor = '#ffffff'
+function mcOpts(s: { W: number; H: number }): CollageOpts {
+  return { gap: mcConLinea ? mcGap : 0, radio: mcRound ? Math.round(Math.min(s.W, s.H) * 0.05) : 0, color: mcColor }
+}
+// Mini-ícono de un layout (celdas rellenas con separación).
+function miniLayout(celdas: CeldaFrac[]): string {
+  const S = 38, g = 1.6
+  const rects = celdas.map((c) => `<rect x="${(c.x * S + g).toFixed(1)}" y="${(c.y * S + g).toFixed(1)}" width="${Math.max(1, c.w * S - 2 * g).toFixed(1)}" height="${Math.max(1, c.h * S - 2 * g).toFixed(1)}" rx="2.5" fill="currentColor"/>`).join('')
+  return `<svg viewBox="0 0 ${S} ${S}" width="38" height="38" aria-hidden="true">${rects}</svg>`
+}
+function mcRenderFotos(ov: HTMLElement): void {
+  const cont = ov.querySelector('#mc-fotos')!
+  cont.innerHTML = mcFotos.length
+    ? mcFotos.map((f, i) => `<span class="mc-foto"><img src="${f.dataUrl}" alt=""><button class="mc-foto-del" data-i="${i}" title="Quitar">✕</button></span>`).join('')
+    : '<span class="mc-dim">Todavía no agregaste fotos.</span>'
+  cont.querySelectorAll<HTMLButtonElement>('.mc-foto-del').forEach((b) =>
+    b.addEventListener('click', () => {
+      mcFotos.splice(+b.dataset.i!, 1)
+      if (mcLayout >= (LAYOUTS_COLLAGE[mcFotos.length]?.length || 1)) mcLayout = 0
+      mcRenderFotos(ov); mcRenderLayouts(ov); mcRefrescar()
+    }))
+  ov.querySelector('#mc-count')!.textContent = `${mcFotos.length}/8`
+}
+function mcRenderLayouts(ov: HTMLElement): void {
+  const cont = ov.querySelector('#mc-layouts')!
+  const n = mcFotos.length
+  if (n < 2) { cont.innerHTML = '<span class="mc-dim">Sumá 2 fotos o más para elegir la distribución.</span>'; return }
+  const layouts = LAYOUTS_COLLAGE[n] || []
+  cont.innerHTML = layouts.map((cel, i) => `<button class="mc-layout${i === mcLayout ? ' activo' : ''}" data-i="${i}">${miniLayout(cel)}</button>`).join('')
+  cont.querySelectorAll<HTMLButtonElement>('.mc-layout').forEach((b) =>
+    b.addEventListener('click', () => { mcLayout = +b.dataset.i!; cont.querySelectorAll('.mc-layout').forEach((x) => x.classList.toggle('activo', x === b)); mcRefrescar() }))
+}
+function mcRefrescar(): void {
+  const ov = document.querySelector<HTMLElement>('#modal-collage'); if (!ov) return
+  const prev = ov.querySelector('#mc-preview')!
+  const crear = ov.querySelector<HTMLButtonElement>('#mc-crear')!
+  const n = mcFotos.length
+  crear.disabled = n < 2
+  if (n < 2) { prev.innerHTML = '<div class="mc-vacio">Agregá de 2 a 8 fotos para ver el collage.</div>'; return }
+  const s = MC_SIZES[mcSize]
+  const celdas = (LAYOUTS_COLLAGE[n]?.[mcLayout] || LAYOUTS_COLLAGE[n][0])
+  prev.innerHTML = svgCollage(s.W, s.H, celdas, mcOpts(s), mcFotos.map((f) => f.dataUrl))
+  const el = prev.querySelector('svg')
+  if (el) { el.removeAttribute('width'); el.removeAttribute('height'); el.style.maxWidth = '100%'; el.style.maxHeight = '100%' }
+}
+function abrirCollage(): void {
+  mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'
+  const ov = document.createElement('div'); ov.id = 'modal-collage'
+  ov.innerHTML = `
+    <div class="mc-wrap">
+      <div class="mc-head"><strong>Crear collage</strong><button id="mc-cerrar" class="mini" title="Cerrar">✕</button></div>
+      <div class="mc-body">
+        <div class="mc-preview-col"><div id="mc-preview" class="mc-preview"></div></div>
+        <div class="mc-controls">
+          <div class="mc-grupo">
+            <div class="mc-tit">Fotos <span class="mc-dim" id="mc-count">0/8</span></div>
+            <div id="mc-fotos" class="mc-fotos"></div>
+            <button id="mc-add" class="ini-btn-acc">＋ Agregar fotos</button>
+            <input id="mc-file" type="file" accept="image/*" multiple hidden>
+          </div>
+          <div class="mc-grupo">
+            <div class="mc-tit">Tamaño</div>
+            <div id="mc-sizes" class="mc-sizes"></div>
+          </div>
+          <div class="mc-grupo">
+            <div class="mc-tit">Distribución</div>
+            <div id="mc-layouts" class="mc-layouts"></div>
+          </div>
+          <div class="mc-grupo">
+            <div class="mc-tit">Estilo</div>
+            <label class="mc-row"><input type="checkbox" id="mc-linea" checked> Línea entre las fotos</label>
+            <label class="mc-row" id="mc-gap-row">Grosor <input type="range" id="mc-gap" min="2" max="60" value="14"></label>
+            <label class="mc-row"><input type="checkbox" id="mc-round"> Bordes redondeados</label>
+            <div class="mc-row">Color <div id="mc-colores" class="mc-colores"></div></div>
+          </div>
+          <button id="mc-crear" class="ini-btn-acc" disabled>Crear collage</button>
+        </div>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  const sizesEl = ov.querySelector('#mc-sizes')!
+  sizesEl.innerHTML = MC_SIZES.map((s, i) => `<button class="mc-size${i === 0 ? ' activo' : ''}" data-i="${i}">${iconoProporcion(s.W, s.H)}<span>${s.nom}</span></button>`).join('')
+  sizesEl.querySelectorAll<HTMLButtonElement>('.mc-size').forEach((b) =>
+    b.addEventListener('click', () => { mcSize = +b.dataset.i!; sizesEl.querySelectorAll('.mc-size').forEach((x) => x.classList.toggle('activo', x === b)); mcRefrescar() }))
+  const colEl = ov.querySelector('#mc-colores')!
+  colEl.innerHTML = MC_COLORES.map((c, i) => `<button class="mc-color${i === 0 ? ' activo' : ''}" data-c="${c}" style="background:${c}" title="${c}"></button>`).join('')
+  colEl.querySelectorAll<HTMLButtonElement>('.mc-color').forEach((b) =>
+    b.addEventListener('click', () => { mcColor = b.dataset.c!; colEl.querySelectorAll('.mc-color').forEach((x) => x.classList.toggle('activo', x === b)); mcRefrescar() }))
+  const file = ov.querySelector<HTMLInputElement>('#mc-file')!
+  ov.querySelector('#mc-add')!.addEventListener('click', () => file.click())
+  file.addEventListener('change', async () => {
+    for (const f of Array.from(file.files || [])) { if (mcFotos.length >= 8) break; try { mcFotos.push(await leerFoto(f)) } catch { /* ignorar */ } }
+    file.value = ''
+    if (mcLayout >= (LAYOUTS_COLLAGE[mcFotos.length]?.length || 1)) mcLayout = 0
+    mcRenderFotos(ov); mcRenderLayouts(ov); mcRefrescar()
+  })
+  const linea = ov.querySelector<HTMLInputElement>('#mc-linea')!
+  const gap = ov.querySelector<HTMLInputElement>('#mc-gap')!
+  const round = ov.querySelector<HTMLInputElement>('#mc-round')!
+  linea.addEventListener('change', () => { mcConLinea = linea.checked; ov.querySelector('#mc-gap-row')!.classList.toggle('mc-off', !mcConLinea); mcRefrescar() })
+  gap.addEventListener('input', () => { mcGap = +gap.value; mcRefrescar() })
+  round.addEventListener('change', () => { mcRound = round.checked; mcRefrescar() })
+  ov.querySelector('#mc-cerrar')!.addEventListener('click', () => ov.remove())
+  ov.querySelector('#mc-crear')!.addEventListener('click', () => {
+    if (mcFotos.length < 2) return
+    const s = MC_SIZES[mcSize]
+    const celdas = LAYOUTS_COLLAGE[mcFotos.length][mcLayout] || LAYOUTS_COLLAGE[mcFotos.length][0]
+    ov.remove(); cerrarInicio()
+    crearCollage(s.W, s.H, celdas, mcOpts(s), mcFotos.slice())
+  })
+  mcRenderFotos(ov); mcRenderLayouts(ov); mcRefrescar()
 }
 
 // Núcleo del redimensionado: ajusta el viewBox y, si hay un rect de fondo que
@@ -7103,6 +7311,11 @@ function mostrarInicio(): void {
         </div>
       </section>
       <section class="ini-seccion">
+        <h3>Collage de fotos</h3>
+        <p class="ini-nota" style="margin:0 0 8px">Sumá de 2 a 8 fotos y la app arma el collage. Elegís distribución, separación, bordes redondeados y acomodás cada foto.</p>
+        <button id="ini-crear-collage" class="ini-btn-acc">🖼 Crear un collage</button>
+      </section>
+      <section class="ini-seccion">
         ${seguirHtml}
         <h3>Plantillas y guardados</h3>
         <div class="ini-plantillas">${opcionesPlantilla}</div>
@@ -7129,6 +7342,7 @@ function mostrarInicio(): void {
     const n = Math.max(2, Math.min(20, Math.round(+ov.querySelector<HTMLInputElement>('#ini-carr-n')!.value || 3)))
     cerrarInicio(); crearCarrusel(sw, sh, n)
   })
+  ov.querySelector('#ini-crear-collage')!.addEventListener('click', () => abrirCollage())
   // Abrir un proyecto reciente.
   ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
     b.addEventListener('click', async () => {
