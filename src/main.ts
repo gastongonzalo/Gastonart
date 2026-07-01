@@ -6937,31 +6937,51 @@ function gridEn(X: number, Y: number, W: number, H: number, cols: number, rows: 
   return c
 }
 const grid = (cols: number, rows: number): CeldaFrac[] => gridEn(0, 0, 1, 1, cols, rows)
+// Fila a lo ancho (y..y+h) partida en celdas de anchos desiguales (fracciones que suman 1).
+function filaVar(y: number, h: number, ...ws: number[]): CeldaFrac[] {
+  let x = 0; const c: CeldaFrac[] = []
+  for (const w of ws) { c.push({ x, y, w, h }); x += w }
+  return c
+}
+// Columna a lo alto (x..x+w) partida en celdas de altos desiguales.
+function colVar(x: number, w: number, ...hs: number[]): CeldaFrac[] {
+  let y = 0; const c: CeldaFrac[] = []
+  for (const h of hs) { c.push({ x, y, w, h }); y += h }
+  return c
+}
 // Layouts disponibles por cantidad de fotos (2..8). El 1.º de cada uno es el default.
 const LAYOUTS_COLLAGE: Record<number, CeldaFrac[][]> = {
-  2: [grid(2, 1), grid(1, 2),
-    [{ x: 0, y: 0, w: .62, h: 1 }, { x: .62, y: 0, w: .38, h: 1 }], // asimétrico vertical
-    [{ x: 0, y: 0, w: 1, h: .6 }, { x: 0, y: .6, w: 1, h: .4 }]], // asimétrico horizontal
+  2: [grid(2, 1), grid(1, 2), filaVar(0, 1, .62, .38), colVar(0, 1, .6, .4), filaVar(0, 1, .72, .28)],
   3: [grid(3, 1), grid(1, 3),
-    [{ x: 0, y: 0, w: .55, h: 1 }, ...gridEn(.55, 0, .45, 1, 1, 2)], // grande izq + 2
-    [{ x: 0, y: 0, w: 1, h: .55 }, ...gridEn(0, .55, 1, .45, 2, 1)], // 1 arriba + 2 abajo
-    [...gridEn(0, 0, 1, .5, 2, 1), { x: 0, y: .5, w: 1, h: .5 }]], // 2 arriba + 1 abajo
+    [{ x: 0, y: 0, w: .6, h: 1 }, ...colVar(.6, .4, .5, .5)], // grande izq + 2
+    [{ x: 0, y: 0, w: 1, h: .55 }, ...filaVar(.55, .45, .5, .5)], // 1 arriba + 2
+    [...filaVar(0, .5, .5, .5), { x: 0, y: .5, w: 1, h: .5 }], // 2 + 1 abajo
+    [{ x: 0, y: 0, w: .66, h: 1 }, ...colVar(.66, .34, .5, .5)], // feature izq + 2 chicas
+    filaVar(0, 1, .42, .33, .25)], // 3 columnas desiguales
   4: [grid(2, 2), grid(4, 1), grid(1, 4),
-    [{ x: 0, y: 0, w: .6, h: 1 }, ...gridEn(.6, 0, .4, 1, 1, 3)], // grande izq + 3
-    [{ x: 0, y: 0, w: 1, h: .55 }, ...gridEn(0, .55, 1, .45, 3, 1)], // 1 arriba + 3 abajo
-    [{ x: 0, y: 0, w: .62, h: .62 }, { x: .62, y: 0, w: .38, h: .62 }, { x: 0, y: .62, w: .38, h: .38 }, { x: .38, y: .62, w: .62, h: .38 }]], // molinete
-  5: [[...gridEn(0, 0, 1, .5, 2, 1), ...gridEn(0, .5, 1, .5, 3, 1)], // 2 + 3
+    [{ x: 0, y: 0, w: .6, h: 1 }, ...colVar(.6, .4, .34, .33, .33)], // grande izq + 3
+    [{ x: 0, y: 0, w: 1, h: .55 }, ...filaVar(.55, .45, .34, .33, .33)], // 1 arriba + 3
+    [{ x: 0, y: 0, w: .62, h: .62 }, { x: .62, y: 0, w: .38, h: .62 }, { x: 0, y: .62, w: .38, h: .38 }, { x: .38, y: .62, w: .62, h: .38 }], // molinete
+    [...filaVar(0, .58, .6, .4), ...filaVar(.58, .42, .4, .6)], // 2x2 desigual
+    [{ x: 0, y: 0, w: .62, h: .55 }, { x: .62, y: 0, w: .38, h: .55 }, ...filaVar(.55, .45, .5, .5)]], // 2 grandes + 2
+  5: [[...filaVar(0, .5, .5, .5), ...filaVar(.5, .5, .34, .33, .33)], // 2 + 3
     [{ x: 0, y: 0, w: .5, h: 1 }, ...gridEn(.5, 0, .5, 1, 2, 2)], // grande izq + 2x2
-    [...gridEn(0, 0, 1, .5, 3, 1), ...gridEn(0, .5, 1, .5, 2, 1)], // 3 + 2
-    [{ x: 0, y: 0, w: 1, h: .4 }, ...gridEn(0, .4, 1, .6, 2, 2)]], // 1 arriba + 2x2
+    [...filaVar(0, .5, .34, .33, .33), ...filaVar(.5, .5, .5, .5)], // 3 + 2
+    [{ x: 0, y: 0, w: 1, h: .4 }, ...gridEn(0, .4, 1, .6, 2, 2)], // 1 arriba + 2x2
+    [{ x: 0, y: 0, w: .58, h: 1 }, ...colVar(.58, .42, .25, .25, .25, .25)], // feature izq + 4
+    [{ x: 0, y: 0, w: .6, h: .6 }, { x: .6, y: 0, w: .4, h: .6 }, ...filaVar(.6, .4, .34, .33, .33)]], // 2 + 3
   6: [grid(3, 2), grid(2, 3),
-    [...gridEn(0, 0, 1, .5, 2, 1), ...gridEn(0, .5, 1, .5, 4, 1)], // 2 + 4
-    [{ x: 0, y: 0, w: .66, h: .66 }, { x: .66, y: 0, w: .34, h: .5 }, { x: .66, y: .5, w: .34, h: .5 }, ...gridEn(0, .66, .66, .34, 3, 1)]], // grande + laterales
+    [...filaVar(0, .5, .5, .5), ...filaVar(.5, .5, .25, .25, .25, .25)], // 2 + 4
+    [...filaVar(0, .5, .25, .25, .25, .25), ...filaVar(.5, .5, .5, .5)], // 4 + 2
+    [{ x: 0, y: 0, w: .5, h: 1 }, ...colVar(.5, .5, .2, .2, .2, .2, .2)], // feature izq + 5
+    [{ x: 0, y: 0, w: .66, h: .66 }, { x: .66, y: 0, w: .34, h: .33 }, { x: .66, y: .33, w: .34, h: .33 }, ...filaVar(.66, .34, .34, .33, .33)]], // grande + 5
   7: [[{ x: 0, y: 0, w: 1, h: .34 }, ...gridEn(0, .34, 1, .66, 3, 2)], // 1 + 3x2
     [...gridEn(0, 0, 1, .5, 3, 1), ...gridEn(0, .5, 1, .5, 4, 1)], // 3 + 4
-    [{ x: 0, y: 0, w: .4, h: 1 }, ...gridEn(.4, 0, .6, 1, 2, 3)]], // grande izq + 2x3
+    [{ x: 0, y: 0, w: .4, h: 1 }, ...gridEn(.4, 0, .6, 1, 2, 3)], // grande izq + 2x3
+    [...filaVar(0, .5, .4, .3, .3), ...filaVar(.5, .5, .25, .25, .25, .25)]], // 3 + 4 desigual
   8: [grid(4, 2), grid(2, 4),
-    [...gridEn(0, 0, 1, .34, 2, 1), ...gridEn(0, .34, 1, .66, 3, 2)]], // 2 + 3x2
+    [...filaVar(0, .34, .5, .5), ...gridEn(0, .34, 1, .66, 3, 2)], // 2 + 3x2
+    [...filaVar(0, .34, .34, .33, .33), ...filaVar(.34, .33, .5, .5), ...filaVar(.67, .33, .34, .33, .33)]], // 3 + 2 + 3
 }
 // SVG del collage. Sin `hrefs` → imágenes vacías que llena aplicarFotoDom (editor).
 // Con `hrefs` → cada foto en cover (preserveAspectRatio slice) para la vista previa.
@@ -6984,7 +7004,9 @@ function svgCollage(W: number, H: number, celdas: CeldaFrac[], o: CollageOpts, h
       : `<image data-foto="${i}" x="0" y="0" width="1" height="1"/>`
     return `<g clip-path="url(#clc${i})">${inner}</g>`
   }).join('')
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${W} ${H}">` +
+  // width/height dan proporción intrínseca (para que el preview escale bien por
+  // alto); en el editor, montarPlantilla les saca el width/height igual.
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
     `<rect class="collage-bg" x="0" y="0" width="${W}" height="${H}" fill="${o.color}"/><defs>${clips}</defs>${imgs}</svg>`
 }
 // Re-aplica el estilo del collage (separación, redondeo, color, layout) sobre el
@@ -7096,8 +7118,15 @@ function mcRefrescar(): void {
   const s = MC_SIZES[mcSize]
   const celdas = (LAYOUTS_COLLAGE[n]?.[mcLayout] || LAYOUTS_COLLAGE[n][0])
   prev.innerHTML = svgCollage(s.W, s.H, celdas, mcOpts(s), mcFotos.map((f) => f.dataUrl))
+  // Ajustar el SVG al contenedor preservando la proporción (contain calculado a mano:
+  // así una placa alta —Historia— entra completa sin deformarse ni desperdiciar espacio).
   const el = prev.querySelector('svg')
-  if (el) { el.removeAttribute('width'); el.removeAttribute('height'); el.style.maxWidth = '100%'; el.style.maxHeight = '100%' }
+  if (el) {
+    const availW = prev.clientWidth || 420, availH = window.innerHeight * 0.72
+    const k = Math.min(availW / s.W, availH / s.H)
+    el.setAttribute('width', String(Math.round(s.W * k)))
+    el.setAttribute('height', String(Math.round(s.H * k)))
+  }
 }
 function abrirCollage(): void {
   mcFotos = []; mcSize = 0; mcLayout = 0; mcGap = 14; mcConLinea = true; mcRound = false; mcColor = '#ffffff'; mcFit = false

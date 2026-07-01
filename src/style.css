@@ -1572,9 +1572,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .mc-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
 .mc-head strong { font-size: 16px; }
 .mc-body { display: flex; min-height: 0; flex: 1; }
-.mc-preview-col { flex: 1 1 55%; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--workspace); min-width: 0; }
-.mc-preview { width: 100%; max-height: 68vh; display: flex; align-items: center; justify-content: center; }
-.mc-preview svg { display: block; border-radius: 3px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); }
+.mc-preview-col { flex: 1 1 55%; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--workspace); min-width: 0; min-height: 0; overflow: hidden; }
+.mc-preview { width: 100%; max-height: 100%; display: flex; align-items: center; justify-content: center; }
+.mc-preview svg { display: block; max-width: 100%; max-height: 74vh; border-radius: 3px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); }
 .mc-vacio { color: var(--muted); font-size: 13px; text-align: center; padding: 30px; }
 .mc-controls { flex: 0 0 340px; max-width: 340px; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .mc-grupo { display: flex; flex-direction: column; gap: 8px; }
