@@ -221,7 +221,19 @@ async function fetchTimeout(url: string, ms = 12000): Promise<Response> {
   finally { clearTimeout(t) }
 }
 
+// Descargas de Google Fonts en curso: dos llamadas concurrentes por la misma
+// familia (arranque: fuentes guardadas + revisarFuentes de la plantilla) chequeaban
+// facesPack antes de que ninguna pusheara → caras duplicadas en el export.
+const gfontsEnCurso = new Map<string, Promise<string | null>>()
 async function traerGoogleFont(familia: string): Promise<string | null> {
+  const clave = familia.trim().toLowerCase()
+  const enCurso = gfontsEnCurso.get(clave)
+  if (enCurso) return enCurso
+  const p = traerGoogleFontInterno(familia).finally(() => gfontsEnCurso.delete(clave))
+  gfontsEnCurso.set(clave, p)
+  return p
+}
+async function traerGoogleFontInterno(familia: string): Promise<string | null> {
   const fam = familia.trim()
   if (!fam) return null
   const ya = facesPack.find((f) => f.family.toLowerCase() === fam.toLowerCase())
@@ -776,7 +788,7 @@ async function buscarImagenes(q: string): Promise<void> {
   const consulta = traducirBusqueda(q)
   const token = ++buscarImgToken // descarta resultados de búsquedas viejas (en vivo)
   pmEstado.textContent = 'Buscando…'; pmGrid.innerHTML = ''
-  let resultados: { id: string; thumbnail?: string; title?: string }[] = []
+  let resultados: { id: string; thumbnail?: string; url?: string; title?: string }[] = []
   try {
     const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(consulta)}&page_size=20`
     const data = await (await fetchTimeout(url)).json()
@@ -791,14 +803,21 @@ async function buscarImagenes(q: string): Promise<void> {
     const b = document.createElement('button'); b.className = 'pi-item pm-item'; b.title = r.title ?? ''
     const img = document.createElement('img'); img.src = r.thumbnail!; img.loading = 'lazy'; img.alt = r.title ?? ''
     b.appendChild(img)
-    b.addEventListener('click', () => void agregarImagenBanco(r.thumbnail!))
+    b.addEventListener('click', () => void agregarImagenBanco(r.url || r.thumbnail!, r.thumbnail))
     pmGrid.appendChild(b)
   }
 }
-async function agregarImagenBanco(url: string): Promise<void> {
+// Inserta primero la imagen en resolución COMPLETA (r.url) — la miniatura de
+// Openverse (~600px) quedaba pixelada al exportar en 1080+. Si el origen del
+// proveedor bloquea CORS, cae a la miniatura.
+async function agregarImagenBanco(url: string, fallback?: string): Promise<void> {
   pmEstado.textContent = 'Agregando imagen…'
   try {
-    const blob = await (await fetchTimeout(url)).blob()
+    let blob: Blob
+    try { blob = await (await fetchTimeout(url)).blob() } catch (e) {
+      if (fallback && fallback !== url) blob = await (await fetchTimeout(fallback)).blob()
+      else throw e
+    }
     const foto = await leerFoto(new File([blob], 'banco', { type: blob.type || 'image/jpeg' }))
     insertarImagen(foto)
     estado.textContent = 'Imagen agregada desde el banco'
@@ -2972,16 +2991,21 @@ function iniciarArrastreGraf(e: PointerEvent): void {
     for (const w of wraps) w.g.setAttribute('transform', `translate(${w.tx0 + accX + dx} ${w.ty0 + accY + dy}) ${w.resto}`.trim())
     dibujarSelGraf() // no borra las .guia (limpiarGraf no las incluye)
   }
+  let hecho = false
   const onUp = () => {
+    if (hecho) return // pointerup y pointercancel están ambos registrados: un
+    hecho = true      // cancel tardío re-ejecutaba onUp de un arrastre viejo
     svgEl!.removeEventListener('pointermove', onMove)
+    svgEl!.removeEventListener('pointerup', onUp)
+    svgEl!.removeEventListener('pointercancel', onUp)
     snapExcluirSet = null
     limpiarGuias()
     if (movido) { registrarHistorial(); autoguardar() }
   }
   try { svgEl.setPointerCapture(e.pointerId) } catch { /* igual arrastra */ }
   svgEl.addEventListener('pointermove', onMove)
-  svgEl.addEventListener('pointerup', onUp, { once: true })
-  svgEl.addEventListener('pointercancel', onUp, { once: true })
+  svgEl.addEventListener('pointerup', onUp)
+  svgEl.addEventListener('pointercancel', onUp)
 }
 
 // Recuadro de selección por arrastre: selecciona todo lo que toca.
@@ -4246,18 +4270,20 @@ function bboxCampoUser(nombre: string): { x: number; y: number; w: number; h: nu
   if (!svgEl) return null
   const els = Array.from(svgEl.querySelectorAll<SVGGraphicsElement>(`[data-campo="${nombre}"]`))
   if (!els.length) return null
-  let minTx = Infinity, top = Infinity, bottom = -Infinity
+  let minTx = Infinity, top = Infinity, bottom = -Infinity, right = -Infinity
   for (const el of els) {
     const t = (el.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
     const tx = t ? +t[1] : 0, ty = t ? +t[2] : 0
     let bb: DOMRect
     try { bb = el.getBBox() } catch { continue }
-    minTx = Math.min(minTx, tx)
+    minTx = Math.min(minTx, tx + bb.x)
+    right = Math.max(right, tx + bb.x + bb.width)
     top = Math.min(top, ty + bb.y)
     bottom = Math.max(bottom, ty + bb.y + bb.height)
   }
   if (minTx === Infinity) return null
-  return { x: minTx, y: top, w: Math.max(1, bottom - top), h: Math.max(1, bottom - top) }
+  // (Antes w devolvía el ALTO: la caja fallback quedaba cuadrada.)
+  return { x: minTx, y: top, w: Math.max(1, right - minTx), h: Math.max(1, bottom - top) }
 }
 
 // Caja efectiva (ancho = maxWidthUser, alto = override o natural).
@@ -4481,15 +4507,21 @@ function unidadGuia(ev: PointerEvent, horizontal: boolean): number {
 function arrastrarGuiaComun(arr: number[], idx: number, horizontal: boolean): void {
   const lim = horizontal ? (svgEl!.viewBox.baseVal.height || 1350) : (svgEl!.viewBox.baseVal.width || 1080)
   const onMove = (ev: PointerEvent) => { arr[idx] = unidadGuia(ev, horizontal); dibujarGuiasFijas() }
+  let hecho = false
   const onUp = (ev: PointerEvent) => {
+    if (hecho) return // pointerup y pointercancel están ambos registrados
+    hecho = true
     document.removeEventListener('pointermove', onMove)
+    document.removeEventListener('pointerup', onUp)
+    document.removeEventListener('pointercancel', onUp)
     const u = unidadGuia(ev, horizontal)
     if (u < 0 || u > lim) arr.splice(idx, 1) // soltada fuera de la placa → quitar
     else arr[idx] = Math.round(u)
     dibujarGuiasFijas(); registrarHistorial(); autoguardar()
   }
   document.addEventListener('pointermove', onMove)
-  document.addEventListener('pointerup', onUp, { once: true })
+  document.addEventListener('pointerup', onUp)
+  document.addEventListener('pointercancel', onUp) // touch/pen: sin esto la guía seguía al mouse
 }
 function arrastrarGuiaFija(e: PointerEvent, horizontal: boolean, idx: number): void {
   e.preventDefault(); e.stopPropagation()
@@ -4774,6 +4806,7 @@ function crearTiradorCaja(r: Rect, nombre: string, eje: 'x' | 'y' | 'xy'): HTMLD
       const dxs = ev.clientX - sx, dys = ev.clientY - sy
       sx = ev.clientX; sy = ev.clientY
       const m = metricas[nombre]
+      if (!m) return // campo sin métrica (p.ej. copia de un campo que no la tenía)
       if (eje !== 'y') m.maxWidthUser = Math.max(40, m.maxWidthUser + dxs / k)
       if (eje !== 'x') { cajaAlto[nombre] = Math.max(20, (cajaAlto[nombre] ?? 0) + dys / k); cajaManual[nombre] = true }
       // Re-acomodar/recortar si hay texto real (el ancho re-wrappea, el alto re-recorta).
@@ -4863,10 +4896,18 @@ function iniciarPanFoto(e: PointerEvent, id: string): void {
     sx = ev.clientX; sy = ev.clientY
     const c = aplicarFotoDom(svgEl!, id, foto, fr, enc); enc.ox = c.ox; enc.oy = c.oy
   }
-  const onUp = () => { svgEl!.removeEventListener('pointermove', onMove); registrarHistorial(); autoguardar() }
+  let hecho = false
+  const onUp = () => {
+    if (hecho) return // pointerup y pointercancel están ambos registrados
+    hecho = true
+    svgEl!.removeEventListener('pointermove', onMove)
+    svgEl!.removeEventListener('pointerup', onUp)
+    svgEl!.removeEventListener('pointercancel', onUp)
+    registrarHistorial(); autoguardar()
+  }
   svgEl.addEventListener('pointermove', onMove)
-  svgEl.addEventListener('pointerup', onUp, { once: true })
-  svgEl.addEventListener('pointercancel', onUp, { once: true })
+  svgEl.addEventListener('pointerup', onUp)
+  svgEl.addEventListener('pointercancel', onUp)
 }
 
 function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
@@ -6491,11 +6532,13 @@ function crearZip(archivos: { nombre: string; datos: Uint8Array }[]): Blob {
     const nb = enc.encode(nombre), crc = crc32(datos)
     const lh = new DataView(new ArrayBuffer(30))
     lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true)
+    lh.setUint16(6, 0x0800, true) // flag EFS: nombres en UTF-8 ("Diseño" y no "DiseÃ±o")
     lh.setUint32(14, crc, true); lh.setUint32(18, datos.length, true); lh.setUint32(22, datos.length, true)
     lh.setUint16(26, nb.length, true)
     partes.push(lh.buffer.slice(0), nb, datos as BlobPart)
     const ch = new DataView(new ArrayBuffer(46))
     ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true)
+    ch.setUint16(8, 0x0800, true) // flag EFS también en el directorio central
     ch.setUint32(16, crc, true); ch.setUint32(20, datos.length, true); ch.setUint32(24, datos.length, true)
     ch.setUint16(28, nb.length, true); ch.setUint32(42, offset, true)
     central.push(ch.buffer.slice(0), nb)
@@ -6549,7 +6592,8 @@ async function exportarTodas(): Promise<void> {
   const usados = new Set<string>()
   for (let i = 0; i < mesas.length; i++) {
     const m = mesas[i]
-    const vbW = parseFloat(m.svg.match(/viewBox="0 0 ([\d.]+)/)?.[1] ?? '1080') || 1080
+    // Tolerante a viewBox con origen ≠ 0 o comas (SVG importados): tercer número = ancho.
+    const vbW = parseFloat(m.svg.match(/viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)/)?.[1] ?? '1080') || 1080
     const ancho = Math.round(Math.min(2480, Math.max(1080, vbW)))
     try {
       const blob = await renderResvg(m.svg, fuentes, ancho)
@@ -6986,7 +7030,8 @@ async function idbDel(clave: string): Promise<void> {
 // pesaba MB y reventaba la cuota de localStorage.
 function miniaturaRaster(svg: string): Promise<string> {
   return new Promise((res) => {
-    const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)/)
+    // Tolerante a viewBox con origen ≠ 0 o comas (SVG importados).
+    const vb = svg.match(/viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/)
     const W = vb ? +vb[1] : 1080, H = vb ? +vb[2] : 1080
     let s = svg
     if (!/<svg[^>]*\swidth=/.test(s)) s = s.replace('<svg', `<svg width="${W}" height="${H}"`)
@@ -7664,7 +7709,9 @@ function setTamanoMesa(w: number, h: number): void {
       rect.setAttribute('width', String(w)); rect.setAttribute('height', String(h))
     }
   }
-  svgEl.setAttribute('viewBox', `0 0 ${w} ${h}`)
+  // Preservar el ORIGEN del viewBox (un SVG importado puede no arrancar en 0 0:
+  // pisarlo corría/cortaba el contenido al redimensionar la mesa).
+  svgEl.setAttribute('viewBox', `${vb.x || 0} ${vb.y || 0} ${w} ${h}`)
   svgEl.removeAttribute('width'); svgEl.removeAttribute('height')
 }
 

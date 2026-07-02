@@ -34,21 +34,7 @@
 #aviso-fuentes button { margin-left: auto; }
 #aviso-fuentes button + button { margin-left: 6px; }
 
-/* --- Panel Google Fonts --- */
-#panel-gfonts {
-  position: fixed;
-  top: 96px;
-  right: 16px;
-  z-index: 60;
-  width: 320px;
-  max-height: 70vh;
-  overflow-y: auto;
-  padding: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
-}
+/* --- Google Fonts (dentro del panel lateral) --- */
 .pg-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .pg-buscar { display: flex; gap: 6px; align-items: stretch; }
 .pg-buscar input {
@@ -77,23 +63,7 @@
 }
 .pg-chip:hover { border-color: var(--accent); }
 
-/* --- Panel de íconos (Iconify) --- */
-#panel-iconos {
-  position: fixed;
-  top: 96px;
-  left: 96px;
-  z-index: 60;
-  width: 360px;
-  max-height: 72vh;
-  display: flex;
-  flex-direction: column;
-  padding: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
-}
-#panel-iconos[hidden] { display: none; }
+/* --- Íconos (Iconify, dentro del panel lateral) --- */
 .pi-grid {
   margin-top: 10px;
   overflow-y: auto;
@@ -116,24 +86,7 @@
 .pi-item:hover { border-color: var(--accent); }
 .pi-item svg, .pi-item img { width: 26px; height: 26px; display: block; }
 
-/* --- Panel de imagen (subir + banco) --- */
-#panel-imagen {
-  position: fixed;
-  top: 96px;
-  left: 96px;
-  z-index: 60;
-  width: 380px;
-  max-height: 74vh;
-  display: flex;
-  flex-direction: column;
-  padding: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16);
-}
-#panel-imagen[hidden] { display: none; }
-.pm-subir { width: 100%; margin: 4px 0 12px; padding: 11px; }
+/* --- Imágenes (subir + banco, dentro del panel lateral) --- */
 .pm-sep { text-align: center; font-size: 11px; color: var(--dim); margin: 0 0 10px; }
 #pm-grid { grid-template-columns: repeat(4, 1fr); }
 .pm-item { aspect-ratio: 1; padding: 0; overflow: hidden; }
@@ -390,7 +343,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .pl-view[hidden] { display: none; }
 .pl-view { display: flex; flex-direction: column; gap: 10px; }
 .pl-sub { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-top: 4px; }
-.pl-nota { font-size: 13px; line-height: 1.5; color: var(--dim); margin: 4px 0 0; }
 .pl-accion {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   width: 100%; min-height: 42px; padding: 0 14px;
@@ -499,29 +451,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   gap: 12px;
 }
 #panel-props[hidden] { display: none; }
-.pp-titulo { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--text); }
-.pp-sub { font-size: 11px; color: var(--muted, var(--muted)); margin-top: -8px; }
-.pp-grupo { display: flex; flex-direction: column; gap: 8px; }
-.pp-grupo-tit { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, var(--muted)); }
-.pp-btn {
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 13px;
-  background: var(--inset);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  color: var(--text);
-  font-size: 14px; font-weight: 600;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.12s, background 0.12s;
-}
-.pp-btn:hover { border-color: var(--accent); background: var(--inset); }
-.pp-btn .pp-ic { font-size: 17px; width: 20px; text-align: center; }
-.pp-vacio { font-size: 12px; line-height: 1.5; color: var(--muted, var(--muted)); padding: 6px 2px; }
 /* En pantallas medianas la sidebar se angosta pero sigue a la derecha. */
 @media (max-width: 900px) {
   #panel-props { width: 208px; padding: 12px 10px; gap: 10px; }
-  #panel-props .pp-btn { padding: 9px 10px; font-size: 13px; }
 }
 /* En teléfono la sidebar se ancla ABAJO (bottom sheet) a todo el ancho, en vez de
    ocultarse: así los controles de lo seleccionado siguen accesibles. */
@@ -1066,7 +998,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 
 /* Menú de figuras */
-.add-wrap { position: relative; display: inline-flex; }
 .menu-pop[hidden] { display: none; }
 .menu-pop {
   position: absolute;
@@ -1074,8 +1005,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   left: 0;
   z-index: 20;
 }
-/* En la barra vertical, los popovers abren a la derecha del botón. */
-.toolbar-izq .menu-pop { top: 0; left: 72px; }
 .menu-pop {
   display: flex;
   gap: 4px;
@@ -1104,23 +1033,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .menu-figs button:hover { border-color: var(--accent); }
 .menu-figs button svg { color: var(--accent); width: 100%; height: 100%; }
-.menu-iconos {
-  display: grid;
-  grid-template-columns: repeat(6, 32px);
-  gap: 4px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.menu-iconos button {
-  color: var(--text);
-  width: 32px;
-  height: 32px;
-  padding: 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.menu-iconos button svg { width: 20px; height: 20px; display: block; flex: none; }
 
 /* Pluma (Bézier) */
 .mini.activo-pluma { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
@@ -1203,25 +1115,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   border-radius: 10px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 }
-/* Manija para arrastrar la barra flotante a otro lugar. */
-.graf-grip {
-  flex: 0 0 auto;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  padding: 0 4px;
-  margin-right: 2px;
-  border: 0;
-  border-right: 1px solid var(--border);
-  background: transparent;
-  color: var(--dim);
-  font-size: 15px;
-  line-height: 1;
-  cursor: grab;
-  touch-action: none;
-}
-.graf-grip:hover { color: var(--text); }
-.graf-grip:active { cursor: grabbing; }
 .graf-color { position: relative; display: inline-flex; }
 .graf-color input[type='color'] {
   width: 24px;
@@ -1290,7 +1183,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   width: 46px; padding: 3px 4px; text-align: center;
   background: var(--inset); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 12px;
 }
-.graf-grad { width: 26px; padding: 0; font-size: 14px; line-height: 1; }
 
 /* Panel de degradado */
 .grad-panel {
@@ -1524,7 +1416,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .ini-seccion { margin-bottom: 34px; }
 .ini-seccion h3 { margin: 0 0 14px; font-size: 17px; }
 .ini-grupo-tit { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 16px 0 8px; }
-.ini-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
 .ini-preset {
   display: flex;
   flex-direction: column;
@@ -1540,9 +1431,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .ini-preset { transition: border-color 0.12s, transform 0.08s; }
 .ini-preset:hover { border-color: var(--accent); }
-.ini-preset-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
-.ini-preset-nom { font-size: 13px; }
-.ini-preset-dim { font-size: 11px; color: var(--dim); }
 /* Tamaños agrupados por red social: recuadros lado a lado (a todo el ancho). */
 .ini-redes { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 .ini-red {
