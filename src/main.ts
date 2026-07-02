@@ -942,7 +942,8 @@ function pcRenderLayouts(): void {
     b.addEventListener('click', () => {
       if (!collageActual) return
       collageActual.layout = +b.dataset.i!
-      collageActual.celdas = LAYOUTS_COLLAGE[collageActual.celdas.length][collageActual.layout]
+      // Copia profunda (los divisores mutan las celdas; no tocar el layout global).
+      collageActual.celdas = LAYOUTS_COLLAGE[collageActual.celdas.length][collageActual.layout].map((c) => ({ ...c }))
       cont.querySelectorAll('.mc-layout').forEach((x) => x.classList.toggle('activo', x === b))
       aplicarEstiloCollage(true)
     }))
@@ -1277,6 +1278,9 @@ async function montarPlantilla(): Promise<void> {
   }
 
   await document.fonts.ready
+  // Montaje FRESCO: sin estado heredado del proyecto anterior (calcularMetricas
+  // ahora preserva candados/cajas para el caso re-medición, acá no corresponde).
+  metricas = {}; bloqueado = {}; cajaAlto = {}; cajaManual = {}
   calcularMetricas()
 
   // Aplicar valores ya cargados (normalmente vacío al cambiar de plantilla).
@@ -1295,8 +1299,16 @@ async function montarPlantilla(): Promise<void> {
 }
 
 // Mide, por campo, interlineado, tamaño, color y ANCHO de caja (del relleno).
+// Se llama en el montaje fresco (montarPlantilla) y al re-medir tras cargar una
+// fuente (refrescarTrasFuente): en ese segundo caso hay que PRESERVAR el estado
+// del usuario (candados, altos de caja) — antes se re-bloqueaban todos los campos
+// y se perdían los tamaños de caja al agregar una Google Font a mitad de edición.
 function calcularMetricas(): void {
   if (!svgEl) return
+  const metricasPrev = metricas
+  const bloqueadoPrev = bloqueado
+  const cajaAltoPrev = cajaAlto
+  const cajaManualPrev = cajaManual
   metricas = {}
   rectsIniciales = {}
   bloqueado = {}
@@ -1305,10 +1317,15 @@ function calcularMetricas(): void {
   const base = lienzo.getBoundingClientRect()
 
   for (const c of camposActuales) {
-    bloqueado[c.nombre] = true // los campos de plantilla nacen bloqueados
     const els = Array.from(svgEl.querySelectorAll<SVGTextElement>(`[data-campo="${c.nombre}"]`))
+    const anchor0 = els.find((e) => e.hasAttribute('data-anchor')) ?? els[0]
+    // Candado: conserva el estado previo si lo había; si no, los campos de
+    // plantilla nacen bloqueados y los agregados por el usuario, movibles.
+    bloqueado[c.nombre] = bloqueadoPrev[c.nombre] ?? (anchor0?.getAttribute('data-agregado') !== 'texto')
+    if (cajaAltoPrev[c.nombre] != null) cajaAlto[c.nombre] = cajaAltoPrev[c.nombre]
+    if (cajaManualPrev[c.nombre]) cajaManual[c.nombre] = cajaManualPrev[c.nombre]
     if (!els.length) continue
-    const anchor = els.find((e) => e.hasAttribute('data-anchor')) ?? els[0]
+    const anchor = anchor0!
     const cs = getComputedStyle(anchor)
 
     // Líneas REALES: los <tspan> de cada <text> del campo (o el <text> si no tiene).
@@ -1328,10 +1345,15 @@ function calcularMetricas(): void {
       try { return textoMedidor.getComputedTextLength() } catch { return 0 }
     })
 
+    // metaActual solo se puebla en el montaje fresco (montarPlantilla/agregarTexto):
+    // tras restaurar un proyecto (aplicarSnapshot no lo repuebla) hay que caer a la
+    // métrica previa restaurada — sin esto, agregar una fuente después de restaurar
+    // tiraba TypeError y la fuente no se aplicaba.
+    const meta = metaActual[c.nombre] ?? metricasPrev[c.nombre]
     metricas[c.nombre] = {
-      lh: metaActual[c.nombre].lh,
-      x: metaActual[c.nombre].x,
-      y: metaActual[c.nombre].y,
+      lh: meta?.lh ?? Math.round(fsUser * 1.25),
+      x: meta?.x ?? (anchor.getAttribute('x') ?? '0'),
+      y: meta?.y ?? (anchor.getAttribute('y') ?? '0'),
       fontSizeUser: fsUser,
       weight: cs.fontWeight || '400',
       family: cs.fontFamily || "'Poppins'",
@@ -2774,6 +2796,11 @@ function aplicarModo(): void {
 }
 
 function grafKey(e: KeyboardEvent): void {
+  // Escribiendo en un input/textarea (grosor, buscadores, nombre, editor de texto):
+  // las teclas son para ESE campo — sin este guard, Backspace borraba la figura
+  // seleccionada de fondo.
+  const ae = document.activeElement
+  if (e.key !== 'Escape' && (editorActivo || (ae != null && (/^(input|textarea|select)$/i.test(ae.tagName) || (ae as HTMLElement).isContentEditable)))) return
   if (e.key === 'Escape') {
     if (reframeG) { salirReencuadre(); return }
     if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() }
@@ -6564,16 +6591,29 @@ function iniciarMesas(): void {
   histPorMesa = [{ stack: historial, idx: histIdx }]
   renderMesas()
 }
+// Candado de navegación: aplicarSnapshot tiene un await (fonts.ready) — dos
+// cambios de mesa solapados guardaban el historial de una mesa en otra.
+let cambiandoMesa = false
 async function irAMesa(i: number): Promise<void> {
-  if (i === mesaActiva || i < 0 || i >= mesas.length) return
-  guardarMesaActiva(); guardarHistorialActivo()
-  mesaActiva = i
-  await aplicarSnapshot(mesas[mesaActiva])
-  restaurarHistorialActivo()
-  aplicarZoom()
-  renderMesas()
+  if (i === mesaActiva || i < 0 || i >= mesas.length || cambiandoMesa) return
+  cambiandoMesa = true
+  try {
+    if (reframeG) salirReencuadre() // no hornear el estado de reencuadre en el snapshot
+    guardarMesaActiva(); guardarHistorialActivo()
+    mesaActiva = i
+    await aplicarSnapshot(mesas[mesaActiva])
+    restaurarHistorialActivo()
+    aplicarZoom()
+    renderMesas()
+  } finally { cambiandoMesa = false }
 }
 async function agregarMesa(duplicar: boolean, anchoNuevo?: number, altoNuevo?: number): Promise<void> {
+  if (cambiandoMesa) return
+  cambiandoMesa = true
+  try { await agregarMesaInterna(duplicar, anchoNuevo, altoNuevo) } finally { cambiandoMesa = false }
+}
+async function agregarMesaInterna(duplicar: boolean, anchoNuevo?: number, altoNuevo?: number): Promise<void> {
+  if (reframeG) salirReencuadre()
   guardarMesaActiva(); guardarHistorialActivo()
   const w = anchoNuevo ?? (svgEl ? Math.round(svgEl.viewBox.baseVal.width) : 1080)
   const h = altoNuevo ?? (svgEl ? Math.round(svgEl.viewBox.baseVal.height) : 1080)
@@ -6591,16 +6631,21 @@ async function agregarMesa(duplicar: boolean, anchoNuevo?: number, altoNuevo?: n
   autoguardar()
 }
 async function borrarMesa(i: number): Promise<void> {
-  if (mesas.length <= 1) return
-  guardarHistorialActivo()
-  mesas.splice(i, 1)
-  histPorMesa.splice(i, 1)
-  if (mesaActiva > i || mesaActiva >= mesas.length) mesaActiva = Math.max(0, mesaActiva - 1)
-  await aplicarSnapshot(mesas[mesaActiva])
-  restaurarHistorialActivo()
-  aplicarZoom()
-  renderMesas()
-  autoguardar()
+  if (mesas.length <= 1 || cambiandoMesa) return
+  cambiandoMesa = true
+  try {
+    if (reframeG) salirReencuadre()
+    guardarMesaActiva() // sin esto, borrar OTRA mesa re-aplicaba un snapshot viejo de la activa
+    guardarHistorialActivo()
+    mesas.splice(i, 1)
+    histPorMesa.splice(i, 1)
+    if (mesaActiva > i || mesaActiva >= mesas.length) mesaActiva = Math.max(0, mesaActiva - 1)
+    await aplicarSnapshot(mesas[mesaActiva])
+    restaurarHistorialActivo()
+    aplicarZoom()
+    renderMesas()
+    autoguardar()
+  } finally { cambiandoMesa = false }
 }
 function renombrarMesa(i: number, nomSpan: HTMLElement): void {
   const inp = document.createElement('input')
@@ -6780,6 +6825,10 @@ function autoguardar(): void {
   clearTimeout(tGuardar)
   tGuardar = window.setTimeout(() => {
     try {
+      // Con un reencuadre abierto el SVG vivo tiene estado transitorio (clip
+      // quitado, wrapper 0.5, contorno rosa): no serializarlo — salirReencuadre
+      // vuelve a disparar el autoguardado al confirmar.
+      if (reframeG) return
       guardarMesaActiva()
       const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
       // El proyecto va a "recientes" (datos en IndexedDB → los collages con muchas
@@ -6871,10 +6920,14 @@ function leerRecientes(): Reciente[] {
 }
 // Arranca un proyecto NUEVO: id propio + nombre en blanco (lo nombra el usuario).
 function nuevoProyecto(): void {
+  // Cancelar el autoguardado pendiente del proyecto ANTERIOR: si disparara después
+  // de asignar el id nuevo, guardaría las mesas del proyecto viejo bajo el id nuevo.
+  clearTimeout(tGuardar)
   proyectoActualId = genIdProyecto()
   inNombre.value = ''
   carruselSlides = 0 // por defecto el proyecto nuevo no es carrusel
   collageActual = null
+  guiasFijas = { v: [], h: [] } // las guías del proyecto anterior no se heredan
   try { localStorage.setItem('gastonart-nombre', '') } catch { /* ignorar */ }
 }
 // Guarda/actualiza el proyecto actual en la lista de recientes: datos completos
@@ -6913,7 +6966,16 @@ inProyecto.addEventListener('change', async () => {
   const file = inProyecto.files?.[0]
   if (!file) return
   try {
-    await restaurarGuardado(JSON.parse(await file.text()))
+    const data = JSON.parse(await file.text())
+    // Proyecto NUEVO en recientes (id propio + cancela el autosave pendiente): sin
+    // esto, lo cargado del archivo se autoguardaba bajo el id del reciente abierto
+    // y lo pisaba. El nombre se toma del archivo.
+    clearTimeout(tGuardar)
+    await restaurarGuardado(data)
+    proyectoActualId = genIdProyecto()
+    inNombre.value = file.name.replace(/\.gastonart\.json$|\.json$/i, '')
+    try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* ignorar */ }
+    autoguardar()
   } catch (err) {
     estado.textContent = '❌ No se pudo cargar: ' + (err instanceof Error ? err.message : String(err))
   }
@@ -6970,8 +7032,8 @@ document.addEventListener('keydown', (e) => {
   const ae = document.activeElement
   const editando = !!editorActivo || (ae != null && /^(input|textarea|select)$/i.test(ae.tagName))
   const k = e.key.toLowerCase()
-  if (k === 'z' && !e.shiftKey) { e.preventDefault(); void deshacer() }
-  else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); void rehacer() }
+  if (!editando && k === 'z' && !e.shiftKey) { e.preventDefault(); void deshacer() }
+  else if (!editando && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); void rehacer() }
   else if (!editando && k === 'c' && grafSeleccion.length) { e.preventDefault(); copiarSeleccion() }
   else if (!editando && k === 'v' && portapapeles.length) { e.preventDefault(); pegarPortapapeles() }
   else if (!editando && k === 'd' && grafSeleccion.length) { e.preventDefault(); duplicarSeleccion() }
@@ -7326,6 +7388,10 @@ let collageHueco: string | null = null
 // Crea una placa collage con las fotos dadas (modo plantilla → pan/zoom por celda).
 function crearCollage(W: number, H: number, celdas: CeldaFrac[], opts: CollageOpts, fotosArr: Foto[], layout = 0): void {
   nuevoProyecto()
+  // Copia profunda: las celdas suelen venir de LAYOUTS_COLLAGE (objetos compartidos
+  // del módulo) y los divisores las mutan in place → sin copia se corrompen los
+  // layouts para todos los collages siguientes de la sesión.
+  celdas = celdas.map((c) => ({ ...c }))
   collageActual = { W, H, celdas, opts, layout }
   svgActual = svgCollage(W, H, celdas, opts)
   plantillaActual = `collage-${W}x${H}`
@@ -7814,9 +7880,12 @@ function mostrarInicio(): void {
       if (!raw) { try { raw = localStorage.getItem('gastonart-proy-' + id) } catch { raw = null } }
       if (!raw) { alert('No se encontró ese proyecto (puede haberse borrado por espacio).'); return }
       cerrarInicio()
-      proyectoActualId = id
+      clearTimeout(tGuardar) // no dejar que un autosave pendiente cruce proyectos
       const r = leerRecientes().find((x) => x.id === id)
       try { await restaurarGuardado(JSON.parse(raw)) } catch { estado.textContent = '❌ No se pudo abrir el proyecto'; return }
+      // El id se asume recién con el restore OK (si falla, un autosave posterior
+      // del proyecto que quedó en pantalla pisaría al reciente).
+      proyectoActualId = id
       inNombre.value = r?.nombre || ''
       try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* ignorar */ }
       estado.textContent = 'Proyecto abierto.'
