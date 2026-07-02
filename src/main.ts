@@ -7670,7 +7670,7 @@ function mostrarInicio(): void {
       ${recientesHtml}
       <section class="ini-seccion">
         <h3>Imagen en blanco</h3>
-        ${seccionesTamano}
+        <div class="ini-redes">${seccionesTamano}</div>
         <div class="ini-grupo-tit">Personalizado</div>
         <div class="ini-custom">
           <div class="dim-group">
