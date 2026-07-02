@@ -2689,6 +2689,9 @@ function graficoSeleccionable(t: Element | null): SVGElement | null {
     if (TAGS_GRAFICO.has(tag)) {
       // Saltar el fondo: rect en (0,0) que cubre ~todo el viewBox.
       if (tag === 'rect' && esFondo(el as SVGRectElement)) return null
+      // Fondo del collage (imagen a sangre, con o sin blur): no seleccionable —
+      // moverla/borrarla rompería el collage; se cambia desde el panel 🎨.
+      if (el.getAttribute('data-fondo') != null) return null
       hallado = el as SVGElement
       break
     }
@@ -2851,6 +2854,9 @@ function grafPointerDown(e: PointerEvent): void {
   if (fotoEl && !fotoEl.closest('[data-recorte]')) {
     e.preventDefault()
     const fid = fotoEl.getAttribute('data-foto')!
+    // Celda de collage: marcarla activa ANTES de limpiar (limpiarGraf →
+    // actualizarPanelProps arma los controles de ESA celda en la sidebar).
+    if (collageActual) collageHueco = fid
     grafSeleccion = []; limpiarGraf() // panel muestra los controles de la foto (placa)
     if (!fotos[fid]) { fotoActiva = fid; inFoto.click() }
     else iniciarPanFoto(e, fid)
