@@ -1486,7 +1486,18 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .carr-fmt-nom { font-size: 13px; font-weight: 600; }
 .carr-fmt-dim { font-size: 11px; color: var(--dim); }
 /* ===== Modal creador de collage ===== */
-#modal-collage { position: fixed; inset: 0; z-index: 110; background: rgba(15, 23, 42, 0.5); display: flex; align-items: center; justify-content: center; padding: 20px; }
+#modal-collage, #modal-qr { position: fixed; inset: 0; z-index: 110; background: rgba(15, 23, 42, 0.5); display: flex; align-items: center; justify-content: center; padding: 20px; }
+/* Modal QR: reusa .mc-wrap/.mc-body/.mc-controls/.mc-preview del collage. */
+#modal-qr .mc-wrap { width: min(820px, 100%); }
+#modal-qr .mc-preview { padding: 8px; }
+#modal-qr .mc-preview svg { display: block; border-radius: 6px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); background: repeating-conic-gradient(#eef1f4 0% 25%, #fff 0% 50%) 0 / 18px 18px; }
+.qr-texto { width: 100%; resize: vertical; min-height: 58px; padding: 9px 10px; font-size: 13px; background: var(--inset); border: 1px solid var(--border); border-radius: 9px; color: var(--text); font-family: inherit; }
+#modal-qr .mc-row input[type='color'] { width: 46px; height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 7px; background: none; cursor: pointer; }
+.qr-acciones, .mc-acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.mc-acciones .ini-btn-acc, .mc-acciones .qr-insertar { flex: 1 1 auto; }
+.qr-insertar { padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--inset); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer; }
+.qr-insertar:hover { border-color: var(--accent); }
+.qr-dl:disabled { opacity: 0.5; pointer-events: none; }
 .mc-wrap { width: min(940px, 100%); max-height: 92vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28); overflow: hidden; }
 .mc-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
 .mc-head strong { font-size: 16px; }

@@ -20,6 +20,7 @@
     "onnxruntime-web": "1.21.0",
     "pdfjs-dist": "^6.0.227",
     "polygon-clipping": "^0.15.7",
+    "qrcode-generator": "^1.5.0",
     "svg2pdf.js": "^2.7.0"
   }
 }

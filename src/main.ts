@@ -510,6 +510,7 @@ app.innerHTML = `
         <section class="pl-view" data-cat="elementos" hidden>
           <div class="pl-sub">Formas</div>
           <div id="menu-figura" class="menu-figs"></div>
+          <button id="pl-qr" class="pl-accion" style="width:100%">▦ Código QR</button>
           <div class="pl-sub">Íconos y vectores</div>
           <div class="pg-buscar">
             <input id="pi-input" type="text" placeholder="Buscar (inglés): heart, arrow, star…" autocomplete="off">
@@ -760,6 +761,7 @@ async function insertarIconoIconify(nombre: string): Promise<void> {
     piEstado.textContent = `✓ ${nombre}`
   } catch { piEstado.textContent = 'No se pudo agregar el ícono' }
 }
+document.querySelector('#pl-qr')!.addEventListener('click', () => abrirQR())
 document.querySelector('#pi-buscar')!.addEventListener('click', () => void buscarIconos(piInput.value))
 piInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') void buscarIconos(piInput.value) })
 // Búsqueda EN VIVO de íconos: filtra al tipear desde la 3.ª letra; con <3 vuelve
@@ -7696,6 +7698,170 @@ function abrirCollage(): void {
   mcRenderFotos(ov); mcRenderLayouts(ov); mcRefrescar()
 }
 
+// ---------------------------------------------------------------
+//  Generador de código QR (color, recto/redondeado, logo; export PNG/SVG)
+// ---------------------------------------------------------------
+interface QROpts { texto: string; color: string; fondo: string; transp: boolean; redondeado: boolean; logo?: string }
+// Matriz de módulos (true = oscuro). ecc alto (H) si hay logo (tolera el tapado).
+async function matrizQR(texto: string, ecc: 'L' | 'M' | 'Q' | 'H'): Promise<boolean[][]> {
+  const qrcode = (await import('qrcode-generator')).default
+  const qr = qrcode(0, ecc)
+  qr.addData(texto)
+  qr.make()
+  const n = qr.getModuleCount()
+  const m: boolean[][] = []
+  for (let r = 0; r < n; r++) { const fila: boolean[] = []; for (let c = 0; c < n; c++) fila.push(qr.isDark(r, c)); m.push(fila) }
+  return m
+}
+// Path de un módulo redondeado: solo se redondean las esquinas CONVEXAS (sin vecino
+// en las dos direcciones que la forman) → los módulos contiguos se ven conectados.
+function moduloRedondeado(x: number, y: number, s: number, rTL: number, rTR: number, rBR: number, rBL: number): string {
+  return `M${x + rTL} ${y}` +
+    `h${(s - rTL - rTR).toFixed(2)}` + (rTR ? `a${rTR} ${rTR} 0 0 1 ${rTR} ${rTR}` : '') +
+    `v${(s - rTR - rBR).toFixed(2)}` + (rBR ? `a${rBR} ${rBR} 0 0 1 ${-rBR} ${rBR}` : '') +
+    `h${(-(s - rBR - rBL)).toFixed(2)}` + (rBL ? `a${rBL} ${rBL} 0 0 1 ${-rBL} ${-rBL}` : '') +
+    `v${(-(s - rBL - rTL)).toFixed(2)}` + (rTL ? `a${rTL} ${rTL} 0 0 1 ${rTL} ${-rTL}` : '') + 'z'
+}
+function svgQR(matriz: boolean[][], o: QROpts): string {
+  const n = matriz.length
+  const q = 4, S = 4 // quiet zone (módulos) y tamaño de módulo (unidades)
+  const total = (n + 2 * q) * S
+  const off = q * S
+  const dark = (r: number, c: number) => r >= 0 && r < n && c >= 0 && c < n && matriz[r][c]
+  const rad = S * 0.5
+  let d = ''
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    if (!matriz[r][c]) continue
+    const x = off + c * S, y = off + r * S
+    if (!o.redondeado) { d += `M${x} ${y}h${S}v${S}h${-S}z`; continue }
+    const rTL = !dark(r - 1, c) && !dark(r, c - 1) ? rad : 0
+    const rTR = !dark(r - 1, c) && !dark(r, c + 1) ? rad : 0
+    const rBR = !dark(r + 1, c) && !dark(r, c + 1) ? rad : 0
+    const rBL = !dark(r + 1, c) && !dark(r, c - 1) ? rad : 0
+    d += moduloRedondeado(x, y, S, rTL, rTR, rBR, rBL)
+  }
+  const fondo = o.transp ? '' : `<rect x="0" y="0" width="${total}" height="${total}" fill="${o.fondo}"/>`
+  let logo = ''
+  if (o.logo) {
+    const ls = total * 0.24, lx = (total - ls) / 2, ly = (total - ls) / 2, pad = ls * 0.12
+    logo = `<rect x="${(lx - pad).toFixed(1)}" y="${(ly - pad).toFixed(1)}" width="${(ls + 2 * pad).toFixed(1)}" height="${(ls + 2 * pad).toFixed(1)}" rx="${(ls * 0.16).toFixed(1)}" fill="${o.transp ? '#ffffff' : o.fondo}"/>` +
+      `<image x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${ls.toFixed(1)}" height="${ls.toFixed(1)}" preserveAspectRatio="xMidYMid meet" href="${o.logo}" xlink:href="${o.logo}"/>`
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${total} ${total}" width="${total}" height="${total}">${fondo}<path d="${d}" fill="${o.color}"/>${logo}</svg>`
+}
+// Rasteriza el SVG del QR a un canvas (para PNG / insertar). fondo transparente ⇒ canvas transparente.
+function rasterizarQR(svg: string, px = 1024): Promise<HTMLCanvasElement> {
+  return new Promise((res, rej) => {
+    const img = new Image()
+    img.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = px; cv.height = px
+      cv.getContext('2d')!.drawImage(img, 0, 0, px, px)
+      res(cv)
+    }
+    img.onerror = rej
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+  })
+}
+
+// Estado del generador de QR (se resetea al abrir).
+let qrTexto = 'https://', qrColor = '#111111', qrFondo = '#ffffff', qrTransp = false, qrRedondeado = false
+let qrLogo: string | undefined
+let qrToken = 0
+async function qrRefrescar(): Promise<void> {
+  const ov = document.querySelector('#modal-qr'); if (!ov) return
+  const prev = ov.querySelector('#qr-preview')!
+  const btns = ov.querySelectorAll<HTMLButtonElement>('.qr-dl')
+  const texto = qrTexto.trim()
+  btns.forEach((b) => { b.disabled = !texto })
+  if (!texto) { prev.innerHTML = '<div class="mc-vacio">Escribí un texto o link para ver el QR.</div>'; return }
+  const token = ++qrToken
+  try {
+    const m = await matrizQR(texto, qrLogo ? 'H' : 'M')
+    if (token !== qrToken) return
+    prev.innerHTML = svgQR(m, { texto, color: qrColor, fondo: qrFondo, transp: qrTransp, redondeado: qrRedondeado, logo: qrLogo })
+    const el = prev.querySelector('svg'); if (el) { el.removeAttribute('width'); el.removeAttribute('height'); el.style.maxWidth = '100%'; el.style.maxHeight = '58vh' }
+  } catch {
+    if (token === qrToken) prev.innerHTML = '<div class="mc-vacio">El texto es demasiado largo para un QR.</div>'
+  }
+}
+async function qrSvgActual(): Promise<string | null> {
+  const texto = qrTexto.trim(); if (!texto) return null
+  try {
+    const m = await matrizQR(texto, qrLogo ? 'H' : 'M')
+    return svgQR(m, { texto, color: qrColor, fondo: qrFondo, transp: qrTransp, redondeado: qrRedondeado, logo: qrLogo })
+  } catch { estado.textContent = '❌ El texto es demasiado largo para un QR'; return null }
+}
+function abrirQR(): void {
+  qrTexto = 'https://'; qrColor = '#111111'; qrFondo = '#ffffff'; qrTransp = false; qrRedondeado = false; qrLogo = undefined
+  const ov = document.createElement('div'); ov.id = 'modal-qr'
+  ov.innerHTML = `
+    <div class="mc-wrap">
+      <div class="mc-head"><strong>Código QR</strong><button id="qr-cerrar" class="mini" title="Cerrar">✕</button></div>
+      <div class="mc-body">
+        <div class="mc-preview-col"><div id="qr-preview" class="mc-preview"></div></div>
+        <div class="mc-controls">
+          <div class="mc-grupo">
+            <div class="mc-tit">Contenido</div>
+            <textarea id="qr-texto" class="qr-texto" rows="3" placeholder="Link, texto, email…">https://</textarea>
+          </div>
+          <div class="mc-grupo">
+            <div class="mc-tit">Estilo</div>
+            <div class="unidad-seg" id="qr-estilo" role="group">
+              <button type="button" data-e="recto" class="activo">Recto</button>
+              <button type="button" data-e="redondeado">Redondeado</button>
+            </div>
+            <div class="mc-row">Color <input type="color" id="qr-color" value="#111111"></div>
+            <div class="mc-row">Fondo <input type="color" id="qr-fondo" value="#ffffff"></div>
+            <label class="mc-row"><input type="checkbox" id="qr-transp"> Fondo transparente</label>
+          </div>
+          <div class="mc-grupo">
+            <div class="mc-tit">Logo (centro)</div>
+            <div class="mc-row"><button type="button" id="qr-logo-btn" class="ini-btn-acc" style="flex:1">🖼 Agregar logo</button><button type="button" id="qr-logo-quitar" class="mini" hidden>Quitar</button></div>
+            <input id="qr-logo-file" type="file" accept="image/*" hidden>
+          </div>
+          <div class="mc-acciones">
+            <button id="qr-png" class="ini-btn-acc qr-dl">⬇ PNG</button>
+            <button id="qr-svg" class="ini-btn-acc qr-dl">⬇ SVG</button>
+            <button id="qr-insertar" class="qr-dl qr-insertar">Insertar en el lienzo</button>
+          </div>
+        </div>
+      </div>
+    </div>`
+  document.body.appendChild(ov)
+  const $ = <T extends HTMLElement>(s: string) => ov.querySelector<T>(s)!
+  const texto = $('#qr-texto') as HTMLTextAreaElement
+  let tTexto: number | undefined
+  texto.addEventListener('input', () => { qrTexto = texto.value; clearTimeout(tTexto); tTexto = window.setTimeout(qrRefrescar, 250) })
+  $('#qr-estilo').querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
+    b.addEventListener('click', () => { qrRedondeado = b.dataset.e === 'redondeado'; $('#qr-estilo').querySelectorAll('button').forEach((x) => x.classList.toggle('activo', x === b)); void qrRefrescar() }))
+  ;($('#qr-color') as HTMLInputElement).addEventListener('input', (e) => { qrColor = (e.target as HTMLInputElement).value; void qrRefrescar() })
+  ;($('#qr-fondo') as HTMLInputElement).addEventListener('input', (e) => { qrFondo = (e.target as HTMLInputElement).value; void qrRefrescar() })
+  ;($('#qr-transp') as HTMLInputElement).addEventListener('change', (e) => { qrTransp = (e.target as HTMLInputElement).checked; void qrRefrescar() })
+  const logoFile = $('#qr-logo-file') as HTMLInputElement
+  $('#qr-logo-btn').addEventListener('click', () => logoFile.click())
+  logoFile.addEventListener('change', async () => {
+    const f = logoFile.files?.[0]; if (!f) return
+    try { qrLogo = (await leerFoto(f)).dataUrl; $('#qr-logo-quitar').hidden = false; $('#qr-logo-btn').textContent = '🖼 Cambiar logo'; void qrRefrescar() } catch { /* ignorar */ }
+    logoFile.value = ''
+  })
+  $('#qr-logo-quitar').addEventListener('click', () => { qrLogo = undefined; $('#qr-logo-quitar').hidden = true; $('#qr-logo-btn').textContent = '🖼 Agregar logo'; void qrRefrescar() })
+  $('#qr-cerrar').addEventListener('click', () => ov.remove())
+  $('#qr-svg').addEventListener('click', async () => { const svg = await qrSvgActual(); if (svg) { descargar(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), 'qr.svg'); estado.textContent = 'QR descargado (SVG).' } })
+  $('#qr-png').addEventListener('click', async () => {
+    const svg = await qrSvgActual(); if (!svg) return
+    const cv = await rasterizarQR(svg, 1024)
+    cv.toBlob((b) => { if (b) { descargar(b, 'qr.png'); estado.textContent = 'QR descargado (PNG).' } }, 'image/png')
+  })
+  $('#qr-insertar').addEventListener('click', async () => {
+    const svg = await qrSvgActual(); if (!svg) return
+    const cv = await rasterizarQR(svg, 1024)
+    ov.remove(); cerrarInicio()
+    insertarImagen({ dataUrl: cv.toDataURL('image/png'), w: cv.width, h: cv.height })
+    estado.textContent = 'QR insertado en el lienzo.'
+  })
+  void qrRefrescar()
+}
+
 // Núcleo del redimensionado: ajusta el viewBox y, si hay un rect de fondo que
 // cubría toda la placa, lo reescala. NO toca display/historial (eso lo hace quien llama).
 function setTamanoMesa(w: number, h: number): void {
@@ -7988,6 +8154,11 @@ function mostrarInicio(): void {
         <button id="ini-crear-collage" class="ini-btn-acc">🖼 Crear un collage</button>
       </section>
       <section class="ini-seccion">
+        <h3>Código QR</h3>
+        <p class="ini-nota" style="margin:0 0 8px">Generá un QR de un link o texto: color, recto o redondeado y logo en el centro. Descargalo en PNG/SVG o insertalo en un diseño.</p>
+        <button id="ini-crear-qr" class="ini-btn-acc">▦ Crear un código QR</button>
+      </section>
+      <section class="ini-seccion">
         <h3>Plantillas y guardados</h3>
         <div class="ini-plantillas">${opcionesPlantilla}</div>
         <h3 style="margin-top:18px">Cargar multimedia</h3>
@@ -8014,6 +8185,7 @@ function mostrarInicio(): void {
     cerrarInicio(); crearCarrusel(sw, sh, n)
   })
   ov.querySelector('#ini-crear-collage')!.addEventListener('click', () => abrirCollage())
+  ov.querySelector('#ini-crear-qr')!.addEventListener('click', () => abrirQR())
   // Abrir un proyecto reciente.
   ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
     b.addEventListener('click', async () => {
