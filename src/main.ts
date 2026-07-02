@@ -6782,14 +6782,80 @@ function autoguardar(): void {
     try {
       guardarMesaActiva()
       const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
+      // El proyecto va a "recientes" (datos en IndexedDB → los collages con muchas
+      // fotos superan la cuota de localStorage). Guardia blanda ante casos absurdos.
       const json = JSON.stringify(data)
-      // No autoguardar si pesa mucho (placas con fotos embebidas grandes):
-      // evita saturar localStorage y pisar un proyecto chico bueno.
-      if (json.length > 8_000_000) return
-      localStorage.setItem('gastonart-proyecto', json)
-      guardarReciente(json)
-    } catch { /* quota: ignorar */ }
+      if (json.length > 60_000_000) return
+      void guardarReciente(json)
+    } catch { /* ignorar */ }
   }, 600)
+}
+
+// ---------------------------------------------------------------
+//  IndexedDB para los DATOS de los proyectos recientes. Los JSON con fotos
+//  embebidas (collages) superan fácil la cuota de localStorage (~5MB); acá hay
+//  cientos de MB. La METADATA (lista con miniaturas chicas) sigue en localStorage.
+// ---------------------------------------------------------------
+let idbPromise: Promise<IDBDatabase> | null = null
+function abrirIdb(): Promise<IDBDatabase> {
+  return (idbPromise ??= new Promise((res, rej) => {
+    const req = indexedDB.open('gastonart', 1)
+    req.onupgradeneeded = () => { req.result.createObjectStore('proyectos') }
+    req.onsuccess = () => res(req.result)
+    req.onerror = () => rej(req.error)
+  }))
+}
+async function idbSet(clave: string, valor: string): Promise<void> {
+  const db = await abrirIdb()
+  await new Promise<void>((res, rej) => {
+    const tx = db.transaction('proyectos', 'readwrite')
+    tx.objectStore('proyectos').put(valor, clave)
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error)
+  })
+}
+async function idbGet(clave: string): Promise<string | null> {
+  const db = await abrirIdb()
+  return new Promise((res, rej) => {
+    const req = db.transaction('proyectos').objectStore('proyectos').get(clave)
+    req.onsuccess = () => res((req.result as string) ?? null)
+    req.onerror = () => rej(req.error)
+  })
+}
+async function idbDel(clave: string): Promise<void> {
+  try {
+    const db = await abrirIdb()
+    await new Promise<void>((res, rej) => {
+      const tx = db.transaction('proyectos', 'readwrite')
+      tx.objectStore('proyectos').delete(clave)
+      tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error)
+    })
+  } catch { /* sin IDB: ignorar */ }
+}
+
+// Miniatura RASTER chica (jpeg ~180px) del svg. Antes la miniatura era el SVG
+// entero URL-encodeado (con las fotos embebidas adentro) → la lista de recientes
+// pesaba MB y reventaba la cuota de localStorage.
+function miniaturaRaster(svg: string): Promise<string> {
+  return new Promise((res) => {
+    const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)/)
+    const W = vb ? +vb[1] : 1080, H = vb ? +vb[2] : 1080
+    let s = svg
+    if (!/<svg[^>]*\swidth=/.test(s)) s = s.replace('<svg', `<svg width="${W}" height="${H}"`)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const k = Math.min(180 / W, 180 / H, 1)
+        const w = Math.max(1, Math.round(W * k)), h = Math.max(1, Math.round(H * k))
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h
+        const ctx = cv.getContext('2d')!
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h)
+        ctx.drawImage(img, 0, 0, w, h)
+        res(cv.toDataURL('image/jpeg', 0.75))
+      } catch { res('') }
+    }
+    img.onerror = () => res('')
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s)
+  })
 }
 
 // ---------------------------------------------------------------
@@ -6811,21 +6877,22 @@ function nuevoProyecto(): void {
   collageActual = null
   try { localStorage.setItem('gastonart-nombre', '') } catch { /* ignorar */ }
 }
-// Guarda/actualiza el proyecto actual en la lista de recientes (datos por id,
-// con miniatura). Maneja la cuota expulsando los más viejos.
-function guardarReciente(json: string): void {
+// Guarda/actualiza el proyecto actual en la lista de recientes: datos completos
+// en IndexedDB (cuota grande) + metadata con miniatura raster en localStorage.
+async function guardarReciente(json: string): Promise<void> {
   if (!proyectoActualId) proyectoActualId = genIdProyecto()
+  const id = proyectoActualId
   const svgMini = mesas.length ? (mesas[mesaActiva]?.svg || '') : (svgEl ? new XMLSerializer().serializeToString(svgEl) : '')
-  const thumb = svgMini ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(miniaturaSvg(svgMini)) : ''
-  let lista = leerRecientes().filter((r) => r.id !== proyectoActualId)
-  lista.unshift({ id: proyectoActualId, nombre: (inNombre.value || '').trim(), fecha: Date.now(), thumb })
-  for (const sob of lista.slice(MAX_RECIENTES)) { try { localStorage.removeItem('gastonart-proy-' + sob.id) } catch { /* ignorar */ } }
-  lista = lista.slice(0, MAX_RECIENTES)
-  const guardarDatos = () => localStorage.setItem('gastonart-proy-' + proyectoActualId, json)
-  try { guardarDatos() } catch {
-    // Cuota: ir descartando los más viejos hasta que entre.
-    while (lista.length > 1) { const v = lista.pop()!; try { localStorage.removeItem('gastonart-proy-' + v.id) } catch { /* */ } try { guardarDatos(); break } catch { /* sigue */ } }
+  const thumb = svgMini ? await miniaturaRaster(svgMini) : ''
+  let lista = leerRecientes().filter((r) => r.id !== id)
+  lista.unshift({ id, nombre: (inNombre.value || '').trim(), fecha: Date.now(), thumb })
+  // Expulsar los más viejos (datos en IDB y restos de la era localStorage).
+  for (const sob of lista.slice(MAX_RECIENTES)) {
+    void idbDel('gastonart-proy-' + sob.id)
+    try { localStorage.removeItem('gastonart-proy-' + sob.id) } catch { /* ignorar */ }
   }
+  lista = lista.slice(0, MAX_RECIENTES)
+  try { await idbSet('gastonart-proy-' + id, json) } catch (e) { console.warn('[recientes] no se pudo guardar en IndexedDB:', e) }
   try { localStorage.setItem(LS_RECIENTES, JSON.stringify(lista)) } catch { /* ignorar */ }
 }
 
@@ -7741,7 +7808,10 @@ function mostrarInicio(): void {
   ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
     b.addEventListener('click', async () => {
       const id = b.dataset.id!
-      const raw = (() => { try { return localStorage.getItem('gastonart-proy-' + id) } catch { return null } })()
+      // Datos en IndexedDB; los guardados de la era localStorage quedan como fallback.
+      let raw: string | null = null
+      try { raw = await idbGet('gastonart-proy-' + id) } catch { /* sin IDB */ }
+      if (!raw) { try { raw = localStorage.getItem('gastonart-proy-' + id) } catch { raw = null } }
       if (!raw) { alert('No se encontró ese proyecto (puede haberse borrado por espacio).'); return }
       cerrarInicio()
       proyectoActualId = id
@@ -7755,6 +7825,7 @@ function mostrarInicio(): void {
     b.addEventListener('click', (e) => {
       e.stopPropagation()
       const id = b.dataset.id!
+      void idbDel('gastonart-proy-' + id)
       try { localStorage.removeItem('gastonart-proy-' + id) } catch { /* ignorar */ }
       try { localStorage.setItem(LS_RECIENTES, JSON.stringify(leerRecientes().filter((x) => x.id !== id))) } catch { /* ignorar */ }
       mostrarInicio()
