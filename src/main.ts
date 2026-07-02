@@ -179,12 +179,17 @@ function poblarFamilias(): void {
 async function importarFont(file: File): Promise<void> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   const family = familiaInternaDeFont(bytes) || file.name.replace(/\.[^.]+$/, '')
-  if (facesPack.some((f) => f.family === family)) {
-    estado.textContent = `La tipografía «${family}» ya estaba cargada`
+  // Peso/itálica desde el NOMBRE del archivo (Montserrat-Bold.ttf → 700): antes se
+  // registraba todo como 400, así el export renderizaba la variante equivocada, y
+  // se rechazaba cualquier segundo archivo de la misma familia (Regular + Bold).
+  const v = interpretarNombreFuente(file.name.replace(/\.[^.]+$/, ''))
+  const weight = v.weight, style = v.style
+  if (facesPack.some((f) => f.family === family && f.weight === weight && f.style === style)) {
+    estado.textContent = `La tipografía «${family}» (${weight}${style === 'italic' ? ' itálica' : ''}) ya estaba cargada`
     poblarFamilias(); return
   }
   try {
-    const ff = new FontFace(family, bytes)
+    const ff = new FontFace(family, bytes, { weight: String(weight), style })
     await ff.load()
     ;(document as Document & { fonts: FontFaceSet }).fonts.add(ff)
   } catch (e) {
@@ -192,9 +197,9 @@ async function importarFont(file: File): Promise<void> {
     console.error('[importarFont]', e)
     return
   }
-  facesPack.push({ bytes, family, weight: 400, style: 'normal', formato: detectarFormatoCss(bytes) })
+  facesPack.push({ bytes, family, weight, style, formato: detectarFormatoCss(bytes) })
   poblarFamilias()
-  estado.textContent = `Tipografía agregada: ${family}`
+  estado.textContent = `Tipografía agregada: ${family} ${weight}${style === 'italic' ? ' itálica' : ''}`
 }
 
 // Fuentes populares de Google para el buscador rápido.
@@ -567,6 +572,24 @@ app.innerHTML = `
 const selPlantilla = document.querySelector<HTMLSelectElement>('#sel-plantilla')!
 const lienzo = document.querySelector<HTMLDivElement>('#lienzo')!
 const estado = document.querySelector<HTMLSpanElement>('#estado')!
+// #estado quedó oculto al rediseñar la topbar, pero muchísimos lugares le escriben
+// feedback (incluidos errores "❌ …") que el usuario no veía. Un toast transitorio
+// espeja lo que se escribe ahí, sin tocar cada llamada.
+const toastEstado = document.createElement('div')
+toastEstado.id = 'toast-estado'
+toastEstado.setAttribute('role', 'status')
+document.body.appendChild(toastEstado)
+let tToast: number | undefined
+new MutationObserver(() => {
+  const txt = (estado.textContent || '').trim()
+  if (!txt) return
+  const esError = txt.startsWith('❌')
+  toastEstado.textContent = txt
+  toastEstado.classList.add('visible')
+  toastEstado.classList.toggle('error', esError)
+  clearTimeout(tToast)
+  tToast = window.setTimeout(() => toastEstado.classList.remove('visible'), esError ? 5000 : 2600)
+}).observe(estado, { childList: true, characterData: true, subtree: true })
 const btnExport = document.querySelector<HTMLButtonElement>('#btn-export')!
 const inFoto = document.querySelector<HTMLInputElement>('#in-foto')!
 const panelExport = document.querySelector<HTMLDivElement>('#panel-export')!
@@ -1677,10 +1700,14 @@ function insertarImagen(f: Foto): void {
   }
   contadorAgregados++
   const vw = svgEl.viewBox.baseVal.width || 1080
-  const W = Math.min(450, vw * 0.5)
-  const H = (W * f.h) / f.w
+  const vh = svgEl.viewBox.baseVal.height || 1080
+  // Tamaño acotado también por el ALTO (antes y=200 fijo: en una mesa banner baja
+  // la imagen caía entera fuera del viewBox y "no aparecía").
+  let W = Math.min(450, vw * 0.5)
+  let H = (W * f.h) / f.w
+  if (H > vh * 0.7) { H = vh * 0.7; W = (H * f.w) / f.h }
   const x = (vw - W) / 2
-  const y = 200
+  const y = Math.max(0, (vh - H) / 2)
 
   const img = document.createElementNS(SVGNS, 'image')
   img.setAttribute('data-agregado', 'imagen')
@@ -3040,7 +3067,23 @@ function clonarYPegar(fuentes: SVGElement[]): void {
   const nuevos: SVGElement[] = []
   for (const fuente of fuentes) {
     const nodo = fuente.cloneNode(true) as SVGElement
-    offsetTransform(nodo, 24, 24)
+    // El clon se pega en la RAÍZ: hornear el transform acumulado de los ancestros
+    // del original (sin esto, copiar algo de un grupo escalado de la plantilla lo
+    // pegaba con otro tamaño/posición). Luego el corrimiento de 24px en espacio raíz.
+    try {
+      const co = (fuente.parentElement as unknown as SVGGraphicsElement | null)?.getCTM?.()
+      const cn = svgEl.getCTM?.()
+      if (co && cn) {
+        const rel = cn.inverse().multiply(co)
+        const f6 = (v: number) => +v.toFixed(6)
+        const eps = 1e-6
+        if (Math.abs(rel.a - 1) > eps || Math.abs(rel.b) > eps || Math.abs(rel.c) > eps || Math.abs(rel.d - 1) > eps || Math.abs(rel.e) > eps || Math.abs(rel.f) > eps) {
+          const prev = nodo.getAttribute('transform') ?? ''
+          nodo.setAttribute('transform', (`matrix(${f6(rel.a)} ${f6(rel.b)} ${f6(rel.c)} ${f6(rel.d)} ${f6(rel.e)} ${f6(rel.f)}) ` + prev).trim())
+        }
+      }
+    } catch { /* getCTM no disponible: pegar igual */ }
+    nodo.setAttribute('transform', `translate(24 24) ${nodo.getAttribute('transform') ?? ''}`.trim())
     svgEl.appendChild(nodo)
     independizarCampos(nodo) // si tiene texto editable, darle nombre nuevo + estado propio
     const hoja = (nodo.matches?.(SEL_GRAF) ? nodo : nodo.querySelector<SVGElement>(SEL_GRAF)) ?? nodo
@@ -3081,12 +3124,29 @@ function independizarCampos(nodo: SVGElement): void {
   }
 }
 
-// Suma (dx,dy) al translate del transform (o lo antepone si no había).
-function offsetTransform(el: SVGElement, dx: number, dy: number): void {
-  const tr = el.getAttribute('transform') ?? ''
-  const m = tr.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)([^)]*)\)/)
-  if (m) el.setAttribute('transform', tr.replace(m[0], `translate(${+m[1] + dx} ${+m[2] + dy}${m[3]})`))
-  else el.setAttribute('transform', `translate(${dx} ${dy}) ${tr}`.trim())
+
+// Reparentar SIN salto visual: hornea en el nodo la diferencia de transforms
+// entre su padre actual y el nuevo. Los reparenteos "a secas" (agrupar, tope/
+// fondo, pegar) hacían saltar/reescalar a los elementos que vivían dentro de
+// grupos transformados de la plantilla (matrix de Illustrator).
+function reparentarConTransform(n: SVGElement, nuevoPadre: Element, antesDe: Node | null = null): void {
+  const viejoPadre = n.parentElement
+  try {
+    if (viejoPadre && viejoPadre !== nuevoPadre) {
+      const co = (viejoPadre as unknown as SVGGraphicsElement).getCTM?.()
+      const cn = (nuevoPadre as unknown as SVGGraphicsElement).getCTM?.()
+      if (co && cn) {
+        const rel = cn.inverse().multiply(co)
+        const eps = 1e-6
+        if (Math.abs(rel.a - 1) > eps || Math.abs(rel.b) > eps || Math.abs(rel.c) > eps || Math.abs(rel.d - 1) > eps || Math.abs(rel.e) > eps || Math.abs(rel.f) > eps) {
+          const f6 = (v: number) => +v.toFixed(6)
+          const prev = n.getAttribute('transform') ?? ''
+          n.setAttribute('transform', (`matrix(${f6(rel.a)} ${f6(rel.b)} ${f6(rel.c)} ${f6(rel.d)} ${f6(rel.e)} ${f6(rel.f)}) ` + prev).trim())
+        }
+      }
+    }
+  } catch { /* getCTM puede fallar (nodo no renderizado): reparentar igual */ }
+  nuevoPadre.insertBefore(n, antesDe)
 }
 
 // Agrupa la selección (≥2) en un <g data-grupo> para manejarla como una unidad.
@@ -3099,7 +3159,7 @@ function agruparSel(): void {
   const g = document.createElementNS(SVGNS, 'g')
   g.setAttribute('data-grupo', '1')
   ref.parentNode!.insertBefore(g, ref.nextSibling)
-  for (const n of nodos) g.appendChild(n)
+  for (const n of nodos) reparentarConTransform(n, g)
   grafSeleccion = [g]
   dibujarSelGraf()
   registrarHistorial(); autoguardar()
@@ -3478,15 +3538,18 @@ function reordenarSel(modo: 'arriba' | 'abajo' | 'tope' | 'fondo'): void {
   const p = nodos[0].parentElement
   if (!p) return
   if (modo === 'tope') {
-    for (const n of nodos) p.appendChild(n) // en orden de doc → preservan su orden relativo arriba
+    // reparentarConTransform: un nodo de OTRO grupo (transformado) saltaba al moverlo acá.
+    for (const n of nodos) reparentarConTransform(n, p)
   } else if (modo === 'fondo') {
     let ref = p.firstElementChild
     while (esCapaReservada(ref)) ref = ref!.nextElementSibling
-    for (const n of nodos) if (n !== ref) p.insertBefore(n, ref)
+    for (const n of nodos) if (n !== ref) reparentarConTransform(n, p, ref)
   } else if (modo === 'arriba') {
-    for (const n of [...nodos].reverse()) { const s = n.nextElementSibling; if (s && !esCapaReservada(s)) p.insertBefore(s, n) }
+    // Subir/bajar opera dentro del PROPIO padre de cada nodo (con selección multi-
+    // padre, usar `p` tiraba DOMException por referenceNode ajeno).
+    for (const n of [...nodos].reverse()) { const s = n.nextElementSibling; if (s && !esCapaReservada(s)) n.parentElement!.insertBefore(s, n) }
   } else if (modo === 'abajo') {
-    for (const n of nodos) { const s = n.previousElementSibling; if (s && !esCapaReservada(s)) p.insertBefore(n, s) }
+    for (const n of nodos) { const s = n.previousElementSibling; if (s && !esCapaReservada(s)) n.parentElement!.insertBefore(n, s) }
   }
   dibujarSelGraf(); registrarHistorial(); autoguardar()
 }
@@ -3527,12 +3590,26 @@ function aplicarDegradado(els: SVGElement[], stops: ParadaGrad[], angulo: number
   if (!defs) { defs = document.createElementNS(SVGNS, 'defs'); svgEl.insertBefore(defs, svgEl.firstChild) }
   let id = gradIdDe(els[0])
   let grad = id ? svgEl.querySelector(`linearGradient[id="${id}"]`) : null
+  // Gradiente heredado de la plantilla (id ajeno): puede estar COMPARTIDO por
+  // otros elementos (editarlo los cambiaría a todos) y traer gradientUnits=
+  // userSpaceOnUse / gradientTransform, incompatibles con las fracciones 0..1 que
+  // escribimos acá → trabajar siempre sobre una copia propia.
+  if (grad && id && !/^grad-/.test(id)) {
+    contadorAgregados++
+    const clon = grad.cloneNode(true) as SVGElement
+    id = 'grad-' + contadorAgregados
+    clon.setAttribute('id', id)
+    defs.appendChild(clon)
+    grad = clon
+  }
   if (!grad) {
     contadorAgregados++; id = 'grad-' + contadorAgregados
     grad = document.createElementNS(SVGNS, 'linearGradient')
     grad.setAttribute('id', id)
     defs.appendChild(grad)
   }
+  grad.removeAttribute('gradientUnits')
+  grad.removeAttribute('gradientTransform')
   const t = (angulo * Math.PI) / 180
   grad.setAttribute('x1', (0.5 - Math.cos(t) / 2).toFixed(4))
   grad.setAttribute('y1', (0.5 - Math.sin(t) / 2).toFixed(4))
@@ -3595,9 +3672,13 @@ function abrirPanelDegradado(els: SVGElement[]): void {
 // Desplaza un elemento (vía su wrapper) por dx,dy en unidades de usuario.
 function desplazarNodo(sel: SVGElement, dxU: number, dyU: number): void {
   const g = wrapperGraf(sel)
-  const tm = (g.getAttribute('transform') ?? '').match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
+  const t = g.getAttribute('transform') ?? ''
+  const tm = t.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)\s*\)/)
   const tx = tm ? +tm[1] : 0, ty = tm ? +tm[2] : 0
-  g.setAttribute('transform', `translate(${tx + dxU} ${ty + dyU})`)
+  // Preservar el resto del transform (scale de un resize previo): pisarlo hacía
+  // que alinear/distribuir devolviera la figura a su tamaño original.
+  const resto = tm ? (t.slice(0, tm.index) + t.slice(tm.index! + tm[0].length)).trim() : t.trim()
+  g.setAttribute('transform', `translate(${tx + dxU} ${ty + dyU})${resto ? ' ' + resto : ''}`)
 }
 
 type ModoAlinear = 'izq' | 'centroH' | 'der' | 'arriba' | 'medioV' | 'abajo'
@@ -3911,6 +3992,9 @@ function dibujarSelGraf(): void {
     const im = grafSeleccion[0]
     const getHref = () => im.getAttribute('href') || im.getAttributeNS(XLINK, 'href') || ''
     const setFoto = (f: Foto) => {
+      // "Quitar fondo"/editor tardan: si mientras tanto se cambió de mesa, `im`
+      // quedó fuera del DOM → no registrar historial basura en la mesa nueva.
+      if (!im.isConnected) { estado.textContent = 'La imagen ya no está en esta mesa (¿cambiaste de mesa?).'; return }
       im.setAttribute('href', f.dataUrl); im.setAttributeNS(XLINK, 'xlink:href', f.dataUrl)
       const W = parseFloat(im.getAttribute('width') || '0')
       if (W) im.setAttribute('height', String(W * f.h / f.w))
@@ -4804,14 +4888,19 @@ function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
       const c = aplicarFotoDom(svgEl!, id, foto, fr, enc)
       enc.ox = c.ox; enc.oy = c.oy
     }
+    let onUpHecho = false
     const onUp = () => {
+      if (onUpHecho) return // pointerup y pointercancel están ambos registrados
+      onUpHecho = true
       hit.removeEventListener('pointermove', onMove)
       hit.style.cursor = 'grab'
+      registrarHistorial(); autoguardar() // el encuadre también se persiste/deshace
     }
     hit.addEventListener('pointermove', onMove)
     hit.addEventListener('pointerup', onUp, { once: true })
     hit.addEventListener('pointercancel', onUp, { once: true })
   })
+  let tWheelFin: number | undefined
   hit.addEventListener('wheel', (e) => {
     const foto = fotos[id], fr = framesFoto[id]
     if (!foto || !fr || !svgEl) return
@@ -4822,6 +4911,9 @@ function habilitarPanZoom(hit: HTMLDivElement, id: string): void {
     const c = aplicarFotoDom(svgEl, id, foto, fr, enc)
     enc.ox = c.ox; enc.oy = c.oy
     if (zoomSlider) zoomSlider.value = String(enc.zoom)
+    // Persistir al terminar la rueda (debounce): antes el zoom no se guardaba nunca.
+    clearTimeout(tWheelFin)
+    tWheelFin = window.setTimeout(() => { registrarHistorial(); autoguardar() }, 350)
   }, { passive: false })
 }
 
@@ -4849,13 +4941,16 @@ function construirFotoTools(id: string): void {
     const c = aplicarFotoDom(svgEl, id, foto, fr, enc)
     enc.ox = c.ox; enc.oy = c.oy
   })
+  slider?.addEventListener('change', () => { registrarHistorial(); autoguardar() }) // persistir el encuadre (como opacidad)
   const opac = tools.querySelector<HTMLInputElement>('.ft-in-opac')!
   opac.addEventListener('input', () => { imgFoto?.setAttribute('opacity', opac.value) })
   opac.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   zoomSlider = slider
   // "Editar" y "Quitar fondo" son edición destructiva → solo en Modo completa.
   if (fotos[id] && modoEdicion !== 'plantilla') {
+    const svgAlLanzar = svgEl // guard: si se cambió de mesa mientras procesaba, no tocar la otra
     const reaplicar = (foto: Foto) => {
+      if (svgEl !== svgAlLanzar) { estado.textContent = 'Se procesó la foto, pero cambiaste de mesa: no se aplicó.'; return }
       fotos[id] = foto
       const fr = framesFoto[id], enc = encuadreDe(id)
       if (fr && svgEl) { const c = aplicarFotoDom(svgEl, id, foto, fr, enc); enc.ox = c.ox; enc.oy = c.oy }
@@ -6238,6 +6333,9 @@ async function exportarPNG(): Promise<void> {
   try {
     cerrarEditor()
     if (!svgEl) return
+    // Con la vista carrusel activa el lienzo está oculto (rects = 0) y el modo
+    // "fondo transparente" no detecta el fondo a sangre → volver al lienzo.
+    if (vistaCarrusel) toggleCarrusel()
     const transp = peTransparente.checked
     estado.textContent = 'Exportando…'
     // Fondo transparente: ocultar el fondo a sangre mientras serializamos.
@@ -6251,6 +6349,9 @@ async function exportarPNG(): Promise<void> {
     const vbW = svgEl.viewBox.baseVal.width || 1080
     const anchoExport = Math.round(Math.min(2480, Math.max(1080, vbW)))
     const blob = await renderResvg(svg, facesPack.map((f) => f.bytes), anchoExport)
+    // Revocar el blob del export anterior (el toggle "transparente" re-exporta en
+    // cada cambio: sin esto se filtraban blobs de varios MB por export).
+    if (peImg.src.startsWith('blob:')) URL.revokeObjectURL(peImg.src)
     const url = URL.createObjectURL(blob)
     peImg.src = url
     peDescargar.href = url
@@ -6285,6 +6386,7 @@ function descargar(blob: Blob, nombre: string): void {
 function descargarSVG(): void {
   if (!svgEl) return
   cerrarEditor()
+  if (vistaCarrusel) toggleCarrusel() // el lienzo oculto rompe la detección del fondo
   const s = svgParaExportar(peTransparente.checked)
   descargar(new Blob([s], { type: 'image/svg+xml;charset=utf-8' }), `${nombreArchivo()}.svg`)
   estado.textContent = 'SVG descargado.'
@@ -6326,6 +6428,7 @@ function registrarFuentesPdf(pdf: jsPDF): void {
 async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
   if (!svgEl) return
   cerrarEditor()
+  if (vistaCarrusel) toggleCarrusel() // el lienzo oculto rompe la detección del fondo
   const txt = btn?.textContent
   if (btn) { btn.disabled = true; btn.textContent = '…' }
   estado.textContent = 'Generando PDF…'
@@ -6457,10 +6560,7 @@ async function exportarTodas(): Promise<void> {
     } catch (e) { console.error('[exportarTodas]', e) }
   }
   if (!archivos.length) { estado.textContent = '❌ No se pudo exportar'; return }
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(crearZip(archivos))
-  a.download = `${nombreArchivo()}-mesas.zip`
-  a.click()
+  descargar(crearZip(archivos), `${nombreArchivo()}-mesas.zip`) // descargar() revoca la URL
   estado.textContent = `${archivos.length} mesa(s) exportada(s) en ZIP.`
 }
 
@@ -6953,11 +7053,8 @@ document.querySelector('#btn-guardar')!.addEventListener('click', () => {
   cerrarEditor()
   guardarMesaActiva()
   const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
-  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `${nombreArchivo()}.gastonart.json`
-  a.click()
+  // descargar() revoca la URL (el JSON puede pesar decenas de MB; antes quedaba retenido).
+  descargar(new Blob([JSON.stringify(data)], { type: 'application/json' }), `${nombreArchivo()}.gastonart.json`)
   estado.textContent = `Proyecto guardado (${mesas.length} mesa${mesas.length > 1 ? 's' : ''}).`
 })
 const inProyecto = document.querySelector<HTMLInputElement>('#in-proyecto')!

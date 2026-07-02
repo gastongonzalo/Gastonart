@@ -1497,6 +1497,18 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 }
 
+/* Toast de estado: espeja los mensajes de #estado (oculto en la topbar). */
+#toast-estado {
+  position: fixed; left: 50%; bottom: 58px; transform: translateX(-50%) translateY(8px);
+  z-index: 95; max-width: min(560px, calc(100vw - 24px));
+  padding: 8px 15px; border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92); color: #fff; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; pointer-events: none; transition: opacity 0.18s, transform 0.18s;
+}
+#toast-estado.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast-estado.error { background: #b91c1c; }
+
 /* --- Pantalla de inicio --- */
 #pantalla-inicio {
   position: fixed;

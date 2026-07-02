@@ -11,10 +11,12 @@ import wasmUrl from '@resvg/resvg-wasm/index_bg.wasm?url'
 
 let listo: Promise<void> | null = null
 
-// Inicializa el WASM una sola vez.
+// Inicializa el WASM una sola vez. Si la carga FALLA (corte de red bajando el
+// .wasm), se descarta la promesa cacheada para que el próximo export reintente
+// en vez de fallar para siempre hasta recargar la página.
 function asegurarResvg(): Promise<void> {
   if (!listo) {
-    listo = initWasm(fetch(wasmUrl))
+    listo = initWasm(fetch(wasmUrl)).catch((e) => { listo = null; throw e })
   }
   return listo
 }

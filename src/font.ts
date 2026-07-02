@@ -147,18 +147,23 @@ export function embeberFacesEnSvg(svg: string, faces: FontFace[]): string {
 // Normaliza nombres de fuente estilo Illustrator a familia + font-weight/style.
 // Ej.: "font-family: Poppins-Bold, Poppins" -> "font-family:'Poppins';font-weight:700"
 // Opera por string (rápido) y cubre tanto CSS (font-family:) como atributos.
+// Familias genéricas de CSS: no son nombres estilo Illustrator — reescribirlas
+// ("sans-serif" → 'sans' peso 400) rompía SVGs de Inkscape/Figma.
+const FAMILIAS_GENERICAS = new Set(['sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-sans-serif', 'ui-serif', 'ui-monospace'])
 export function normalizarFuentesIllustrator(svg: string): string {
   // Forma CSS / style inline:  font-family: X, Y
-  let out = svg.replace(/font-family\s*:\s*([^;}"']+)/gi, (_m, valor: string) => {
+  let out = svg.replace(/font-family\s*:\s*([^;}"']+)/gi, (m, valor: string) => {
     const primero = valor.split(',')[0].trim()
+    if (FAMILIAS_GENERICAS.has(primero.toLowerCase())) return m
     const info = interpretarNombreFuente(primero)
     const italic = info.style === 'italic' ? ';font-style:italic' : ''
     return `font-family:'${info.family}';font-weight:${info.weight}${italic}`
   })
 
   // Forma atributo de presentación:  font-family="X"
-  out = out.replace(/font-family\s*=\s*"([^"]+)"/gi, (_m, valor: string) => {
+  out = out.replace(/font-family\s*=\s*"([^"]+)"/gi, (m, valor: string) => {
     const primero = valor.split(',')[0].trim()
+    if (FAMILIAS_GENERICAS.has(primero.toLowerCase())) return m
     const info = interpretarNombreFuente(primero)
     const italic = info.style === 'italic' ? ` font-style="italic"` : ''
     return `font-family="${info.family}" font-weight="${info.weight}"${italic}`

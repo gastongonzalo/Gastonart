@@ -11,6 +11,8 @@ let sesionP: Promise<any> | null = null
 const post = (m: unknown) => (self as unknown as Worker).postMessage(m)
 
 async function cargar(): Promise<any> {
+  // Si la descarga del modelo falla (corte de red), descartar la promesa cacheada
+  // para que el próximo intento REINTENTE en vez de fallar para siempre.
   if (!sesionP) sesionP = (async () => {
     post({ type: 'progress', etapa: 'Descargando modelo' })
     const resp = await fetch(MODELO)
@@ -28,7 +30,7 @@ async function cargar(): Promise<any> {
     for (const c of chunks) { buf.set(c, off); off += c.length }
     post({ type: 'progress', etapa: 'Iniciando' })
     return ort.InferenceSession.create(buf, { executionProviders: ['webgpu', 'wasm'] })
-  })()
+  })().catch((e) => { sesionP = null; throw e })
   return sesionP
 }
 

@@ -153,7 +153,12 @@ export function prepararEditor(svg: string): {
     const H = parseFloat(img.getAttribute('height') ?? '0')
     const pos = transformXY(img) ?? { x: 0, y: 0 }
     const s = escalaDe(img)
-    frames[id] = { x: pos.x, y: pos.y, w: W * s, h: H * s }
+    // Sumar los atributos x/y: los SVG de Figma/Inkscape posicionan la imagen con
+    // x="…" y="…" (sin transform) — ignorarlos daba frame {0,0} y la foto de
+    // reemplazo cubría toda la placa en vez del hueco original.
+    const ax = parseFloat(img.getAttribute('x') ?? '0') || 0
+    const ay = parseFloat(img.getAttribute('y') ?? '0') || 0
+    frames[id] = { x: pos.x + ax * s, y: pos.y + ay * s, w: W * s, h: H * s }
   })
 
   const campos = grupos.map(({ nombre, etiqueta }) => ({ nombre, etiqueta }))
@@ -253,8 +258,8 @@ export function aplicarCampoDom(
 
 function transformXY(el: Element): { x: number; y: number } | null {
   const t = el.getAttribute('transform') ?? ''
-  const m = t.match(/translate\(\s*([-\d.]+)[\s,]+([-\d.]+)/)
-  if (m) return { x: +m[1], y: +m[2] }
+  const m = t.match(/translate\(\s*([-\d.eE+]+)(?:[\s,]+([-\d.eE+]+))?/)
+  if (m) return { x: +m[1] || 0, y: m[2] != null ? +m[2] || 0 : 0 } // translate(x) de 1 arg = y:0
   const mm = t.match(/matrix\(\s*([-\d.]+)(?:[\s,]+[-\d.]+){3}[\s,]+([-\d.]+)[\s,]+([-\d.]+)/)
   if (mm) return { x: +mm[2], y: +mm[3] }
   return null
