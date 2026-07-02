@@ -26,11 +26,9 @@ import polygonClipping from 'polygon-clipping'
 // ---------------------------------------------------------------
 //  Assets
 // ---------------------------------------------------------------
-const plantillas = import.meta.glob('./assets/templates/*.svg', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>
+// El paquete NO trae plantillas: se cargan después de instalar (importando un
+// SVG/PDF/.ai o guardando un diseño como plantilla) y persisten en el navegador.
+const plantillas: Record<string, string> = {}
 
 const fuentesPack = import.meta.glob('./assets/fonts/*.{ttf,otf,woff,woff2}', {
   query: '?url',
@@ -82,9 +80,11 @@ const NOMBRE_PESO: Record<number, string> = {
   600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black',
 }
 
-let plantillaActual = rutasPlantilla[0]
+// Sin plantillas empaquetadas, el arranque es siempre un lienzo en blanco
+// (la pantalla de inicio ofrece formatos, recientes y plantillas guardadas).
+let plantillaActual = rutasPlantilla[0] ?? 'enblanco-1080x1350'
 // SVG fuente del lienzo actual (plantilla, imagen en blanco o SVG importado).
-let svgActual: string = plantillas[plantillaActual]
+let svgActual: string = plantillas[plantillaActual] ?? svgEnBlanco(1080, 1350)
 let facesPack: FontFace[] = []
 let valores: Record<string, string> = {}
 let estilos: Record<string, EstiloCampo> = {}
@@ -1208,6 +1208,10 @@ document.addEventListener('pointerdown', (e) => {
 function renderPanelPlantillas(): void {
   const cont = document.querySelector<HTMLDivElement>('#pl-plantillas')!
   cont.innerHTML = ''
+  if (!rutasPlantilla.length) {
+    cont.innerHTML = '<p class="pl-nota">Todavía no hay plantillas. Subí un SVG/PDF desde el inicio o guardá el diseño actual con «Guardar como plantilla».</p>'
+    return
+  }
   for (const ruta of rutasPlantilla) {
     const svg = plantillas[ruta] || ''
     const thumb = svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(miniaturaSvg(svg))}` : ''
@@ -7951,19 +7955,37 @@ function registrarPlantilla(nombre: string, svg: string): string {
 }
 
 // --- Plantillas guardadas por el usuario (persistidas en el navegador) ---
-const LS_PLANTILLAS = 'gastonart-plantillas-usuario'
+// Van a IndexedDB (cuota grande): una plantilla con foto embebida puede pesar
+// >20MB y no entra en localStorage. Se migra una vez desde la clave vieja de LS.
+const LS_PLANTILLAS = 'gastonart-plantillas-usuario' // legado (solo migración)
+const IDB_PLANTILLAS = 'gastonart-plantillas-usuario'
 const rutasUsuario = new Set<string>() // plantillas guardadas por el usuario (borrables, persistidas)
 
 function persistirPlantillas(): void {
   const data: Record<string, string> = {}
   for (const ruta of rutasUsuario) data[nombreCorto(ruta)] = plantillas[ruta]
-  try { localStorage.setItem(LS_PLANTILLAS, JSON.stringify(data)) }
-  catch (e) { estado.textContent = '⚠ No se pudieron guardar las plantillas (sin espacio)'; console.error('[persistirPlantillas]', e) }
+  void idbSet(IDB_PLANTILLAS, JSON.stringify(data)).catch((e) => {
+    estado.textContent = '⚠ No se pudieron guardar las plantillas (sin espacio)'
+    console.error('[persistirPlantillas]', e)
+  })
 }
 
-function cargarPlantillasUsuario(): void {
+async function cargarPlantillasUsuario(): Promise<void> {
   let data: Record<string, string> = {}
-  try { data = JSON.parse(localStorage.getItem(LS_PLANTILLAS) || '{}') } catch { /* ignorar */ }
+  try {
+    const raw = await idbGet(IDB_PLANTILLAS)
+    if (raw) data = JSON.parse(raw)
+  } catch { /* sin IDB: seguir con la migración de LS */ }
+  // Migración única desde localStorage (versiones anteriores).
+  try {
+    const viejo = localStorage.getItem(LS_PLANTILLAS)
+    if (viejo) {
+      const dataLS = JSON.parse(viejo) as Record<string, string>
+      for (const [nombre, svg] of Object.entries(dataLS)) data[nombre] ??= svg
+      await idbSet(IDB_PLANTILLAS, JSON.stringify(data))
+      localStorage.removeItem(LS_PLANTILLAS)
+    }
+  } catch { /* ignorar */ }
   for (const [nombre, svg] of Object.entries(data)) {
     if (typeof svg !== 'string') continue
     rutasUsuario.add(registrarPlantilla(nombre, svg))
@@ -8160,7 +8182,9 @@ function mostrarInicio(): void {
       </section>
       <section class="ini-seccion">
         <h3>Plantillas y guardados</h3>
-        <div class="ini-plantillas">${opcionesPlantilla}</div>
+        ${opcionesPlantilla
+          ? `<div class="ini-plantillas">${opcionesPlantilla}</div>`
+          : `<p class="ini-nota" style="margin:0">Todavía no tenés plantillas. Subí un SVG o PDF (acá abajo) o guardá un diseño con «Guardar como plantilla», y van a aparecer en esta lista.</p>`}
         <h3 style="margin-top:18px">Cargar multimedia</h3>
         <button id="ini-cargar-svg" class="ini-btn-acc">Subir imagen, SVG o PDF…</button>
         <p class="ini-nota">Cualquier imagen, SVG o PDF entra al editor. Después podés <strong>guardarlo como plantilla</strong> con el botón “Plantilla” de la barra superior.</p>
@@ -8616,7 +8640,7 @@ void (async () => {
   inyectarFontFaces()
   await cargarPack()
   poblarFamilias()
-  cargarPlantillasUsuario() // sumar al listado las plantillas que el usuario guardó
+  await cargarPlantillasUsuario() // sumar al listado las plantillas que el usuario guardó (IndexedDB)
   cargarOcultas()           // quitar del listado las plantillas del paquete que borró
   void cargarFuentesGuardadas() // re-baja las fuentes de Google agregadas (async)
   // La app SIEMPRE arranca en la pantalla de inicio (formatos + plantillas). El
