@@ -1526,10 +1526,25 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   cursor: pointer;
   text-align: left;
 }
+.ini-preset { transition: border-color 0.12s, transform 0.08s; }
 .ini-preset:hover { border-color: var(--accent); }
 .ini-preset-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .ini-preset-nom { font-size: 13px; }
 .ini-preset-dim { font-size: 11px; color: var(--dim); }
+/* Tamaños agrupados por red social, en cards verticales. */
+.ini-red { margin-bottom: 16px; }
+.ini-red-tit { display: flex; align-items: center; gap: 7px; margin: 14px 0 9px; font-size: 13px; font-weight: 700; color: var(--text); }
+.ini-red-ic { font-size: 15px; line-height: 1; }
+.ini-red-cards { display: flex; flex-wrap: wrap; gap: 10px; }
+.ini-fmt {
+  flex-direction: column; align-items: center; justify-content: flex-start;
+  text-align: center; gap: 7px; width: 106px; padding: 13px 8px 11px; border-radius: 12px;
+}
+.ini-fmt:hover { transform: translateY(-1px); }
+.ini-fmt-ic { display: flex; align-items: center; justify-content: center; height: 44px; }
+.ini-fmt-ic .prop-ic { width: 40px; height: 40px; }
+.ini-fmt-nom { font-size: 13px; font-weight: 600; }
+.ini-fmt-dim { font-size: 11px; color: var(--dim); }
 /* Mini-ícono con la proporción del formato: marco de color + líneas gris "texto". */
 .prop-ic { flex: none; display: inline-block; vertical-align: middle; width: 22px; height: 22px; }
 .prop-frame { fill: none; stroke: var(--accent); stroke-width: 1.5; }
@@ -1676,7 +1691,6 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   cursor: pointer;
 }
 .ini-btn-acc:hover { filter: brightness(1.08); }
-.ini-seguir { width: 100%; margin-bottom: 16px; padding: 11px; font-size: 14px; }
 
 /* --- Panel de exportación --- */
 #panel-export {

@@ -824,7 +824,7 @@ function poblarPresetsTamano(): void {
   if (cont.childElementCount) return
   for (const p of PRESETS_TAMANO) {
     const b = document.createElement('button'); b.className = 'pt-preset'
-    b.innerHTML = `<span class="pt-preset-nom">${escAttr(p.nombre)}</span><span class="pt-preset-dim">${p.w}×${p.h}</span>`
+    b.innerHTML = `<span class="pt-preset-nom">${escAttr(p.red + ' · ' + p.formato)}</span><span class="pt-preset-dim">${p.w}×${p.h}</span>`
     b.addEventListener('click', () => { ptUnidadCtrl.set('px'); ptW.value = String(p.w); ptH.value = String(p.h); redimensionarMesa(p.w, p.h) })
     cont.appendChild(b)
   }
@@ -6919,21 +6919,23 @@ selPlantilla.addEventListener('change', () => {
 // ---------------------------------------------------------------
 //  Pantalla de inicio: imagen en blanco / plantilla / cargar SVG
 // ---------------------------------------------------------------
-interface PresetTamano { nombre: string; w: number; h: number; grupo: string }
+interface PresetTamano { red: string; formato: string; w: number; h: number }
 const PRESETS_TAMANO: PresetTamano[] = [
-  { nombre: 'Instagram · Post', w: 1080, h: 1080, grupo: 'Redes' },
-  { nombre: 'Instagram · Retrato', w: 1080, h: 1350, grupo: 'Redes' },
-  { nombre: 'Instagram · Historia', w: 1080, h: 1920, grupo: 'Redes' },
-  { nombre: 'Facebook · Post', w: 1200, h: 1200, grupo: 'Redes' },
-  { nombre: 'Facebook · Portada', w: 1640, h: 624, grupo: 'Redes' },
-  { nombre: 'X / Twitter · Post', w: 1600, h: 900, grupo: 'Redes' },
-  { nombre: 'YouTube · Miniatura', w: 1280, h: 720, grupo: 'Redes' },
-  { nombre: 'LinkedIn · Post', w: 1200, h: 1500, grupo: 'Redes' },
-  { nombre: 'A4 · Vertical', w: 2480, h: 3508, grupo: 'Impresión (300 dpi)' },
-  { nombre: 'A4 · Horizontal', w: 3508, h: 2480, grupo: 'Impresión (300 dpi)' },
-  { nombre: 'A5 · Vertical', w: 1748, h: 2480, grupo: 'Impresión (300 dpi)' },
-  { nombre: 'A5 · Horizontal', w: 2480, h: 1748, grupo: 'Impresión (300 dpi)' },
+  { red: 'Instagram', formato: 'Post', w: 1080, h: 1080 },
+  { red: 'Instagram', formato: 'Retrato', w: 1080, h: 1350 },
+  { red: 'Instagram', formato: 'Historia', w: 1080, h: 1920 },
+  { red: 'Facebook', formato: 'Post', w: 1200, h: 1200 },
+  { red: 'Facebook', formato: 'Portada', w: 1640, h: 624 },
+  { red: 'X / Twitter', formato: 'Post', w: 1600, h: 900 },
+  { red: 'YouTube', formato: 'Miniatura', w: 1280, h: 720 },
+  { red: 'LinkedIn', formato: 'Post', w: 1200, h: 1500 },
+  { red: 'Impresión', formato: 'A4 vertical', w: 2480, h: 3508 },
+  { red: 'Impresión', formato: 'A4 horizontal', w: 3508, h: 2480 },
+  { red: 'Impresión', formato: 'A5 vertical', w: 1748, h: 2480 },
+  { red: 'Impresión', formato: 'A5 horizontal', w: 2480, h: 1748 },
 ]
+// Emoji por red para el encabezado de cada grupo.
+const ICONO_RED: Record<string, string> = { Instagram: '📷', Facebook: '👥', 'X / Twitter': '✖', YouTube: '▶', LinkedIn: '💼', Impresión: '🖨️' }
 
 // SVG mínimo en blanco con fondo (fuente del lienzo "de cero").
 function svgEnBlanco(w: number, h: number, fondo = '#ffffff'): string {
@@ -7614,18 +7616,18 @@ function miniaturaSvg(svg: string): string {
 
 function mostrarInicio(): void {
   cerrarInicio()
-  const grupos = [...new Set(PRESETS_TAMANO.map((p) => p.grupo))]
-  const seccionesTamano = grupos.map((g) => `
-    <div class="ini-grupo-tit">${g}</div>
-    <div class="ini-presets">
-      ${PRESETS_TAMANO.filter((p) => p.grupo === g).map((p) =>
-        `<button class="ini-preset" data-w="${p.w}" data-h="${p.h}">
-           <span class="ini-preset-top">
-             <span class="ini-preset-nom">${escAttr(p.nombre)}</span>
-             ${iconoProporcion(p.w, p.h)}
-           </span>
-           <span class="ini-preset-dim">${p.w}×${p.h}</span>
-         </button>`).join('')}
+  const redes = [...new Set(PRESETS_TAMANO.map((p) => p.red))]
+  const seccionesTamano = redes.map((red) => `
+    <div class="ini-red">
+      <div class="ini-red-tit"><span class="ini-red-ic">${ICONO_RED[red] ?? ''}</span>${escHtml(red)}</div>
+      <div class="ini-red-cards">
+        ${PRESETS_TAMANO.filter((p) => p.red === red).map((p) =>
+          `<button class="ini-preset ini-fmt" data-w="${p.w}" data-h="${p.h}">
+             <span class="ini-fmt-ic">${iconoProporcion(p.w, p.h)}</span>
+             <span class="ini-fmt-nom">${escHtml(p.formato)}</span>
+             <span class="ini-fmt-dim">${p.w}×${p.h}</span>
+           </button>`).join('')}
+      </div>
     </div>`).join('')
 
   const opcionesPlantilla = rutasPlantilla.map((r) => {
@@ -7639,10 +7641,6 @@ function mostrarInicio(): void {
       <button class="ini-plantilla-del" data-ruta="${escAttr(r)}" title="Borrar plantilla">✕</button>
     </span>`
   }).join('')
-
-  // ¿Hay un trabajo guardado para ofrecer "Seguir editando"?
-  const autosave = (() => { try { const g = localStorage.getItem('gastonart-proyecto'); return g && g.length <= 4_000_000 ? g : null } catch { return null } })()
-  const seguirHtml = autosave ? `<button id="ini-seguir" class="ini-btn-acc ini-seguir">▶ Seguir editando lo último</button>` : ''
 
   // Proyectos recientes (guardados automáticamente).
   const recientes = leerRecientes()
@@ -7707,7 +7705,6 @@ function mostrarInicio(): void {
         <button id="ini-crear-collage" class="ini-btn-acc">🖼 Crear un collage</button>
       </section>
       <section class="ini-seccion">
-        ${seguirHtml}
         <h3>Plantillas y guardados</h3>
         <div class="ini-plantillas">${opcionesPlantilla}</div>
         <h3 style="margin-top:18px">Cargar multimedia</h3>
@@ -7784,12 +7781,6 @@ function mostrarInicio(): void {
       if (confirm(`¿Borrar la plantilla «${nombreCorto(b.dataset.ruta!)}»?`)) { borrarPlantilla(b.dataset.ruta!); mostrarInicio() }
     }))
   ov.querySelector('#ini-cargar-svg')!.addEventListener('click', () => inSvgPlantilla.click())
-  ov.querySelector('#ini-seguir')?.addEventListener('click', () => {
-    if (!autosave) return
-    cerrarInicio()
-    try { void restaurarGuardado(JSON.parse(autosave)) }
-    catch (e) { estado.textContent = '❌ No se pudo restaurar el último trabajo'; console.error('[seguir]', e) }
-  })
 }
 
 // Pasa el bitmap/datos de una imagen de pdf.js a un <canvas> en su orientación
