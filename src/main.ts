@@ -4632,14 +4632,15 @@ function construirOverlays(): void {
   }
 
   // Imágenes del diseño que NO son huecos (p. ej. las que entran de un PDF/.ai,
-  // que son elementos editables): en modo plantilla un clic las REEMPLAZA
-  // (mismo flujo que el botón 🔁 de la selección en modo completo).
+  // que son elementos editables): en modo plantilla un clic abre DIRECTO el
+  // selector de archivos para reemplazarla (el panel lateral está oculto por CSS
+  // en este modo, así que no sirve abrirlo; mismo criterio que los huecos vacíos).
   if (enPlantilla) {
     for (const im of Array.from(svgEl.querySelectorAll<SVGImageElement>('image:not([data-foto])'))) {
       if (im.closest('defs, clipPath, mask, pattern')) continue
       const r = rectUnion([im], base)
       if (!r || r.width < 8 || r.height < 8) continue
-      const hit = crearHit(r, 'imagen', () => { abrirPanelImagen(); reemplazarDestino = im })
+      const hit = crearHit(r, 'imagen', () => { reemplazarDestino = im; inImgNueva.click() })
       hit.classList.add('hit-foto')
       hit.title = 'Clic para reemplazar la imagen'
       lienzo.appendChild(hit)
