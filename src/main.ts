@@ -3887,6 +3887,126 @@ function construirOrdenarCont(): HTMLElement {
   return cont
 }
 
+// ============ Redondeo de puntas (rectángulos) ============
+// Un <rect> se redondea uniforme con rx; para radios POR ESQUINA se convierte a
+// <path data-rect data-radios> (resvg renderiza ambos igual en el export).
+let puntasAbierto = false
+let puntasElem: SVGElement | null = null
+
+// Geometría base + radios actuales del elemento, si es redondeable.
+function infoRedondeo(el: SVGElement): { x: number; y: number; w: number; h: number; radios: [number, number, number, number] } | null {
+  const tag = el.tagName.toLowerCase()
+  if (tag === 'rect') {
+    const w = parseFloat(el.getAttribute('width') || '0'), h = parseFloat(el.getAttribute('height') || '0')
+    if (!w || !h) return null
+    const x = parseFloat(el.getAttribute('x') || '0') || 0, y = parseFloat(el.getAttribute('y') || '0') || 0
+    const r = parseFloat(el.getAttribute('rx') || '0') || 0
+    return { x, y, w, h, radios: [r, r, r, r] }
+  }
+  if (tag === 'path' && el.hasAttribute('data-rect')) {
+    const [x, y, w, h] = (el.getAttribute('data-rect') || '').split(' ').map(Number)
+    if ([x, y, w, h].some((n) => isNaN(n))) return null
+    const rs = (el.getAttribute('data-radios') || '').split(' ').map(Number)
+    return { x, y, w, h, radios: [rs[0] || 0, rs[1] || 0, rs[2] || 0, rs[3] || 0] }
+  }
+  return null
+}
+
+// d de un rectángulo con radio por esquina (↖ ↗ ↘ ↙), con arcos circulares.
+function dRectRedondeado(x: number, y: number, w: number, h: number, radios: [number, number, number, number]): string {
+  const max = Math.min(w, h) / 2
+  const [tl, tr, br, bl] = radios.map((r) => Math.max(0, Math.min(max, r)))
+  return `M${x + tl} ${y}` +
+    `H${x + w - tr}` + (tr ? `A${tr} ${tr} 0 0 1 ${x + w} ${y + tr}` : '') +
+    `V${y + h - br}` + (br ? `A${br} ${br} 0 0 1 ${x + w - br} ${y + h}` : '') +
+    `H${x + bl}` + (bl ? `A${bl} ${bl} 0 0 1 ${x} ${y + h - bl}` : '') +
+    `V${y + tl}` + (tl ? `A${tl} ${tl} 0 0 1 ${x + tl} ${y}` : '') + 'Z'
+}
+
+// Aplica los radios. Uniforme sobre <rect> → rx/ry. Por esquina → convierte el
+// rect a <path> conservando todos sus atributos (color, transform, data-*).
+// Devuelve el elemento vigente (el mismo o el path que lo reemplazó).
+function aplicarRedondeo(el: SVGElement, radios: [number, number, number, number]): SVGElement {
+  const info = infoRedondeo(el)
+  if (!info) return el
+  const uniforme = radios.every((r) => r === radios[0])
+  if (el.tagName.toLowerCase() === 'rect') {
+    if (uniforme) {
+      if (radios[0] > 0) { el.setAttribute('rx', String(radios[0])); el.setAttribute('ry', String(radios[0])) }
+      else { el.removeAttribute('rx'); el.removeAttribute('ry') }
+      return el
+    }
+    const p = document.createElementNS(SVGNS, 'path')
+    for (const a of Array.from(el.attributes)) {
+      if (['x', 'y', 'width', 'height', 'rx', 'ry'].includes(a.name)) continue
+      p.setAttribute(a.name, a.value)
+    }
+    p.setAttribute('data-rect', `${info.x} ${info.y} ${info.w} ${info.h}`)
+    p.setAttribute('data-radios', radios.join(' '))
+    p.setAttribute('d', dRectRedondeado(info.x, info.y, info.w, info.h, radios))
+    el.replaceWith(p)
+    return p
+  }
+  el.setAttribute('data-radios', radios.join(' '))
+  el.setAttribute('d', dRectRedondeado(info.x, info.y, info.w, info.h, radios))
+  return el
+}
+
+// Panel "Puntas": slider para TODAS + un número por esquina.
+function construirPuntasCont(): HTMLElement {
+  const cont = document.createElement('div'); cont.className = 'mas-cont puntas-cont'
+  const info = infoRedondeo(grafSeleccion[0])!
+  const max = Math.max(1, Math.round(Math.min(info.w, info.h) / 2))
+  const radios = [...info.radios] as [number, number, number, number]
+  const nums: HTMLInputElement[] = []
+
+  const fin = (): void => { registrarHistorial(); autoguardar() }
+  const aplicar = (): void => {
+    const el = grafSeleccion[0]
+    const nuevo = aplicarRedondeo(el, radios)
+    if (nuevo !== el) {
+      // El rect se convirtió a path: refrescar selección y reabrir el panel.
+      grafSeleccion[0] = nuevo
+      puntasElem = nuevo
+      puntasAbierto = true
+      fin()
+      dibujarSelGraf()
+    }
+  }
+
+  const filaT = document.createElement('div'); filaT.className = 'puntas-fila'
+  const lt = document.createElement('span'); lt.textContent = 'Todas'
+  const rango = document.createElement('input'); rango.type = 'range'; rango.min = '0'; rango.max = String(max); rango.step = '1'
+  rango.value = String(Math.round(radios.every((r) => r === radios[0]) ? radios[0] : radios.reduce((a, b) => a + b, 0) / 4))
+  rango.addEventListener('input', () => {
+    const v = +rango.value
+    radios[0] = radios[1] = radios[2] = radios[3] = v
+    for (const n of nums) n.value = String(v)
+    aplicar()
+  })
+  rango.addEventListener('change', fin)
+  filaT.append(lt, rango)
+  cont.append(filaT)
+
+  const filaE = document.createElement('div'); filaE.className = 'puntas-fila puntas-esquinas'
+  ;(['↖', '↗', '↘', '↙'] as const).forEach((sym, i) => {
+    const wrap = document.createElement('label'); wrap.className = 'puntas-esq'; wrap.title = `Radio de la esquina ${sym}`
+    const s = document.createElement('span'); s.textContent = sym
+    const n = document.createElement('input'); n.type = 'number'; n.min = '0'; n.max = String(max); n.step = '1'
+    n.value = String(Math.round(radios[i]))
+    n.addEventListener('input', () => {
+      radios[i] = Math.max(0, Math.min(max, +n.value || 0))
+      aplicar()
+    })
+    n.addEventListener('change', fin)
+    nums.push(n)
+    wrap.append(s, n)
+    filaE.append(wrap)
+  })
+  cont.append(filaE)
+  return cont
+}
+
 // ============ Sidebar contextual acoplada a la derecha (estilo Express) ============
 // Los controles del elemento seleccionado (o del texto en edición) se alojan en
 // #panel-props, una sidebar FLOTANTE fija a la derecha de la pantalla (más práctica
@@ -4056,6 +4176,22 @@ function dibujarSelGraf(): void {
     mw.append(mb, mp)
     tools.append(rep, qf, mw)
     tools.prepend(ed) // "Editar imagen" destacado, arriba de todo
+  }
+
+  // Redondeo de puntas: para un rectángulo (o su path convertido) suelto.
+  if (!multi && infoRedondeo(grafSeleccion[0])) {
+    if (puntasElem !== grafSeleccion[0]) puntasAbierto = false
+    const rb = document.createElement('button'); rb.className = 'graf-btn'; rb.textContent = '◜ Puntas'
+    rb.title = 'Redondear las puntas (todas juntas o de a una)'
+    const cont = construirPuntasCont()
+    cont.hidden = !puntasAbierto
+    rb.addEventListener('click', (e) => {
+      e.stopPropagation()
+      puntasElem = grafSeleccion[0]
+      puntasAbierto = cont.hidden
+      cont.hidden = !cont.hidden
+    })
+    tools.append(rb, cont)
   }
 
   // Secundarios (capas, alinear, buscatrazos) en un menú "Más" para no saturar.
