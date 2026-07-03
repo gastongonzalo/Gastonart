@@ -506,6 +506,9 @@ app.innerHTML = `
           <button class="pl-preset" data-preset="titulo" style="font-size:20px; font-weight:700;">Título</button>
           <button class="pl-preset" data-preset="subtitulo" style="font-size:15px; font-weight:600;">Subtítulo</button>
           <button class="pl-preset" data-preset="cuerpo" style="font-size:13px;">Cuerpo de texto</button>
+          <div class="pl-sub">Certificados</div>
+          <button id="btn-add-campo-cert" class="pl-accion" title="Agrega un texto con un marcador +ASÍ+ que después se completa desde una planilla (Archivo → Generar certificados)">🎓 Campo de formulario (+MARCADOR+)</button>
+          <p class="pl-nota">Un campo dinámico que se completa en lote desde «Generar certificados»: elegí el nombre (NOMBRE, DNI…) y queda como marcador +ASÍ+ en el diseño.</p>
         </section>
 
         <section class="pl-view" data-cat="elementos" hidden>
@@ -1239,6 +1242,20 @@ for (const b of Array.from(document.querySelectorAll<HTMLElement>('.pl-preset'))
   })
 }
 
+// Campo de formulario dinámico: un cuadro de texto con marcador +ASÍ+, que
+// después se completa en lote desde Archivo → Generar certificados.
+document.querySelector('#btn-add-campo-cert')!.addEventListener('click', () => {
+  const nom = prompt('Nombre del campo (ej: NOMBRE, APELLIDO, DNI, FECHA):', 'NOMBRE')
+  if (nom == null) return
+  const marca = nom.trim().toUpperCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^A-Z0-9_ ]/g, '').trim().replace(/ +/g, '_') || 'CAMPO'
+  agregarTexto()
+  if (!editorActivo) return
+  const ta = editorActivo.ta
+  ta.value = `+${marca}+`
+  ta.dispatchEvent(new Event('input', { bubbles: true }))
+  ta.select() // listo para reemplazar o confirmar
+})
+
 let contadorAgregados = 0 // para nombres únicos de elementos agregados
 
 // ---------------------------------------------------------------
@@ -1284,11 +1301,17 @@ async function revisarFuentes(): Promise<void> {
   } catch (e) { console.error('[revisarFuentes]', e) }
   finally { revisandoFuentes = false }
   if (!noHay.length) { avisoFuentes.hidden = true; return }
-  // Las que no están en Google: avisar para importarlas a mano (no hay descarga).
+  // Las que no están en Google: avisar y ofrecer subirlas (o curvas en el origen).
+  const s = noHay.length > 1
   avisoFuentes.innerHTML =
-    `<span>⚠ Falta${noHay.length > 1 ? 'n' : ''} la fuente${noHay.length > 1 ? 's' : ''}: <strong>${noHay.map(escAttr).join(', ')}</strong> — no está${noHay.length > 1 ? 'n' : ''} en Google Fonts, importala${noHay.length > 1 ? 's' : ''} con 🔤</span>` +
+    `<span>⚠ Falta${s ? 'n' : ''} la${s ? 's' : ''} fuente${s ? 's' : ''} <strong>${noHay.map(escAttr).join(', ')}</strong> y no está${s ? 'n' : ''} en Google Fonts: el texto se ve (y se exporta) con otra tipografía.</span>` +
+    `<button id="av-subir" class="mini" title="Subir el archivo .ttf/.otf de la fuente">⬆ Subir la tipografía</button>` +
+    `<span class="av-tip">· o convertí los textos a curvas en el original y re-exportá el PDF</span>` +
     `<button id="av-cerrar" class="mini" title="Ignorar">✕</button>`
   avisoFuentes.hidden = false
+  avisoFuentes.querySelector('#av-subir')!.addEventListener('click', () => {
+    document.querySelector<HTMLInputElement>('#in-font')!.click()
+  })
   avisoFuentes.querySelector('#av-cerrar')!.addEventListener('click', () => { avisoFuentes.hidden = true })
 }
 
@@ -8126,7 +8149,6 @@ function abrirCertificados(): void {
   cerrarEditor()
   document.querySelectorAll('#modal-cert').forEach((n) => n.remove())
 
-  let snap = snapshotProyecto() // restaurar al cerrar (se re-toma tras importar plantilla)
   let tokens: string[] = [] // marcadores tal como aparecen (sin los +)
   let textoOrig: Record<string, string> = {} // campo → texto original con +MARCADORES+
   let filas: Record<string, string>[] = [] // datos armados (clave: token normalizado)
@@ -8149,6 +8171,7 @@ function abrirCertificados(): void {
       </div>
       <input id="cert-file-tpl" type="file" accept=".pdf,.ai,.svg,application/pdf,image/svg+xml,image/*" hidden>
       <div id="cert-tokens" class="cert-tokens"></div>
+      <div id="cert-estilos" class="cert-mapa"></div>
 
       <div class="cert-tit">2 · Datos</div>
       <div class="unidad-seg cert-seg" role="group">
@@ -8222,6 +8245,45 @@ function abrirCertificados(): void {
       divTokens.innerHTML = 'Detectados: ' + tokens.map((t) => `<span class="cert-chip">+${escHtml(t)}+</span>`).join(' ')
     }
     selNombre.innerHTML = tokens.map((t, i) => `<option value="${i}">${escHtml(t)}</option>`).join('')
+  }
+  // Tamaño y tipografía de cada línea con marcadores (los ajustes quedan en el
+  // diseño: usan estilos[] + pintarCampo, lo mismo que la barra de texto).
+  const divEstilos = $c<HTMLDivElement>('#cert-estilos')
+  const renderEstilos = (): void => {
+    divEstilos.innerHTML = ''
+    const campos = Object.keys(textoOrig).filter((c) => metricas[c])
+    if (!campos.length) return
+    const familias = familiasDisponibles()
+    for (const campo of campos) {
+      const fila = document.createElement('div'); fila.className = 'cert-map-fila'
+      const orig = textoOrig[campo]
+      const nom = document.createElement('span'); nom.className = 'cert-map-campo'
+      nom.textContent = orig.length > 18 ? orig.slice(0, 18) + '…' : orig
+      nom.title = orig
+      const ef = () => estiloEfectivo(campo)
+      const tam = document.createElement('span'); tam.className = 'cert-info'; tam.style.minWidth = '24px'; tam.style.textAlign = 'center'
+      tam.textContent = String(Math.round(ef().fontSize))
+      const paso = (mult: number) => {
+        ;(estilos[campo] ??= {}).fontSize = Math.max(6, Math.round(ef().fontSize * mult))
+        pintarCampo(campo)
+        tam.textContent = String(Math.round(ef().fontSize))
+      }
+      const menos = document.createElement('button'); menos.className = 'mini'; menos.textContent = 'A−'; menos.title = 'Achicar'
+      menos.addEventListener('click', () => paso(0.9))
+      const mas = document.createElement('button'); mas.className = 'mini'; mas.textContent = 'A+'; mas.title = 'Agrandar'
+      mas.addEventListener('click', () => paso(1.1))
+      const sel = document.createElement('select'); sel.title = 'Tipografía'
+      const famActual = ef().family
+      const opciones = familias.includes(famActual) ? familias : [famActual, ...familias]
+      sel.innerHTML = opciones.map((f) => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('')
+      sel.value = famActual
+      sel.addEventListener('change', () => {
+        ;(estilos[campo] ??= {}).family = sel.value
+        pintarCampo(campo)
+      })
+      fila.append(nom, menos, tam, mas, sel)
+      divEstilos.appendChild(fila)
+    }
   }
 
   // -- Paso 2: datos --
@@ -8382,8 +8444,7 @@ function abrirCertificados(): void {
     try {
       await importarArchivoDiseno(f)
       await new Promise((r) => setTimeout(r, 800)) // que termine de montarse
-      snap = snapshotProyecto() // el cierre restaura la plantilla recién importada
-      escanear(); renderTokens()
+      escanear(); renderTokens(); renderEstilos()
       manual = []; renderManual(); renderMapa()
       armarFilas(); refrescar()
       spProg.textContent = tokens.length ? '' : '⚠ La plantilla no tiene marcadores +ASÍ+'
@@ -8419,11 +8480,19 @@ function abrirCertificados(): void {
   $c('#cert-cerrar').addEventListener('click', () => {
     if (generando) return
     ov.remove()
-    void aplicarSnapshot(snap)
+    // El diseño QUEDA abierto (para guardarlo como plantilla, retocarlo, etc.):
+    // solo se deshacen los datos de la fila en vista, restaurando los
+    // +MARCADORES+ originales. Los ajustes de tamaño/tipografía se conservan.
+    for (const [campo, orig] of Object.entries(textoOrig)) {
+      if (!metricas[campo]) continue
+      valores[campo] = orig
+      pintarCampo(campo)
+    }
+    registrarHistorial(); autoguardar()
   })
 
   // Arranque: si el diseño abierto ya tiene marcadores, se puede usar directo.
-  escanear(); renderTokens(); renderManual(); refrescar()
+  escanear(); renderTokens(); renderEstilos(); renderManual(); refrescar()
 }
 
 function abrirQR(): void {
