@@ -362,6 +362,7 @@ app.innerHTML = `
           <button id="btn-guardar" class="tb-menu-item">💾 Guardar proyecto</button>
           <button id="btn-cargar" class="tb-menu-item">📂 Abrir proyecto</button>
           <button id="btn-guardar-plantilla" class="tb-menu-item" title="Guardar el lienzo actual como plantilla reutilizable">🗂 Guardar como plantilla</button>
+          <button id="btn-certificados" class="tb-menu-item" title="Completar los textos del diseño desde una planilla y descargar un PDF con una página por fila">🎓 Generar certificados…</button>
           <button id="btn-import-font" class="tb-menu-item" title="Importar tipografía (.ttf / .otf)">＋ Importar tipografía</button>
         </div>
       </span>
@@ -7380,6 +7381,7 @@ inProyecto.addEventListener('change', async () => {
   }
   inProyecto.value = ''
 })
+document.querySelector('#btn-certificados')!.addEventListener('click', () => abrirCertificados())
 document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () => {
   const sug = rutasUsuario.has(plantillaActual) ? nombreCorto(plantillaActual) : ''
   const nombre = prompt('Nombre de la plantilla:', sug || 'Mi plantilla')
@@ -8054,6 +8056,204 @@ async function qrSvgActual(): Promise<string | null> {
     return svgQR(m, { texto, color: qrColor, fondo: qrFondo, transp: qrTransp, redondeado: qrRedondeado, logo: qrLogo })
   } catch { estado.textContent = '❌ El texto es demasiado largo para un QR'; return null }
 }
+// ============ Certificados en lote (plantilla + planilla → PDF) ============
+// Completa los textos del diseño abierto con cada fila de una tabla (pegada
+// desde Excel/Sheets o subida como CSV) y genera un PDF con una página por fila.
+
+// Parsea texto tabular: detecta el separador (tab / ; / ,) y respeta comillas.
+// Primera línea = encabezados.
+function parsearTabla(texto: string): { cols: string[]; filas: string[][] } {
+  const lineas = texto.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim() !== '')
+  if (lineas.length < 2) return { cols: [], filas: [] }
+  const cuenta = (ch: string) => (lineas[0].split(ch).length - 1)
+  const del = [['\t', cuenta('\t')], [';', cuenta(';')], [',', cuenta(',')]]
+    .sort((a, b) => (b[1] as number) - (a[1] as number))[0][0] as string
+  const parseLinea = (l: string): string[] => {
+    const out: string[] = []; let cur = ''; let q = false
+    for (let i = 0; i < l.length; i++) {
+      const ch = l[i]
+      if (q) { if (ch === '"') { if (l[i + 1] === '"') { cur += '"'; i++ } else q = false } else cur += ch }
+      else if (ch === '"') q = true
+      else if (ch === del) { out.push(cur); cur = '' }
+      else cur += ch
+    }
+    out.push(cur)
+    return out.map((c) => c.trim())
+  }
+  const cols = parseLinea(lineas[0])
+  const filas = lineas.slice(1).map(parseLinea).filter((f) => f.some((c) => c !== ''))
+  return { cols, filas }
+}
+
+// Lee un archivo de texto tolerando el encoding de Excel es-AR (Windows-1252).
+async function leerTextoArchivo(file: File): Promise<string> {
+  const buf = await file.arrayBuffer()
+  let t = new TextDecoder('utf-8').decode(buf)
+  if (t.includes('�')) t = new TextDecoder('windows-1252').decode(buf)
+  if (t.charCodeAt(0) === 0xFEFF) t = t.slice(1) // BOM
+  return t
+}
+
+function blobADataUrl(blob: Blob): Promise<string> {
+  return new Promise((res, rej) => {
+    const r = new FileReader()
+    r.onload = () => res(r.result as string)
+    r.onerror = () => rej(r.error)
+    r.readAsDataURL(blob)
+  })
+}
+
+const normalizarCol = (s: string): string =>
+  s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+
+function abrirCertificados(): void {
+  if (!svgEl || !camposActuales.length) {
+    estado.textContent = '🎓 Abrí primero la plantilla del certificado (tiene que tener textos editables)'
+    return
+  }
+  cerrarEditor()
+  document.querySelectorAll('#modal-cert').forEach((n) => n.remove())
+  const snap = snapshotProyecto() // para restaurar el diseño al cerrar
+
+  let cols: string[] = []
+  let filas: string[][] = []
+  const mapa: Record<string, number> = {} // campo → índice de columna
+  let filaVista = 0
+  let generando = false
+
+  const ov = document.createElement('div'); ov.id = 'modal-cert'
+  ov.innerHTML = `
+    <div class="mc-head"><strong>🎓 Certificados en lote</strong><button id="cert-cerrar" class="mini" title="Cerrar (restaura el diseño)">✕</button></div>
+    <div class="cert-body">
+      <div class="cert-tit">1 · Datos (primera fila = encabezados)</div>
+      <textarea id="cert-datos" rows="5" placeholder="Pegá acá la tabla desde Excel o Sheets…&#10;&#10;nombre&#9;documento&#10;Ana Pérez&#9;30.111.222&#10;Juan Gómez&#9;28.333.444"></textarea>
+      <div class="cert-row">
+        <button id="cert-csv" class="mini">📄 O subir archivo CSV…</button>
+        <span id="cert-info" class="cert-info"></span>
+      </div>
+      <input id="cert-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" hidden>
+      <div class="cert-tit">2 · Qué columna va en cada texto</div>
+      <div id="cert-mapa" class="cert-mapa"><span class="cert-info">Cargá los datos arriba y acá asignás las columnas.</span></div>
+      <div class="cert-tit">3 · Vista previa (mirá el diseño de fondo)</div>
+      <div class="cert-row cert-nav">
+        <button id="cert-prev" class="mini" title="Fila anterior">‹</button>
+        <span id="cert-pos" class="cert-info">–</span>
+        <button id="cert-next" class="mini" title="Fila siguiente">›</button>
+      </div>
+      <button id="cert-generar" class="ini-btn-acc" disabled>⬇ Generar PDF</button>
+      <div id="cert-prog" class="cert-info"></div>
+    </div>`
+  document.body.appendChild(ov)
+
+  const $ = <T extends HTMLElement>(sel: string) => ov.querySelector(sel) as T
+  const taDatos = $<HTMLTextAreaElement>('#cert-datos')
+  const inFile = $<HTMLInputElement>('#cert-file')
+  const divMapa = $<HTMLDivElement>('#cert-mapa')
+  const spInfo = $<HTMLSpanElement>('#cert-info')
+  const spPos = $<HTMLSpanElement>('#cert-pos')
+  const btnGen = $<HTMLButtonElement>('#cert-generar')
+  const spProg = $<HTMLDivElement>('#cert-prog')
+
+  const aplicarFila = (f: string[]): void => {
+    for (const [campo, idx] of Object.entries(mapa)) {
+      if (!metricas[campo]) continue
+      valores[campo] = (f[idx] ?? '').trim()
+      pintarCampo(campo)
+    }
+  }
+  const refrescar = (): void => {
+    const hay = filas.length > 0 && Object.keys(mapa).length > 0
+    if (filas.length) {
+      filaVista = Math.max(0, Math.min(filaVista, filas.length - 1))
+      spPos.textContent = `fila ${filaVista + 1} de ${filas.length}`
+      if (hay) aplicarFila(filas[filaVista])
+    } else spPos.textContent = '–'
+    btnGen.disabled = !hay || generando
+    btnGen.textContent = hay ? `⬇ Generar PDF (${filas.length} página${filas.length > 1 ? 's' : ''})` : '⬇ Generar PDF'
+  }
+  const renderMapa = (): void => {
+    divMapa.innerHTML = ''
+    if (!cols.length) {
+      divMapa.innerHTML = '<span class="cert-info">Cargá los datos arriba y acá asignás las columnas.</span>'
+      return
+    }
+    for (const c of camposActuales) {
+      const fila = document.createElement('label'); fila.className = 'cert-map-fila'
+      const nom = document.createElement('span'); nom.className = 'cert-map-campo'
+      nom.textContent = c.etiqueta && c.etiqueta !== c.nombre ? `${c.nombre} · ${c.etiqueta.slice(0, 24)}` : c.nombre
+      nom.title = c.etiqueta || c.nombre
+      const sel = document.createElement('select')
+      sel.innerHTML = '<option value="">— no cambiar</option>' +
+        cols.map((col, i) => `<option value="${i}">${escHtml(col || `columna ${i + 1}`)}</option>`).join('')
+      // Auto-asignar cuando el encabezado coincide con el nombre del campo.
+      const auto = cols.findIndex((col) => normalizarCol(col) !== '' && normalizarCol(col) === normalizarCol(c.nombre))
+      if (auto >= 0) { sel.value = String(auto); mapa[c.nombre] = auto }
+      sel.addEventListener('change', () => {
+        if (sel.value === '') delete mapa[c.nombre]
+        else mapa[c.nombre] = +sel.value
+        refrescar()
+      })
+      fila.append(nom, sel)
+      divMapa.appendChild(fila)
+    }
+  }
+  const procesar = (): void => {
+    const r = parsearTabla(taDatos.value)
+    cols = r.cols; filas = r.filas; filaVista = 0
+    for (const k of Object.keys(mapa)) delete mapa[k]
+    spInfo.textContent = filas.length ? `${filas.length} fila${filas.length > 1 ? 's' : ''} · ${cols.length} columna${cols.length > 1 ? 's' : ''}` : ''
+    renderMapa()
+    refrescar()
+  }
+
+  let tProc = 0
+  taDatos.addEventListener('input', () => { clearTimeout(tProc); tProc = window.setTimeout(procesar, 350) })
+  $('#cert-csv').addEventListener('click', () => inFile.click())
+  inFile.addEventListener('change', async () => {
+    const f = inFile.files?.[0]
+    if (f) { taDatos.value = await leerTextoArchivo(f); procesar() }
+    inFile.value = ''
+  })
+  $('#cert-prev').addEventListener('click', () => { filaVista--; refrescar() })
+  $('#cert-next').addEventListener('click', () => { filaVista++; refrescar() })
+
+  btnGen.addEventListener('click', () => void (async () => {
+    if (generando || !filas.length || !svgEl) return
+    generando = true; btnGen.disabled = true
+    try {
+      const { jsPDF } = await import('jspdf')
+      const vb = svgEl.viewBox.baseVal
+      const w = vb.width || 1080, h = vb.height || 1080
+      const orient = w >= h ? 'landscape' : 'portrait'
+      const pdf = new jsPDF({ orientation: orient, unit: 'pt', format: [w, h] })
+      const anchoExport = Math.round(Math.min(2480, Math.max(1080, w)))
+      for (let i = 0; i < filas.length; i++) {
+        spProg.textContent = `Generando ${i + 1} de ${filas.length}…`
+        aplicarFila(filas[i])
+        const svg = new XMLSerializer().serializeToString(svgEl)
+        const blob = await renderResvg(svg, facesPack.map((f) => f.bytes), anchoExport)
+        const dataUrl = await blobADataUrl(blob)
+        if (i > 0) pdf.addPage([w, h], orient)
+        pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
+        await new Promise((r) => setTimeout(r)) // ceder el hilo (progreso visible)
+      }
+      pdf.save(`${nombreArchivo()} certificados.pdf`)
+      spProg.textContent = `✅ PDF generado (${filas.length} páginas)`
+    } catch (e) {
+      spProg.textContent = '❌ No se pudo generar: ' + (e instanceof Error ? e.message : String(e))
+      console.error('[certificados]', e)
+    }
+    generando = false
+    refrescar()
+  })())
+
+  $('#cert-cerrar').addEventListener('click', () => {
+    if (generando) return // no cortar una generación a medias
+    ov.remove()
+    void aplicarSnapshot(snap) // restaurar el diseño como estaba
+  })
+}
+
 function abrirQR(): void {
   qrTexto = 'https://'; qrColor = '#111111'; qrFondo = '#ffffff'; qrTransp = false; qrRedondeado = false; qrLogo = undefined
   const ov = document.createElement('div'); ov.id = 'modal-qr'
@@ -8460,6 +8660,11 @@ function mostrarInicio(): void {
         <button id="ini-crear-qr" class="ini-btn-acc">▦ Crear un código QR</button>
       </section>
       <section class="ini-seccion">
+        <h3>Certificados en lote</h3>
+        <p class="ini-nota" style="margin:0 0 8px">Abrí tu plantilla de certificado (de la lista o subiendo el PDF/SVG) y completala desde una planilla: pegás la tabla de Excel/Sheets, asignás qué columna va a cada texto y descargás <strong>un PDF con una página por persona</strong>.</p>
+        <button id="ini-certificados" class="ini-btn-acc">🎓 Generar certificados con el diseño actual</button>
+      </section>
+      <section class="ini-seccion">
         <h3>Plantillas y guardados</h3>
         ${opcionesPlantilla
           ? `<div class="ini-plantillas">${opcionesPlantilla}</div>`
@@ -8489,6 +8694,7 @@ function mostrarInicio(): void {
   })
   ov.querySelector('#ini-crear-collage')!.addEventListener('click', () => abrirCollage())
   ov.querySelector('#ini-crear-qr')!.addEventListener('click', () => abrirQR())
+  ov.querySelector('#ini-certificados')!.addEventListener('click', () => { cerrarInicio(); abrirCertificados() })
   // Abrir un proyecto reciente.
   ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
     b.addEventListener('click', async () => {
