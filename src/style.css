@@ -762,6 +762,16 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   opacity: 1;
   pointer-events: auto;
 }
+/* Controles FIJADOS por selección (clic en el cuadro de texto): quedan visibles
+   sin depender del hover, para poder tocar el candado/tiradores con comodidad. */
+.ov-ctrl.ov-fijado {
+  opacity: 1;
+  pointer-events: auto;
+}
+.hit-fijado {
+  outline: 1.5px solid var(--accent) !important;
+  background: rgba(56, 189, 248, 0.07);
+}
 
 .btn-eliminar {
   position: absolute;

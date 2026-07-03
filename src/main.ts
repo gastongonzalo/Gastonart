@@ -2855,6 +2855,7 @@ function grafKey(e: KeyboardEvent): void {
   if (e.key !== 'Escape' && (editorActivo || (ae != null && (/^(input|textarea|select)$/i.test(ae.tagName) || (ae as HTMLElement).isContentEditable)))) return
   if (e.key === 'Escape') {
     if (reframeG) { salirReencuadre(); return }
+    if (campoFijado) { fijarCampo(null); return }
     if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() }
     // En completa la selección está siempre activa: Escape solo deselecciona.
   } else if ((e.key === 'Delete' || e.key === 'Backspace') && grafSeleccion.length) {
@@ -2926,7 +2927,14 @@ function grafPointerDown(e: PointerEvent): void {
   // aditiva) el clic en un cuadro de texto agregado lo SUMA a la selección
   // gráfica (para alinear/agrupar/mover junto con formas) en vez de editarlo:
   // cae al camino de graficoSeleccionable de más abajo.
-  if (campoEl && !aditivo) { e.preventDefault(); abrirEditor(campoEl.getAttribute('data-campo')!); return }
+  if (campoEl && !aditivo) {
+    e.preventDefault()
+    const nom = campoEl.getAttribute('data-campo')!
+    // 1 clic = seleccionar/fijar; 2 clics = editar (e.detail cuenta los clics).
+    if (e.detail >= 2) { fijarCampo(null); abrirEditor(nom) }
+    else fijarCampo(nom)
+    return
+  }
   // Foto de hueco suelto (no recorte): vacío → subir; cargada → arrastrar reencuadra.
   // (La mini-barra Cambiar/Zoom/Opac/Editar/Quitar fondo la arma construirOverlays.)
   const fotoEl = tgt.closest?.('[data-foto]') as SVGElement | null
@@ -4663,8 +4671,16 @@ function construirOverlays(): void {
     }
     const rCaja = libre ? (cajaScreen(c.nombre, base) ?? r) : r
 
-    const hit = crearHit(rCaja, c.nombre, () => abrirEditor(c.nombre))
-    hit.title = enPlantilla ? `Clic para cambiar el texto: ${c.nombre}` : libre ? 'Arrastrá para mover · clic para editar' : `Editar: ${c.nombre}`
+    // En completo: 1 clic SELECCIONA (fija contorno + controles), doble clic edita.
+    // En plantilla: el clic edita directo (modo de carga de contenido).
+    const hit = crearHit(rCaja, c.nombre, () => { if (enPlantilla) abrirEditor(c.nombre); else fijarCampo(c.nombre) })
+    if (!enPlantilla) hit.addEventListener('dblclick', () => { fijarCampo(null); abrirEditor(c.nombre) })
+    hit.title = enPlantilla
+      ? `Clic para cambiar el texto: ${c.nombre}`
+      : libre
+        ? 'Arrastrá para mover · doble clic para editar'
+        : 'Clic: seleccionar (candado para mover) · doble clic: editar'
+    hit.dataset.own = c.nombre
     lienzo.appendChild(hit)
     // En plantilla: solo el hit para editar el texto (sin candado/tiradores/eliminar).
     const ctrls: HTMLElement[] = enPlantilla ? [] : [crearBotonCandado(rCaja, c.nombre)]
@@ -4678,8 +4694,14 @@ function construirOverlays(): void {
       )
     }
     if (agregado && !enPlantilla) ctrls.push(crearBotonEliminar(rCaja, () => eliminarCampo(c.nombre)))
-    for (const c2 of ctrls) lienzo.appendChild(c2)
+    for (const c2 of ctrls) { c2.dataset.own = c.nombre; lienzo.appendChild(c2) }
     revelarAlHover(hit, ctrls)
+    // Si este campo estaba fijado, mantener la fijación tras el rebuild
+    // (p. ej. al destrabar el candado, que reconstruye los overlays).
+    if (campoFijado === c.nombre) {
+      hit.classList.add('hit-fijado')
+      for (const c2 of ctrls) c2.classList.add('ov-fijado')
+    }
   }
 
   // Imágenes agregadas (movibles, redimensionables, eliminables).
@@ -4740,6 +4762,28 @@ function construirOverlays(): void {
 
 // Muestra los controles (swatches, tiradores, ✕, candado) de un elemento SOLO
 // mientras el mouse está sobre él o sus controles, para no saturar la mesa.
+// --- Selección de cuadros de texto (modo completo) ---
+// Un CLIC fija el cuadro: contorno + controles (candado/tiradores/✕) visibles
+// sin depender del hover. Doble clic abre el editor. Se libera con Escape,
+// clickeando otro lado o al editar otro campo.
+let campoFijado: string | null = null
+function fijarCampo(nombre: string | null): void {
+  campoFijado = nombre
+  for (const h of Array.from(lienzo.querySelectorAll<HTMLElement>('.hit[data-own]'))) {
+    h.classList.toggle('hit-fijado', !!nombre && h.dataset.own === nombre)
+  }
+  for (const c of Array.from(lienzo.querySelectorAll<HTMLElement>('.ov-ctrl[data-own]'))) {
+    c.classList.toggle('ov-fijado', !!nombre && c.dataset.own === nombre)
+  }
+}
+// Clic fuera del cuadro fijado (y de sus controles) → soltar la fijación.
+document.addEventListener('pointerdown', (e) => {
+  if (!campoFijado) return
+  const t = e.target as Element | null
+  if (t && t.closest && t.closest(`[data-own="${CSS.escape(campoFijado)}"]`)) return
+  fijarCampo(null)
+}, true)
+
 function revelarAlHover(hit: HTMLElement, ctrls: HTMLElement[]): void {
   if (!ctrls.length) return
   for (const c of ctrls) c.classList.add('ov-ctrl')
