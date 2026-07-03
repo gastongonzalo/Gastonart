@@ -1217,7 +1217,7 @@ function renderPanelPlantillas(): void {
     const thumb = svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(miniaturaSvg(svg))}` : ''
     const b = document.createElement('button'); b.className = 'pl-tpl'
     b.innerHTML = `<span class="pl-tpl-thumb">${thumb ? `<img src="${thumb}" alt="" loading="lazy">` : ''}</span><span class="pl-tpl-nom">${escHtml(nombreCorto(ruta))}</span>`
-    b.addEventListener('click', () => usarPlantilla(ruta))
+    b.addEventListener('click', () => { if (confirmarDescarteSinNombre()) usarPlantilla(ruta) })
     cont.appendChild(b)
   }
 }
@@ -7132,11 +7132,25 @@ function miniaturaRaster(svg: string): Promise<string> {
 // ---------------------------------------------------------------
 const LS_RECIENTES = 'gastonart-recientes'
 const MAX_RECIENTES = 6
-interface Reciente { id: string; nombre: string; fecha: number; thumb: string }
+interface Reciente { id: string; nombre: string; fecha: number; thumb: string; tpl?: boolean }
 let proyectoActualId: string | null = null
 function genIdProyecto(): string { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7) }
 function leerRecientes(): Reciente[] {
   try { return JSON.parse(localStorage.getItem(LS_RECIENTES) || '[]') as Reciente[] } catch { return [] }
+}
+// Limpieza al arrancar: los "Sin nombre" de versiones anteriores (autosaves de
+// cache) ya no tienen lugar en Recientes — ahora solo entra lo nombrado.
+function purgarRecientesSinNombre(): void {
+  const lista = leerRecientes()
+  const conNombre = lista.filter((r) => (r.nombre || '').trim() !== '')
+  if (conNombre.length === lista.length) return
+  for (const r of lista) {
+    if ((r.nombre || '').trim() === '') {
+      void idbDel('gastonart-proy-' + r.id)
+      try { localStorage.removeItem('gastonart-proy-' + r.id) } catch { /* ignorar */ }
+    }
+  }
+  try { localStorage.setItem(LS_RECIENTES, JSON.stringify(conNombre)) } catch { /* ignorar */ }
 }
 // Arranca un proyecto NUEVO: id propio + nombre en blanco (lo nombra el usuario).
 function nuevoProyecto(): void {
@@ -7152,18 +7166,31 @@ function nuevoProyecto(): void {
 }
 // Guarda/actualiza el proyecto actual en la lista de recientes: datos completos
 // en IndexedDB (cuota grande) + metadata con miniatura raster en localStorage.
+// REGLA: a Recientes solo entra lo que tiene NOMBRE (sin nombre no se guarda;
+// al salir se pregunta). Las EDICIONES DE PLANTILLA guardan solo las últimas 3.
+const MAX_RECIENTES_TPL = 3
 async function guardarReciente(json: string): Promise<void> {
+  const nombre = (inNombre.value || '').trim()
+  if (!nombre) return // sin nombre no va a Recientes
   if (!proyectoActualId) proyectoActualId = genIdProyecto()
   const id = proyectoActualId
   const svgMini = mesas.length ? (mesas[mesaActiva]?.svg || '') : (svgEl ? new XMLSerializer().serializeToString(svgEl) : '')
   const thumb = svgMini ? await miniaturaRaster(svgMini) : ''
   let lista = leerRecientes().filter((r) => r.id !== id)
-  lista.unshift({ id, nombre: (inNombre.value || '').trim(), fecha: Date.now(), thumb })
-  // Expulsar los más viejos (datos en IDB y restos de la era localStorage).
-  for (const sob of lista.slice(MAX_RECIENTES)) {
-    void idbDel('gastonart-proy-' + sob.id)
-    try { localStorage.removeItem('gastonart-proy-' + sob.id) } catch { /* ignorar */ }
+  // ¿Es una edición de plantilla? (partió de una plantilla del listado; los
+  // lienzos en blanco / collage / carrusel usan claves sintéticas enblanco-*, etc.)
+  const esTpl = rutasPlantilla.includes(plantillaActual)
+  lista.unshift({ id, nombre, fecha: Date.now(), thumb, tpl: esTpl || undefined })
+  const borrarDatos = (r: Reciente): void => {
+    void idbDel('gastonart-proy-' + r.id)
+    try { localStorage.removeItem('gastonart-proy-' + r.id) } catch { /* ignorar */ }
   }
+  // Ediciones de plantilla: conservar solo las 3 más nuevas.
+  const sobranTpl = new Set(lista.filter((r) => r.tpl).slice(MAX_RECIENTES_TPL).map((r) => r.id))
+  for (const r of lista) if (sobranTpl.has(r.id)) borrarDatos(r)
+  lista = lista.filter((r) => !sobranTpl.has(r.id))
+  // Tope general (expulsar los más viejos; también restos de la era localStorage).
+  for (const sob of lista.slice(MAX_RECIENTES)) borrarDatos(sob)
   lista = lista.slice(0, MAX_RECIENTES)
   try { await idbSet('gastonart-proy-' + id, json) } catch (e) { console.warn('[recientes] no se pudo guardar en IndexedDB:', e) }
   try { localStorage.setItem(LS_RECIENTES, JSON.stringify(lista)) } catch { /* ignorar */ }
@@ -7203,11 +7230,19 @@ document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () =
   const nombre = prompt('Nombre de la plantilla:', sug || 'Mi plantilla')
   if (nombre) void guardarComoPlantilla(nombre)
 })
+// Si hay cambios y el diseño NO tiene nombre, no se guarda en Recientes:
+// confirmar antes de descartarlo. Devuelve true si se puede continuar.
+function confirmarDescarteSinNombre(): boolean {
+  if (!proyectoActualId || inNombre.value.trim() || histIdx <= 0) return true
+  return confirm('Este diseño no tiene nombre, así que NO va a quedar en Recientes.\n¿Salir sin guardar?\n\n(Para conservarlo, cancelá y ponele un nombre arriba.)')
+}
 document.querySelector('#btn-nuevo')!.addEventListener('click', () => {
-  // Si el proyecto actual tiene cambios pero NO tiene nombre, avisar antes de salir.
-  if (proyectoActualId && !inNombre.value.trim() && histIdx > 0 &&
-      !confirm('Este proyecto no tiene nombre. ¿Salir igual? Va a quedar en "Recientes" como «Sin nombre».')) return
+  if (!confirmarDescarteSinNombre()) return
   mostrarInicio()
+})
+// Cerrar la ventana con trabajo sin nombre → aviso nativo del navegador.
+window.addEventListener('beforeunload', (e) => {
+  if (proyectoActualId && !inNombre.value.trim() && histIdx > 0) { e.preventDefault(); e.returnValue = '' }
 })
 document.querySelector('#btn-deshacer')!.addEventListener('click', () => void deshacer())
 document.querySelector('#btn-rehacer')!.addEventListener('click', () => void rehacer())
@@ -8738,6 +8773,7 @@ void (async () => {
   poblarFamilias()
   await cargarPlantillasUsuario() // sumar al listado las plantillas que el usuario guardó (IndexedDB)
   cargarOcultas()           // quitar del listado las plantillas del paquete que borró
+  purgarRecientesSinNombre() // los autosaves "Sin nombre" de versiones viejas ya no van
   void cargarFuentesGuardadas() // re-baja las fuentes de Google agregadas (async)
   // La app SIEMPRE arranca en la pantalla de inicio (formatos + plantillas). El
   // último trabajo, si existe, se ofrece desde ahí ("Seguir editando"). Detrás
