@@ -38,7 +38,9 @@ export default defineConfig({
       workbox: {
         // Precachear TODO el build (incluye wasm de resvg y las fuentes
         // empaquetadas) para que el editor y el export funcionen offline.
-        globPatterns: ['**/*.{js,css,html,wasm,ttf,otf,woff,woff2,png,svg,webmanifest}'],
+        // OJO: incluye 'mjs' — el worker de pdf.js se emite como .mjs; sin él en
+        // el precache, importar un PDF con la app offline fallaba.
+        globPatterns: ['**/*.{js,mjs,css,html,wasm,ttf,otf,woff,woff2,png,svg,webmanifest}'],
         maximumFileSizeToCacheInBytes: 40 * 1024 * 1024,
         // Los servicios online (Iconify, Openverse, Google Fonts, quitar fondo)
         // requieren red igual; no se cachean.

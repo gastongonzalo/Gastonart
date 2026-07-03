@@ -6973,22 +6973,31 @@ function actualizarBotonesHistorial(): void {
 let tGuardar: number | undefined
 function autoguardar(): void {
   clearTimeout(tGuardar)
-  tGuardar = window.setTimeout(() => {
-    try {
-      // Con un reencuadre abierto el SVG vivo tiene estado transitorio (clip
-      // quitado, wrapper 0.5, contorno rosa): no serializarlo — salirReencuadre
-      // vuelve a disparar el autoguardado al confirmar.
-      if (reframeG) return
-      guardarMesaActiva()
-      const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
-      // El proyecto va a "recientes" (datos en IndexedDB → los collages con muchas
-      // fotos superan la cuota de localStorage). Guardia blanda ante casos absurdos.
-      const json = JSON.stringify(data)
-      if (json.length > 60_000_000) return
-      void guardarReciente(json)
-    } catch { /* ignorar */ }
-  }, 600)
+  tGuardar = window.setTimeout(() => { tGuardar = undefined; ejecutarAutoguardado() }, 600)
 }
+function ejecutarAutoguardado(): void {
+  try {
+    // Con un reencuadre abierto el SVG vivo tiene estado transitorio (clip
+    // quitado, wrapper 0.5, contorno rosa): no serializarlo — salirReencuadre
+    // vuelve a disparar el autoguardado al confirmar.
+    if (reframeG) return
+    guardarMesaActiva()
+    const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
+    // El proyecto va a "recientes" (datos en IndexedDB → los collages con muchas
+    // fotos superan la cuota de localStorage). Guardia blanda ante casos absurdos.
+    const json = JSON.stringify(data)
+    if (json.length > 60_000_000) return
+    void guardarReciente(json)
+  } catch { /* ignorar */ }
+}
+// Al ocultarse/cerrarse la app, disparar el autoguardado pendiente YA (sin el
+// debounce): cerrar justo después de un cambio perdía los últimos 600ms+escritura.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && tGuardar !== undefined) {
+    clearTimeout(tGuardar); tGuardar = undefined
+    ejecutarAutoguardado()
+  }
+})
 
 // ---------------------------------------------------------------
 //  IndexedDB para los DATOS de los proyectos recientes. Los JSON con fotos
@@ -7132,7 +7141,7 @@ inProyecto.addEventListener('change', async () => {
 document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () => {
   const sug = rutasUsuario.has(plantillaActual) ? nombreCorto(plantillaActual) : ''
   const nombre = prompt('Nombre de la plantilla:', sug || 'Mi plantilla')
-  if (nombre) guardarComoPlantilla(nombre)
+  if (nombre) void guardarComoPlantilla(nombre)
 })
 document.querySelector('#btn-nuevo')!.addEventListener('click', () => {
   // Si el proyecto actual tiene cambios pero NO tiene nombre, avisar antes de salir.
@@ -7961,12 +7970,16 @@ const LS_PLANTILLAS = 'gastonart-plantillas-usuario' // legado (solo migración)
 const IDB_PLANTILLAS = 'gastonart-plantillas-usuario'
 const rutasUsuario = new Set<string>() // plantillas guardadas por el usuario (borrables, persistidas)
 
-function persistirPlantillas(): void {
+// Devuelve la promesa de la escritura para poder ESPERARLA donde importa
+// (guardar plantilla): confirmar antes de que termine permitía cerrar la app
+// con el dato aún sin escribir → la plantilla "desaparecía" al reabrir.
+function persistirPlantillas(): Promise<void> {
   const data: Record<string, string> = {}
   for (const ruta of rutasUsuario) data[nombreCorto(ruta)] = plantillas[ruta]
-  void idbSet(IDB_PLANTILLAS, JSON.stringify(data)).catch((e) => {
+  return idbSet(IDB_PLANTILLAS, JSON.stringify(data)).catch((e) => {
     estado.textContent = '⚠ No se pudieron guardar las plantillas (sin espacio)'
     console.error('[persistirPlantillas]', e)
+    throw e
   })
 }
 
@@ -8020,18 +8033,34 @@ function quitarDelListado(ruta: string): void {
 
 // Guarda el lienzo actual como plantilla reutilizable. Sobreescribe si ya existe
 // una plantilla del usuario con ese nombre.
-function guardarComoPlantilla(nombre: string): string | null {
+async function guardarComoPlantilla(nombre: string): Promise<string | null> {
   const nom = nombre.trim()
   if (!nom || !svgEl) return null
   const svg = new XMLSerializer().serializeToString(svgEl)
+  const anterior = plantillaActual
   const previa = [...rutasUsuario].find((r) => nombreCorto(r) === nom)
   let ruta: string
   if (previa) { plantillas[previa] = svg; ruta = previa }
   else { ruta = registrarPlantilla(nom, svg); rutasUsuario.add(ruta) }
-  persistirPlantillas()
+  // Si veníamos de un import SIN guardar (entrada de sesión con el nombre del
+  // archivo), la guardada la REEMPLAZA: no deben quedar las dos en el listado.
+  if (anterior && anterior !== ruta && plantillas[anterior] && !rutasUsuario.has(anterior)) {
+    delete plantillas[anterior]
+    quitarDelListado(anterior)
+  }
   plantillaActual = ruta
   if ([...selPlantilla.options].some((o) => o.value === ruta)) selPlantilla.value = ruta
+  // El proyecto toma el nombre de la plantilla si aún no tenía (así el reciente
+  // no queda como "Sin nombre" / nombre del archivo subido).
+  if (!inNombre.value.trim()) {
+    inNombre.value = nom
+    try { localStorage.setItem('gastonart-nombre', nom) } catch { /* ignorar */ }
+  }
+  // Esperar la escritura REAL a IndexedDB antes de confirmar.
+  estado.textContent = 'Guardando plantilla…'
+  try { await persistirPlantillas() } catch { return null }
   estado.textContent = `Plantilla guardada: ${nombreCorto(ruta)}`
+  autoguardar() // refrescar el reciente (nombre/miniatura) con la plantilla ya persistida
   return ruta
 }
 
@@ -8041,7 +8070,7 @@ function borrarPlantilla(ruta: string): void {
   if (rutasUsuario.has(ruta)) {
     delete plantillas[ruta]
     rutasUsuario.delete(ruta)
-    persistirPlantillas()
+    void persistirPlantillas().catch(() => { /* ya avisó en estado */ })
   } else {
     ocultas.add(nombreCorto(ruta)) // del paquete: ocultar
     persistirOcultas()
@@ -8637,6 +8666,9 @@ function r2(n: number): number {
 //  Arranque
 // ---------------------------------------------------------------
 void (async () => {
+  // Pedir almacenamiento PERSISTENTE: sin esto el navegador puede desalojar
+  // IndexedDB/localStorage (plantillas y recientes) si anda corto de disco.
+  try { void navigator.storage?.persist?.() } catch { /* no soportado */ }
   inyectarFontFaces()
   await cargarPack()
   poblarFamilias()
