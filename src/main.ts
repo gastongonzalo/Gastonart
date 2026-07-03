@@ -8147,7 +8147,7 @@ const RE_TOKEN = /\+([^+\n]+?)\+/g
 function abrirCertificados(): void {
   cerrarInicio()
   cerrarEditor()
-  document.querySelectorAll('#modal-cert').forEach((n) => n.remove())
+  document.querySelectorAll('#modal-cert, #cert-chip').forEach((n) => n.remove())
 
   let tokens: string[] = [] // marcadores tal como aparecen (sin los +)
   let textoOrig: Record<string, string> = {} // campo → texto original con +MARCADORES+
@@ -8162,7 +8162,12 @@ function abrirCertificados(): void {
 
   const ov = document.createElement('div'); ov.id = 'modal-cert'
   ov.innerHTML = `
-    <div class="mc-head"><strong>🎓 Certificados</strong><button id="cert-cerrar" class="mini" title="Cerrar (restaura el diseño)">✕</button></div>
+    <div class="mc-head cert-head" title="Arrastrá para mover este panel"><strong>🎓 Certificados</strong>
+      <span class="cert-head-btns">
+        <button id="cert-min" class="mini" title="Minimizar: seguís editando el diseño y volvés con el botón 🎓">—</button>
+        <button id="cert-cerrar" class="mini" title="Cerrar (restaura los marcadores del diseño)">✕</button>
+      </span>
+    </div>
     <div class="cert-body">
       <div class="cert-tit">1 · Plantilla con marcadores</div>
       <p class="cert-info" style="margin:0">Los textos a completar van entre <strong>signos +</strong>: «Se certifica que <strong>+NOMBRE+ +APELLIDO+</strong>, DNI <strong>+DNI+</strong>…»</p>
@@ -8477,9 +8482,43 @@ function abrirCertificados(): void {
   $c('#cert-next').addEventListener('click', () => { filaVista++; refrescar() })
   btnPdf.addEventListener('click', () => void generar('pdf'))
   btnZip.addEventListener('click', () => void generar('zip'))
+  // ARRASTRAR el panel desde la cabecera (tapaba la barra de texto a la derecha).
+  const head = $c<HTMLElement>('.cert-head')
+  head.addEventListener('pointerdown', (e) => {
+    if ((e.target as Element).closest('button')) return
+    e.preventDefault()
+    const r = ov.getBoundingClientRect()
+    ov.style.left = r.left + 'px'; ov.style.top = r.top + 'px'; ov.style.right = 'auto'
+    const sx = e.clientX - r.left, sy = e.clientY - r.top
+    const onMove = (ev: PointerEvent) => {
+      const nl = Math.max(4, Math.min(ev.clientX - sx, window.innerWidth - r.width - 4))
+      const nt = Math.max(4, Math.min(ev.clientY - sy, window.innerHeight - 48))
+      ov.style.left = nl + 'px'; ov.style.top = nt + 'px'
+    }
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+  })
+
+  // MINIMIZAR: se oculta el panel (con todos los datos) y queda un botón
+  // flotante 🎓 para volver — así se puede editar el diseño sin perder nada.
+  $c('#cert-min').addEventListener('click', () => {
+    ov.hidden = true
+    const chip = document.createElement('button')
+    chip.id = 'cert-chip'
+    chip.textContent = '🎓 Certificados'
+    chip.title = 'Volver al asistente de certificados (los datos quedaron cargados)'
+    chip.addEventListener('click', () => { chip.remove(); ov.hidden = false })
+    document.body.appendChild(chip)
+  })
+
   $c('#cert-cerrar').addEventListener('click', () => {
     if (generando) return
     ov.remove()
+    document.querySelectorAll('#cert-chip').forEach((n) => n.remove())
     // El diseño QUEDA abierto (para guardarlo como plantilla, retocarlo, etc.):
     // solo se deshacen los datos de la fila en vista, restaurando los
     // +MARCADORES+ originales. Los ajustes de tamaño/tipografía se conservan.
