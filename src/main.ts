@@ -3593,7 +3593,7 @@ function reordenarSel(modo: 'arriba' | 'abajo' | 'tope' | 'fondo'): void {
 }
 
 // --- Degradados de relleno -------------------------------------------------
-interface ParadaGrad { color: string; pos: number } // pos 0..100
+interface ParadaGrad { color: string; pos: number; alpha?: number } // pos 0..100; alpha 0..100 (100 = opaco)
 
 // id del gradiente si el fill del elemento es url(#...).
 function gradIdDe(el: SVGElement): string | null {
@@ -3610,6 +3610,7 @@ function leerDegradado(el: SVGElement): { stops: ParadaGrad[]; angulo: number } 
     const stops = Array.from(g.querySelectorAll('stop')).map((s) => ({
       color: aHex(s.getAttribute('stop-color') || '#000000'),
       pos: Math.round(parseFloat(s.getAttribute('offset') || '0') * 100),
+      alpha: Math.round(parseFloat(s.getAttribute('stop-opacity') ?? '1') * 100),
     }))
     const x1 = +(g.getAttribute('x1') ?? 0), y1 = +(g.getAttribute('y1') ?? 0)
     const x2 = +(g.getAttribute('x2') ?? 1), y2 = +(g.getAttribute('y2') ?? 0)
@@ -3659,6 +3660,10 @@ function aplicarDegradado(els: SVGElement[], stops: ParadaGrad[], angulo: number
     const st = document.createElementNS(SVGNS, 'stop')
     st.setAttribute('offset', String(s.pos / 100))
     st.setAttribute('stop-color', s.color)
+    // Transparencia por parada (degradado hacia transparente). resvg honra
+    // stop-opacity, así el export coincide con el editor.
+    const alpha = s.alpha ?? 100
+    if (alpha < 100) st.setAttribute('stop-opacity', String(alpha / 100))
     grad.appendChild(st)
   }
   for (const el of els) el.style.fill = `url(#${id})`
@@ -3682,8 +3687,14 @@ function abrirPanelDegradado(els: SVGElement[]): void {
       const col = document.createElement('input'); col.type = 'color'; col.value = s.color
       col.addEventListener('input', () => { stops[i].color = col.value; aplicar() })
       const pos = document.createElement('input'); pos.type = 'range'; pos.min = '0'; pos.max = '100'; pos.value = String(s.pos)
+      pos.title = 'Posición'
       pos.addEventListener('input', () => { stops[i].pos = +pos.value; aplicar() })
-      fila.append(col, pos)
+      // Opacidad de la parada: 0 = transparente (degradado hacia transparencia).
+      const op = document.createElement('input'); op.type = 'range'; op.min = '0'; op.max = '100'
+      op.className = 'grad-alpha'; op.value = String(s.alpha ?? 100)
+      op.title = 'Opacidad de este color (0 = transparente)'
+      op.addEventListener('input', () => { stops[i].alpha = +op.value; aplicar() })
+      fila.append(col, pos, op)
       if (stops.length > 2) {
         const del = document.createElement('button'); del.className = 'grad-del-stop'; del.textContent = '−'
         del.addEventListener('click', () => { stops.splice(i, 1); aplicar(); render() })
@@ -3694,11 +3705,19 @@ function abrirPanelDegradado(els: SVGElement[]): void {
     panel.append(lista)
     const add = document.createElement('button'); add.className = 'grad-add'; add.textContent = '+ color'
     add.addEventListener('click', () => { stops.push({ color: '#000000', pos: 100 }); aplicar(); render() })
+    // Atajo clásico: el mismo color desvaneciéndose a transparente.
+    const trans = document.createElement('button'); trans.className = 'grad-add'; trans.textContent = '→ transparente'
+    trans.title = 'Desvanecer el color hacia transparente'
+    trans.addEventListener('click', () => {
+      const u = stops[stops.length - 1]
+      u.color = stops[0].color; u.alpha = 0
+      aplicar(); render()
+    })
     const angLab = document.createElement('label'); angLab.className = 'grad-ang'; angLab.textContent = 'Ángulo '
     const ang = document.createElement('input'); ang.type = 'range'; ang.min = '0'; ang.max = '360'; ang.value = String(angulo)
     ang.addEventListener('input', () => { angulo = +ang.value; aplicar() })
     angLab.append(ang)
-    panel.append(add, angLab)
+    panel.append(add, trans, angLab)
     panel.querySelector('.grad-cerrar')!.addEventListener('click', () => { registrarHistorial(); autoguardar(); panel.remove() })
   }
   render()
@@ -8609,6 +8628,18 @@ async function importarPDF(file: File): Promise<void> {
     let clipPathD: string | null = null
     const pilaCP: (string | null)[] = []
     let nClip = 0, nGrad = 0
+    // Degradado → TRANSPARENCIA (Illustrator/Express): el PDF pinta primero un
+    // degradado blanco→negro DENTRO de un grupo con soft-mask de luminosidad, y
+    // después el color con esa máscara activa (SMask true). En vez de emitir DOS
+    // piezas visibles, capturamos el degradado del grupo como canal ALFA y lo
+    // combinamos con el color en UN <linearGradient> con stop-opacity.
+    let grupoMascara = 0 // profundidad dentro de grupos con smask
+    const pilaGrupos: boolean[] = [] // qué beginGroup era de máscara
+    let mascaraLum: { stops: [number, string][]; p0: number[]; p1: number[] } | null = null
+    const lumDe = (hex: string): number => {
+      const n = parseInt((hex || '#000000').replace('#', ''), 16)
+      return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+    }
     const bufTieneCurvas = (buf: any): boolean => {
       for (let k = 0; k < buf.length;) { const o = buf[k++]; if (o === 2 || o === 3) return true; k += [2, 2, 6, 4, 0][o] || 0 }
       return false
@@ -8635,6 +8666,18 @@ async function importarPDF(file: File): Promise<void> {
       else if (fn === OPS.setStrokeRGBColor) { if (typeof a[0] === 'string') stroke = a[0] }
       else if (fn === OPS.setLineWidth) { lw = a[0] }
       else if (fn === OPS.showText) { colSeq.push(fill) } // color del texto, en orden
+      else if (fn === OPS.beginGroup) {
+        const esMascara = !!(a && a[0] && a[0].smask)
+        pilaGrupos.push(esMascara)
+        if (esMascara) grupoMascara++
+      }
+      else if (fn === OPS.endGroup) {
+        if (pilaGrupos.pop()) grupoMascara = Math.max(0, grupoMascara - 1)
+      }
+      else if (fn === OPS.setGState) {
+        // SMask desactivada → descartar la máscara capturada que quedó sin usar.
+        if (Array.isArray(a[0]) && a[0].some((par: any) => Array.isArray(par) && par[0] === 'SMask' && par[1] === false)) mascaraLum = null
+      }
       else if (fn === OPS.shadingFill) {
         // Degradé (p.ej. el badge detrás de un logo). Se reconstruye como
         // <linearGradient>/<radialGradient> SVG sobre la forma del recorte activo.
@@ -8646,9 +8689,29 @@ async function importarPDF(file: File): Promise<void> {
           const ap = (px: number, py: number) => [tm[0] * px + tm[2] * py + tm[4], tm[1] * px + tm[3] * py + tm[5]]
           const p0 = ap((sh[4] && sh[4][0]) || 0, (sh[4] && sh[4][1]) || 0)
           const p1 = ap((sh[5] && sh[5][0]) || 1, (sh[5] && sh[5][1]) || 0)
+          if (grupoMascara) {
+            // Dentro del grupo smask: es el degradado de LUMINOSIDAD (blanco =
+            // opaco, negro = transparente). Se captura como alfa, NO se pinta.
+            mascaraLum = { stops: stops as [number, string][], p0, p1 }
+            continue
+          }
           const id = `pdfgrad${nGrad++}`
-          const stopsXml = stops.map((s: any) => `<stop offset="${r2(s[0])}" stop-color="${s[1]}"/>`).join('')
-          const grad = `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${r2(p0[0])}" y1="${r2(p0[1])}" x2="${r2(p1[0])}" y2="${r2(p1[1])}">${stopsXml}</linearGradient>`
+          const colorUnico = stops.every((s: any) => s[1] === stops[0][1])
+          let g0 = p0, g1 = p1
+          let stopsXml: string
+          if (mascaraLum && colorUnico) {
+            // Color liso + máscara degradé = UN degradado color→transparente:
+            // geometría de la máscara, color del relleno, alfa por luminosidad.
+            g0 = mascaraLum.p0; g1 = mascaraLum.p1
+            const color = stops[0][1]
+            stopsXml = mascaraLum.stops
+              .map((s) => `<stop offset="${r2(s[0])}" stop-color="${color}" stop-opacity="${r2(lumDe(s[1]))}"/>`)
+              .join('')
+          } else {
+            stopsXml = stops.map((s: any) => `<stop offset="${r2(s[0])}" stop-color="${s[1]}"/>`).join('')
+          }
+          mascaraLum = null // consumida (o no aplicable a este relleno)
+          const grad = `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${r2(g0[0])}" y1="${r2(g0[1])}" x2="${r2(g1[0])}" y2="${r2(g1[1])}">${stopsXml}</linearGradient>`
           const forma = clipPathD
             ? `<path d="${clipPathD}" fill="url(#${id})"/>`
             : `<rect x="${r2(clip[0])}" y="${r2(clip[1])}" width="${r2(clip[2] - clip[0])}" height="${r2(clip[3] - clip[1])}" fill="url(#${id})"/>`
@@ -8666,9 +8729,10 @@ async function importarPDF(file: File): Promise<void> {
         ultimoPathD = (buf0 && buf0.length && bufTieneCurvas(buf0)) ? a[1].map((b: any) => (b && b.length ? pathADStr(b) : '')).filter(Boolean).join(' ') : null
         if (clipPendiente && ultimoPathBbox) { clip = intersecar(clip, ultimoPathBbox); if (ultimoPathD) clipPathD = ultimoPathD; clipPendiente = false } // (A)
         // Emitir el trazo como <path> si la operación lo pinta (fill/stroke).
+        // Dentro de un grupo de máscara NO se emite nada visible.
         const nom = nombreOp[a[0]] || ''
         const haceFill = /fill/i.test(nom), haceStroke = /stroke/i.test(nom)
-        if ((haceFill || haceStroke) && Array.isArray(a[1])) {
+        if ((haceFill || haceStroke) && !grupoMascara && Array.isArray(a[1])) {
           const d = a[1].map((b: any) => (b && b.length ? pathADStr(b) : '')).filter(Boolean).join(' ')
           if (d) {
             const tm = Util.transform(vp.transform, m)
@@ -8684,6 +8748,7 @@ async function importarPDF(file: File): Promise<void> {
         }
       }
       else if (fn === OPS.paintImageXObject || fn === OPS.paintImageMaskXObject) {
+        if (grupoMascara) continue // contenido de la máscara: no es visible
         const nombre = a[0]
         const obj = await new Promise<any>((res) => { try { page.objs.get(nombre, res) } catch { res(null) } }).catch(() => null)
         const fuente = obj ? imagenPdfACanvas(obj) : null
