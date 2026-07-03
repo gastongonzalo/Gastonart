@@ -4631,6 +4631,21 @@ function construirOverlays(): void {
     if (tieneFoto && framesFoto[id] && !fitCollage) habilitarPanZoom(hit, id)
   }
 
+  // Imágenes del diseño que NO son huecos (p. ej. las que entran de un PDF/.ai,
+  // que son elementos editables): en modo plantilla un clic las REEMPLAZA
+  // (mismo flujo que el botón 🔁 de la selección en modo completo).
+  if (enPlantilla) {
+    for (const im of Array.from(svgEl.querySelectorAll<SVGImageElement>('image:not([data-foto])'))) {
+      if (im.closest('defs, clipPath, mask, pattern')) continue
+      const r = rectUnion([im], base)
+      if (!r || r.width < 8 || r.height < 8) continue
+      const hit = crearHit(r, 'imagen', () => { abrirPanelImagen(); reemplazarDestino = im })
+      hit.classList.add('hit-foto')
+      hit.title = 'Clic para reemplazar la imagen'
+      lienzo.appendChild(hit)
+    }
+  }
+
   for (const c of camposActuales) {
     const el = svgEl.querySelector(`[data-campo="${c.nombre}"][data-anchor]`)
     const agregado = el?.getAttribute('data-agregado') === 'texto'
@@ -8603,14 +8618,18 @@ let zoomLienzo = 1
 const escenario = document.querySelector<HTMLDivElement>('#escenario')!
 const zoomVal = document.querySelector<HTMLButtonElement>('#zoom-val')!
 
-// Clic en la mesa de trabajo (gris) FUERA del artboard → deselecciona: se va la
-// barra flotante y los tiradores del elemento. La barra (en <body>) no burbujea
-// por acá, así que clickearla no deselecciona.
+// Mesa de trabajo (gris) FUERA del artboard:
+//  - clic simple → deselecciona (se van barra flotante y tiradores).
+//  - ARRASTRAR (en modo completo) → inicia el recuadro de selección múltiple.
+//    Clave con una imagen a sangre: adentro no queda "vacío" clickeable donde
+//    empezar el marquee; desde afuera siempre se puede.
 escenario.addEventListener('pointerdown', (e) => {
   const t = e.target as Element
   if (t.closest('#lienzo') || t.closest('.graf-tools')) return
   if (editorActivo) cerrarEditor()
-  if (grafSeleccion.length) { grafSeleccion = []; limpiarGraf() }
+  const aditivo = e.ctrlKey || e.metaKey
+  if (!aditivo && grafSeleccion.length) { grafSeleccion = []; limpiarGraf() }
+  if (modoEdicion === 'completa' && svgEl) { e.preventDefault(); iniciarMarquee(e) }
 })
 function anchoBaseLienzo(): number {
   return Math.min(680, Math.max(140, escenario.clientWidth - 36))
