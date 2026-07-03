@@ -507,8 +507,8 @@ app.innerHTML = `
           <button class="pl-preset" data-preset="subtitulo" style="font-size:15px; font-weight:600;">Subtítulo</button>
           <button class="pl-preset" data-preset="cuerpo" style="font-size:13px;">Cuerpo de texto</button>
           <div class="pl-sub">Certificados</div>
-          <button id="btn-add-campo-cert" class="pl-accion" title="Agrega un texto con un marcador +ASÍ+ que después se completa desde una planilla (Archivo → Generar certificados)">🎓 Campo de formulario (+MARCADOR+)</button>
-          <p class="pl-nota">Un campo dinámico que se completa en lote desde «Generar certificados»: elegí el nombre (NOMBRE, DNI…) y queda como marcador +ASÍ+ en el diseño.</p>
+          <button id="btn-add-campo-cert" class="pl-accion" title="Agrega un texto con un marcador +ASÍ+ y abre los controles para completarlo en lote">🎓 Campo de formulario (+MARCADOR+)</button>
+          <p class="pl-nota">Crea el campo dinámico (NOMBRE, DNI…) y abre ahí mismo el asistente de certificados para completarlo — diseñás y cargás datos a la vez.</p>
         </section>
 
         <section class="pl-view" data-cat="elementos" hidden>
@@ -1242,8 +1242,9 @@ for (const b of Array.from(document.querySelectorAll<HTMLElement>('.pl-preset'))
   })
 }
 
-// Campo de formulario dinámico: un cuadro de texto con marcador +ASÍ+, que
-// después se completa en lote desde Archivo → Generar certificados.
+// Campo de formulario dinámico: crea el cuadro de texto con el marcador +ASÍ+
+// y AHÍ MISMO abre (o refresca) el asistente de certificados con los controles
+// para completarlo — las dos herramientas conviven mientras se diseña.
 document.querySelector('#btn-add-campo-cert')!.addEventListener('click', () => {
   const nom = prompt('Nombre del campo (ej: NOMBRE, APELLIDO, DNI, FECHA):', 'NOMBRE')
   if (nom == null) return
@@ -1253,7 +1254,16 @@ document.querySelector('#btn-add-campo-cert')!.addEventListener('click', () => {
   const ta = editorActivo.ta
   ta.value = `+${marca}+`
   ta.dispatchEvent(new Event('input', { bubbles: true }))
-  ta.select() // listo para reemplazar o confirmar
+  cerrarEditor() // confirmar ya, para que el asistente detecte el marcador
+  const panel = document.querySelector<HTMLElement>('#modal-cert')
+  if (panel && certRefrescar) {
+    // Ya estaba abierto (o minimizado): traerlo al frente con el campo nuevo.
+    certRefrescar()
+    panel.hidden = false
+    document.querySelectorAll('#cert-chip').forEach((n) => n.remove())
+  } else {
+    abrirCertificados('manual')
+  }
 })
 
 let contadorAgregados = 0 // para nombres únicos de elementos agregados
@@ -8143,8 +8153,11 @@ async function importarArchivoDiseno(file: File): Promise<void> {
 // La plantilla marca lo que se completa con +MARCADORES+ dentro del texto:
 // «Se certifica que +NOMBRE+ +APELLIDO+, DNI +DNI+, participó…».
 const RE_TOKEN = /\+([^+\n]+?)\+/g
+// Hook para refrescar el asistente ABIERTO cuando se agrega un campo +MARCADOR+
+// desde el panel Texto (las dos herramientas conviven).
+let certRefrescar: (() => void) | null = null
 
-function abrirCertificados(): void {
+function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
   cerrarInicio()
   cerrarEditor()
   document.querySelectorAll('#modal-cert, #cert-chip').forEach((n) => n.remove())
@@ -8302,7 +8315,9 @@ function abrirCertificados(): void {
     } else {
       filas = manual.map((f) => {
         const o: Record<string, string> = {}
-        tokens.forEach((t, i) => { o[normalizarCol(t)] = (f[i] ?? '').trim() })
+        // Celda vacía → NO se define la clave: el marcador queda visible en la
+        // vista previa (feedback de que falta completar), en vez de desaparecer.
+        tokens.forEach((t, i) => { const v = (f[i] ?? '').trim(); if (v !== '') o[normalizarCol(t)] = v })
         return o
       })
     }
@@ -8372,7 +8387,12 @@ function abrirCertificados(): void {
   const aplicarFila = (fila: Record<string, string>): void => {
     for (const [campo, orig] of Object.entries(textoOrig)) {
       if (!metricas[campo]) continue
-      valores[campo] = orig.replace(RE_TOKEN, (_mm, t) => fila[normalizarCol(String(t).trim())] ?? '')
+      // Sin datos para un marcador (columna sin asignar / celda sin completar):
+      // el marcador queda visible — mejor aviso que un espacio en blanco mudo.
+      valores[campo] = orig.replace(RE_TOKEN, (mm, t) => {
+        const v = fila[normalizarCol(String(t).trim())]
+        return v === undefined ? mm : v
+      })
       pintarCampo(campo)
     }
   }
@@ -8515,8 +8535,23 @@ function abrirCertificados(): void {
     document.body.appendChild(chip)
   })
 
+  // Re-escanear los marcadores SIN perder los datos cargados (cuando se agrega
+  // un campo +MARCADOR+ desde el panel Texto con el asistente abierto). Antes
+  // de escanear se restauran los textos originales: si hay una fila aplicada,
+  // el escaneo leería "Ana Pérez" en vez de +NOMBRE+.
+  const reescanear = (): void => {
+    for (const [campo, orig] of Object.entries(textoOrig)) {
+      if (metricas[campo]) { valores[campo] = orig; pintarCampo(campo) }
+    }
+    escanear(); renderTokens(); renderEstilos()
+    renderManual(); renderMapa()
+    armarFilas(); refrescar()
+  }
+  certRefrescar = reescanear
+
   $c('#cert-cerrar').addEventListener('click', () => {
     if (generando) return
+    certRefrescar = null
     ov.remove()
     document.querySelectorAll('#cert-chip').forEach((n) => n.remove())
     // El diseño QUEDA abierto (para guardarlo como plantilla, retocarlo, etc.):
@@ -8532,6 +8567,8 @@ function abrirCertificados(): void {
 
   // Arranque: si el diseño abierto ya tiene marcadores, se puede usar directo.
   escanear(); renderTokens(); renderEstilos(); renderManual(); refrescar()
+  // Al crear un campo desde el panel Texto se arranca en "Completar acá".
+  if (modoInicial === 'manual') ov.querySelector<HTMLButtonElement>('.cert-seg button[data-m="manual"]')?.click()
 }
 
 function abrirQR(): void {
