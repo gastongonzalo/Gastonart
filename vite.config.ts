@@ -36,6 +36,12 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Activar la versión nueva APENAS se instala (sin quedar "waiting") y
+        // tomar control de las ventanas abiertas: sin esto, las actualizaciones
+        // no llegaban nunca — el SW nuevo esperaba a que se cerraran TODAS las
+        // ventanas de la app, y el usuario seguía corriendo el build viejo.
+        skipWaiting: true,
+        clientsClaim: true,
         // Precachear TODO el build (incluye wasm de resvg y las fuentes
         // empaquetadas) para que el editor y el export funcionen offline.
         // OJO: incluye 'mjs' — el worker de pdf.js se emite como .mjs; sin él en
