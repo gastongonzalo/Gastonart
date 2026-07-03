@@ -8106,152 +8106,324 @@ function blobADataUrl(blob: Blob): Promise<string> {
 const normalizarCol = (s: string): string =>
   s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '')
 
+// Importa un archivo de diseño (PDF/.ai, SVG o imagen) al lienzo — mismo
+// dispatch que usa la pantalla de inicio.
+async function importarArchivoDiseno(file: File): Promise<void> {
+  if (/\.(pdf|ai)$/i.test(file.name) || file.type === 'application/pdf') await importarPDF(file)
+  else if (/\.svg$/i.test(file.name) || file.type === 'image/svg+xml') usarSvgImportado(await file.text(), file.name)
+  else if (file.type.startsWith('image/')) await crearPlacaDesdeMultimedia(file)
+  else usarSvgImportado(await file.text(), file.name)
+}
+
+// --- Asistente de certificados ---
+// (El ZIP se arma con crearZip/crc32, los mismos del export de carrusel.)
+// La plantilla marca lo que se completa con +MARCADORES+ dentro del texto:
+// «Se certifica que +NOMBRE+ +APELLIDO+, DNI +DNI+, participó…».
+const RE_TOKEN = /\+([^+\n]+?)\+/g
+
 function abrirCertificados(): void {
-  if (!svgEl || !camposActuales.length) {
-    estado.textContent = '🎓 Abrí primero la plantilla del certificado (tiene que tener textos editables)'
-    return
-  }
+  cerrarInicio()
   cerrarEditor()
   document.querySelectorAll('#modal-cert').forEach((n) => n.remove())
-  const snap = snapshotProyecto() // para restaurar el diseño al cerrar
 
-  let cols: string[] = []
-  let filas: string[][] = []
-  const mapa: Record<string, number> = {} // campo → índice de columna
+  let snap = snapshotProyecto() // restaurar al cerrar (se re-toma tras importar plantilla)
+  let tokens: string[] = [] // marcadores tal como aparecen (sin los +)
+  let textoOrig: Record<string, string> = {} // campo → texto original con +MARCADORES+
+  let filas: Record<string, string>[] = [] // datos armados (clave: token normalizado)
   let filaVista = 0
+  let modoDatos: 'pegar' | 'manual' = 'pegar'
+  let colsCSV: string[] = []
+  let filasCSV: string[][] = []
+  const mapaCSV: Record<string, number> = {} // tokenNorm → índice de columna
+  let manual: string[][] = [] // grilla manual: filas × tokens
   let generando = false
 
   const ov = document.createElement('div'); ov.id = 'modal-cert'
   ov.innerHTML = `
-    <div class="mc-head"><strong>🎓 Certificados en lote</strong><button id="cert-cerrar" class="mini" title="Cerrar (restaura el diseño)">✕</button></div>
+    <div class="mc-head"><strong>🎓 Certificados</strong><button id="cert-cerrar" class="mini" title="Cerrar (restaura el diseño)">✕</button></div>
     <div class="cert-body">
-      <div class="cert-tit">1 · Datos (primera fila = encabezados)</div>
-      <textarea id="cert-datos" rows="5" placeholder="Pegá acá la tabla desde Excel o Sheets…&#10;&#10;nombre&#9;documento&#10;Ana Pérez&#9;30.111.222&#10;Juan Gómez&#9;28.333.444"></textarea>
+      <div class="cert-tit">1 · Plantilla con marcadores</div>
+      <p class="cert-info" style="margin:0">Los textos a completar van entre <strong>signos +</strong>: «Se certifica que <strong>+NOMBRE+ +APELLIDO+</strong>, DNI <strong>+DNI+</strong>…»</p>
       <div class="cert-row">
-        <button id="cert-csv" class="mini">📄 O subir archivo CSV…</button>
-        <span id="cert-info" class="cert-info"></span>
+        <button id="cert-importar" class="ini-btn-acc" style="flex:1">📄 Importar plantilla (PDF / SVG)…</button>
       </div>
-      <input id="cert-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" hidden>
-      <div class="cert-tit">2 · Qué columna va en cada texto</div>
-      <div id="cert-mapa" class="cert-mapa"><span class="cert-info">Cargá los datos arriba y acá asignás las columnas.</span></div>
-      <div class="cert-tit">3 · Vista previa (mirá el diseño de fondo)</div>
+      <input id="cert-file-tpl" type="file" accept=".pdf,.ai,.svg,application/pdf,image/svg+xml,image/*" hidden>
+      <div id="cert-tokens" class="cert-tokens"></div>
+
+      <div class="cert-tit">2 · Datos</div>
+      <div class="unidad-seg cert-seg" role="group">
+        <button type="button" data-m="pegar" class="activo">Pegar / CSV</button>
+        <button type="button" data-m="manual">Completar acá</button>
+      </div>
+      <div id="cert-zona-pegar">
+        <textarea id="cert-datos" rows="4" placeholder="Pegá la tabla desde Excel o Sheets (primera fila = encabezados)…&#10;&#10;nombre&#9;apellido&#9;dni&#10;Ana&#9;Pérez&#9;30.111.222"></textarea>
+        <div class="cert-row">
+          <button id="cert-csv" class="mini">📄 O subir archivo CSV…</button>
+          <span id="cert-info" class="cert-info"></span>
+        </div>
+        <input id="cert-file-csv" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" hidden>
+        <div id="cert-mapa" class="cert-mapa"></div>
+      </div>
+      <div id="cert-zona-manual" hidden>
+        <div id="cert-grid-wrap" class="cert-grid-wrap"></div>
+        <button id="cert-add-fila" class="mini">＋ Agregar fila</button>
+      </div>
+
+      <div class="cert-tit">3 · Vista previa y descarga</div>
       <div class="cert-row cert-nav">
         <button id="cert-prev" class="mini" title="Fila anterior">‹</button>
         <span id="cert-pos" class="cert-info">–</span>
         <button id="cert-next" class="mini" title="Fila siguiente">›</button>
       </div>
-      <button id="cert-generar" class="ini-btn-acc" disabled>⬇ Generar PDF</button>
+      <label class="cert-row cert-info">Nombrar archivos con&nbsp;<select id="cert-nombre-col"></select></label>
+      <div class="cert-row">
+        <button id="cert-pdf" class="ini-btn-acc" style="flex:1" disabled>⬇ PDF único</button>
+        <button id="cert-zip" class="ini-btn-acc" style="flex:1" disabled>⬇ ZIP separados</button>
+      </div>
       <div id="cert-prog" class="cert-info"></div>
     </div>`
   document.body.appendChild(ov)
 
-  const $ = <T extends HTMLElement>(sel: string) => ov.querySelector(sel) as T
-  const taDatos = $<HTMLTextAreaElement>('#cert-datos')
-  const inFile = $<HTMLInputElement>('#cert-file')
-  const divMapa = $<HTMLDivElement>('#cert-mapa')
-  const spInfo = $<HTMLSpanElement>('#cert-info')
-  const spPos = $<HTMLSpanElement>('#cert-pos')
-  const btnGen = $<HTMLButtonElement>('#cert-generar')
-  const spProg = $<HTMLDivElement>('#cert-prog')
+  const $c = <T extends HTMLElement>(sel: string) => ov.querySelector(sel) as T
+  const taDatos = $c<HTMLTextAreaElement>('#cert-datos')
+  const divTokens = $c<HTMLDivElement>('#cert-tokens')
+  const divMapa = $c<HTMLDivElement>('#cert-mapa')
+  const spInfo = $c<HTMLSpanElement>('#cert-info')
+  const spPos = $c<HTMLSpanElement>('#cert-pos')
+  const spProg = $c<HTMLDivElement>('#cert-prog')
+  const btnPdf = $c<HTMLButtonElement>('#cert-pdf')
+  const btnZip = $c<HTMLButtonElement>('#cert-zip')
+  const selNombre = $c<HTMLSelectElement>('#cert-nombre-col')
+  const gridWrap = $c<HTMLDivElement>('#cert-grid-wrap')
 
-  const aplicarFila = (f: string[]): void => {
-    for (const [campo, idx] of Object.entries(mapa)) {
-      if (!metricas[campo]) continue
-      valores[campo] = (f[idx] ?? '').trim()
-      pintarCampo(campo)
+  // -- Paso 1: detectar los +MARCADORES+ del diseño abierto --
+  const escanear = (): void => {
+    tokens = []; textoOrig = {}
+    const vistos = new Set<string>()
+    if (!svgEl) return
+    for (const c of camposActuales) {
+      const els = Array.from(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`))
+      const txt = (valores[c.nombre] ?? (els.length ? textoActualCampo(els) : '')) || ''
+      if (!txt.includes('+')) continue
+      let hubo = false
+      for (const m of txt.matchAll(RE_TOKEN)) {
+        hubo = true
+        const t = m[1].trim()
+        const k = normalizarCol(t)
+        if (k && !vistos.has(k)) { vistos.add(k); tokens.push(t) }
+      }
+      if (hubo) textoOrig[c.nombre] = txt
     }
   }
-  const refrescar = (): void => {
-    const hay = filas.length > 0 && Object.keys(mapa).length > 0
-    if (filas.length) {
-      filaVista = Math.max(0, Math.min(filaVista, filas.length - 1))
-      spPos.textContent = `fila ${filaVista + 1} de ${filas.length}`
-      if (hay) aplicarFila(filas[filaVista])
-    } else spPos.textContent = '–'
-    btnGen.disabled = !hay || generando
-    btnGen.textContent = hay ? `⬇ Generar PDF (${filas.length} página${filas.length > 1 ? 's' : ''})` : '⬇ Generar PDF'
+  const renderTokens = (): void => {
+    if (!tokens.length) {
+      divTokens.innerHTML = '<span class="cert-info">⚠ No encontré marcadores +ASÍ+ en el diseño abierto. Importá la plantilla que los tenga.</span>'
+    } else {
+      divTokens.innerHTML = 'Detectados: ' + tokens.map((t) => `<span class="cert-chip">+${escHtml(t)}+</span>`).join(' ')
+    }
+    selNombre.innerHTML = tokens.map((t, i) => `<option value="${i}">${escHtml(t)}</option>`).join('')
+  }
+
+  // -- Paso 2: datos --
+  const armarFilas = (): void => {
+    if (modoDatos === 'pegar') {
+      filas = filasCSV.map((f) => {
+        const o: Record<string, string> = {}
+        for (const [tk, idx] of Object.entries(mapaCSV)) o[tk] = (f[idx] ?? '').trim()
+        return o
+      })
+    } else {
+      filas = manual.map((f) => {
+        const o: Record<string, string> = {}
+        tokens.forEach((t, i) => { o[normalizarCol(t)] = (f[i] ?? '').trim() })
+        return o
+      })
+    }
+    filas = filas.filter((o) => Object.values(o).some((v) => v !== ''))
   }
   const renderMapa = (): void => {
     divMapa.innerHTML = ''
-    if (!cols.length) {
-      divMapa.innerHTML = '<span class="cert-info">Cargá los datos arriba y acá asignás las columnas.</span>'
-      return
-    }
-    for (const c of camposActuales) {
+    if (!colsCSV.length || !tokens.length) return
+    for (const t of tokens) {
+      const k = normalizarCol(t)
       const fila = document.createElement('label'); fila.className = 'cert-map-fila'
-      const nom = document.createElement('span'); nom.className = 'cert-map-campo'
-      nom.textContent = c.etiqueta && c.etiqueta !== c.nombre ? `${c.nombre} · ${c.etiqueta.slice(0, 24)}` : c.nombre
-      nom.title = c.etiqueta || c.nombre
+      const nom = document.createElement('span'); nom.className = 'cert-map-campo'; nom.textContent = `+${t}+`
       const sel = document.createElement('select')
-      sel.innerHTML = '<option value="">— no cambiar</option>' +
-        cols.map((col, i) => `<option value="${i}">${escHtml(col || `columna ${i + 1}`)}</option>`).join('')
-      // Auto-asignar cuando el encabezado coincide con el nombre del campo.
-      const auto = cols.findIndex((col) => normalizarCol(col) !== '' && normalizarCol(col) === normalizarCol(c.nombre))
-      if (auto >= 0) { sel.value = String(auto); mapa[c.nombre] = auto }
+      sel.innerHTML = '<option value="">— sin datos</option>' +
+        colsCSV.map((col, i) => `<option value="${i}">${escHtml(col || `columna ${i + 1}`)}</option>`).join('')
+      const auto = colsCSV.findIndex((col) => normalizarCol(col) !== '' && normalizarCol(col) === k)
+      if (auto >= 0) { sel.value = String(auto); mapaCSV[k] = auto }
       sel.addEventListener('change', () => {
-        if (sel.value === '') delete mapa[c.nombre]
-        else mapa[c.nombre] = +sel.value
-        refrescar()
+        if (sel.value === '') delete mapaCSV[k]
+        else mapaCSV[k] = +sel.value
+        armarFilas(); refrescar()
       })
       fila.append(nom, sel)
       divMapa.appendChild(fila)
     }
   }
-  const procesar = (): void => {
+  const renderManual = (): void => {
+    if (!tokens.length) { gridWrap.innerHTML = '<span class="cert-info">Primero importá una plantilla con marcadores.</span>'; return }
+    if (!manual.length) manual = [tokens.map(() => '')]
+    const tabla = document.createElement('table'); tabla.className = 'cert-grid'
+    const thead = document.createElement('tr')
+    for (const t of tokens) { const th = document.createElement('th'); th.textContent = t; thead.appendChild(th) }
+    thead.appendChild(document.createElement('th'))
+    tabla.appendChild(thead)
+    manual.forEach((f, ri) => {
+      const tr = document.createElement('tr')
+      tokens.forEach((_t, ci) => {
+        const td = document.createElement('td')
+        const inp = document.createElement('input'); inp.type = 'text'; inp.value = f[ci] ?? ''
+        inp.addEventListener('input', () => {
+          manual[ri][ci] = inp.value
+          armarFilas()
+          filaVista = Math.min(ri, Math.max(0, filas.length - 1))
+          refrescar()
+        })
+        td.appendChild(inp); tr.appendChild(td)
+      })
+      const tdx = document.createElement('td')
+      const bx = document.createElement('button'); bx.className = 'mini'; bx.textContent = '✕'; bx.title = 'Quitar fila'
+      bx.addEventListener('click', () => { manual.splice(ri, 1); armarFilas(); renderManual(); refrescar() })
+      tdx.appendChild(bx); tr.appendChild(tdx)
+      tabla.appendChild(tr)
+    })
+    gridWrap.innerHTML = ''
+    gridWrap.appendChild(tabla)
+  }
+  const procesarPegado = (): void => {
     const r = parsearTabla(taDatos.value)
-    cols = r.cols; filas = r.filas; filaVista = 0
-    for (const k of Object.keys(mapa)) delete mapa[k]
-    spInfo.textContent = filas.length ? `${filas.length} fila${filas.length > 1 ? 's' : ''} · ${cols.length} columna${cols.length > 1 ? 's' : ''}` : ''
+    colsCSV = r.cols; filasCSV = r.filas; filaVista = 0
+    for (const kk of Object.keys(mapaCSV)) delete mapaCSV[kk]
+    spInfo.textContent = filasCSV.length ? `${filasCSV.length} fila${filasCSV.length > 1 ? 's' : ''} · ${colsCSV.length} columna${colsCSV.length > 1 ? 's' : ''}` : ''
     renderMapa()
-    refrescar()
+    armarFilas(); refrescar()
   }
 
-  let tProc = 0
-  taDatos.addEventListener('input', () => { clearTimeout(tProc); tProc = window.setTimeout(procesar, 350) })
-  $('#cert-csv').addEventListener('click', () => inFile.click())
-  inFile.addEventListener('change', async () => {
-    const f = inFile.files?.[0]
-    if (f) { taDatos.value = await leerTextoArchivo(f); procesar() }
-    inFile.value = ''
-  })
-  $('#cert-prev').addEventListener('click', () => { filaVista--; refrescar() })
-  $('#cert-next').addEventListener('click', () => { filaVista++; refrescar() })
+  // -- Paso 3: vista previa + export --
+  const aplicarFila = (fila: Record<string, string>): void => {
+    for (const [campo, orig] of Object.entries(textoOrig)) {
+      if (!metricas[campo]) continue
+      valores[campo] = orig.replace(RE_TOKEN, (_mm, t) => fila[normalizarCol(String(t).trim())] ?? '')
+      pintarCampo(campo)
+    }
+  }
+  const refrescar = (): void => {
+    const hay = filas.length > 0 && tokens.length > 0
+    if (hay) {
+      filaVista = Math.max(0, Math.min(filaVista, filas.length - 1))
+      spPos.textContent = `fila ${filaVista + 1} de ${filas.length}`
+      aplicarFila(filas[filaVista])
+    } else spPos.textContent = '–'
+    btnPdf.disabled = !hay || generando
+    btnZip.disabled = !hay || generando
+    btnPdf.textContent = hay ? `⬇ PDF único (${filas.length} pág.)` : '⬇ PDF único'
+    btnZip.textContent = hay ? `⬇ ZIP (${filas.length} PNG)` : '⬇ ZIP separados'
+  }
 
-  btnGen.addEventListener('click', () => void (async () => {
+  const sanear = (s: string): string => (s || 'certificado').replace(/[^\w\dáéíóúñÁÉÍÓÚÑ .,-]+/g, '_').trim().slice(0, 60) || 'certificado'
+  const renderFila = async (fila: Record<string, string>, ancho: number): Promise<Blob> => {
+    aplicarFila(fila)
+    const svg = new XMLSerializer().serializeToString(svgEl!)
+    return renderResvg(svg, facesPack.map((f) => f.bytes), ancho)
+  }
+  const generar = async (formato: 'pdf' | 'zip'): Promise<void> => {
     if (generando || !filas.length || !svgEl) return
-    generando = true; btnGen.disabled = true
+    generando = true; refrescar()
     try {
-      const { jsPDF } = await import('jspdf')
       const vb = svgEl.viewBox.baseVal
       const w = vb.width || 1080, h = vb.height || 1080
-      const orient = w >= h ? 'landscape' : 'portrait'
-      const pdf = new jsPDF({ orientation: orient, unit: 'pt', format: [w, h] })
-      const anchoExport = Math.round(Math.min(2480, Math.max(1080, w)))
-      for (let i = 0; i < filas.length; i++) {
-        spProg.textContent = `Generando ${i + 1} de ${filas.length}…`
-        aplicarFila(filas[i])
-        const svg = new XMLSerializer().serializeToString(svgEl)
-        const blob = await renderResvg(svg, facesPack.map((f) => f.bytes), anchoExport)
-        const dataUrl = await blobADataUrl(blob)
-        if (i > 0) pdf.addPage([w, h], orient)
-        pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
-        await new Promise((r) => setTimeout(r)) // ceder el hilo (progreso visible)
+      const ancho = Math.round(Math.min(2480, Math.max(1080, w)))
+      if (formato === 'pdf') {
+        const { jsPDF } = await import('jspdf')
+        const orient = w >= h ? 'landscape' : 'portrait'
+        const pdf = new jsPDF({ orientation: orient, unit: 'pt', format: [w, h] })
+        for (let i = 0; i < filas.length; i++) {
+          spProg.textContent = `Generando ${i + 1} de ${filas.length}…`
+          const dataUrl = await blobADataUrl(await renderFila(filas[i], ancho))
+          if (i > 0) pdf.addPage([w, h], orient)
+          pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
+          await new Promise((r) => setTimeout(r))
+        }
+        pdf.save(`${nombreArchivo()} certificados.pdf`)
+        spProg.textContent = `✅ PDF generado (${filas.length} páginas)`
+      } else {
+        const tkNombre = normalizarCol(tokens[+selNombre.value || 0] ?? tokens[0])
+        const archivos: { nombre: string; datos: Uint8Array }[] = []
+        for (let i = 0; i < filas.length; i++) {
+          spProg.textContent = `Generando ${i + 1} de ${filas.length}…`
+          const blob = await renderFila(filas[i], ancho)
+          archivos.push({
+            nombre: `${String(i + 1).padStart(2, '0')} - ${sanear(filas[i][tkNombre])}.png`,
+            datos: new Uint8Array(await blob.arrayBuffer()),
+          })
+          await new Promise((r) => setTimeout(r))
+        }
+        descargar(crearZip(archivos), `${nombreArchivo()} certificados.zip`)
+        spProg.textContent = `✅ ZIP generado (${filas.length} archivos)`
       }
-      pdf.save(`${nombreArchivo()} certificados.pdf`)
-      spProg.textContent = `✅ PDF generado (${filas.length} páginas)`
     } catch (e) {
       spProg.textContent = '❌ No se pudo generar: ' + (e instanceof Error ? e.message : String(e))
       console.error('[certificados]', e)
     }
     generando = false
     refrescar()
+  }
+
+  // -- Cableado --
+  const inTpl = $c<HTMLInputElement>('#cert-file-tpl')
+  $c('#cert-importar').addEventListener('click', () => inTpl.click())
+  inTpl.addEventListener('change', () => void (async () => {
+    const f = inTpl.files?.[0]
+    inTpl.value = ''
+    if (!f) return
+    spProg.textContent = 'Importando plantilla…'
+    try {
+      await importarArchivoDiseno(f)
+      await new Promise((r) => setTimeout(r, 800)) // que termine de montarse
+      snap = snapshotProyecto() // el cierre restaura la plantilla recién importada
+      escanear(); renderTokens()
+      manual = []; renderManual(); renderMapa()
+      armarFilas(); refrescar()
+      spProg.textContent = tokens.length ? '' : '⚠ La plantilla no tiene marcadores +ASÍ+'
+    } catch (e) {
+      spProg.textContent = '❌ No se pudo importar: ' + (e instanceof Error ? e.message : String(e))
+    }
   })())
 
-  $('#cert-cerrar').addEventListener('click', () => {
-    if (generando) return // no cortar una generación a medias
+  for (const b of Array.from(ov.querySelectorAll<HTMLButtonElement>('.cert-seg button'))) {
+    b.addEventListener('click', () => {
+      modoDatos = (b.dataset.m as 'pegar' | 'manual') || 'pegar'
+      ov.querySelectorAll('.cert-seg button').forEach((x) => x.classList.toggle('activo', x === b))
+      ;($c('#cert-zona-pegar') as HTMLElement).hidden = modoDatos !== 'pegar'
+      ;($c('#cert-zona-manual') as HTMLElement).hidden = modoDatos !== 'manual'
+      if (modoDatos === 'manual') renderManual()
+      armarFilas(); refrescar()
+    })
+  }
+  let tProc = 0
+  taDatos.addEventListener('input', () => { clearTimeout(tProc); tProc = window.setTimeout(procesarPegado, 350) })
+  const inCsv = $c<HTMLInputElement>('#cert-file-csv')
+  $c('#cert-csv').addEventListener('click', () => inCsv.click())
+  inCsv.addEventListener('change', () => void (async () => {
+    const f = inCsv.files?.[0]
+    inCsv.value = ''
+    if (f) { taDatos.value = await leerTextoArchivo(f); procesarPegado() }
+  })())
+  $c('#cert-add-fila').addEventListener('click', () => { manual.push(tokens.map(() => '')); renderManual(); armarFilas(); refrescar() })
+  $c('#cert-prev').addEventListener('click', () => { filaVista--; refrescar() })
+  $c('#cert-next').addEventListener('click', () => { filaVista++; refrescar() })
+  btnPdf.addEventListener('click', () => void generar('pdf'))
+  btnZip.addEventListener('click', () => void generar('zip'))
+  $c('#cert-cerrar').addEventListener('click', () => {
+    if (generando) return
     ov.remove()
-    void aplicarSnapshot(snap) // restaurar el diseño como estaba
+    void aplicarSnapshot(snap)
   })
+
+  // Arranque: si el diseño abierto ya tiene marcadores, se puede usar directo.
+  escanear(); renderTokens(); renderManual(); refrescar()
 }
 
 function abrirQR(): void {
@@ -8661,8 +8833,8 @@ function mostrarInicio(): void {
       </section>
       <section class="ini-seccion">
         <h3>Certificados en lote</h3>
-        <p class="ini-nota" style="margin:0 0 8px">Abrí tu plantilla de certificado (de la lista o subiendo el PDF/SVG) y completala desde una planilla: pegás la tabla de Excel/Sheets, asignás qué columna va a cada texto y descargás <strong>un PDF con una página por persona</strong>.</p>
-        <button id="ini-certificados" class="ini-btn-acc">🎓 Generar certificados con el diseño actual</button>
+        <p class="ini-nota" style="margin:0 0 8px">Importá tu plantilla con marcadores <strong>+NOMBRE+ +APELLIDO+ +DNI+</strong> en el texto, cargá los datos (pegando la tabla de Excel, subiendo un CSV o completándolos a mano) y descargá <strong>un PDF con una página por persona</strong> o <strong>un ZIP con los archivos separados</strong>.</p>
+        <button id="ini-certificados" class="ini-btn-acc">🎓 Generar certificados</button>
       </section>
       <section class="ini-seccion">
         <h3>Plantillas y guardados</h3>
@@ -9087,13 +9259,9 @@ inSvgPlantilla.addEventListener('change', async () => {
   const file = inSvgPlantilla.files?.[0]
   if (file) {
     cerrarInicio()
-    try {
-      // .ai moderno es PDF por dentro → mismo camino que el PDF.
-      if (/\.(pdf|ai)$/i.test(file.name) || file.type === 'application/pdf') await importarPDF(file)
-      else if (/\.svg$/i.test(file.name) || file.type === 'image/svg+xml') usarSvgImportado(await file.text(), file.name)
-      else if (file.type.startsWith('image/')) await crearPlacaDesdeMultimedia(file)
-      else usarSvgImportado(await file.text(), file.name)
-    } catch (e) { estado.textContent = '❌ ' + (e instanceof Error ? e.message : String(e)) }
+    // .ai moderno es PDF por dentro → mismo camino que el PDF (importarArchivoDiseno).
+    try { await importarArchivoDiseno(file) }
+    catch (e) { estado.textContent = '❌ ' + (e instanceof Error ? e.message : String(e)) }
   }
   inSvgPlantilla.value = ''
 })
