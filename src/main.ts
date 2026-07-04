@@ -687,6 +687,12 @@ const btFamily = document.querySelector<HTMLSelectElement>('#bt-family')!
 const btWeight = document.querySelector<HTMLSelectElement>('#bt-weight')!
 const btColor = document.querySelector<HTMLInputElement>('#bt-color')!
 document.querySelector('#pe-cerrar')!.addEventListener('click', () => { panelExport.hidden = true; refrescarPanelProps() })
+// El PNG se descarga por ancla: preguntar el nombre ANTES de dejarla actuar.
+peDescargar.addEventListener('click', (e) => {
+  const n = pedirNombreDescarga(peDescargar.getAttribute('download') || 'imagen.png')
+  if (!n) { e.preventDefault(); estado.textContent = 'Descarga cancelada.'; return }
+  peDescargar.setAttribute('download', n)
+})
 document.querySelector('#btn-add-texto')!.addEventListener('click', () => agregarTexto())
 const menuFigura = document.querySelector<HTMLDivElement>('#menu-figura')!
 // Tipos de figura disponibles (orden del selector).
@@ -6735,6 +6741,9 @@ async function exportarPNG(): Promise<void> {
     peImg.src = url
     peDescargar.href = url
     peDescargar.setAttribute('download', `${nombreArchivo()}${transp ? '-transparente' : ''}.png`)
+    // Con campos de formulario, dejar claro que el PDF sale COMPLETABLE.
+    const bPdf = document.querySelector<HTMLButtonElement>('#pe-pdf')
+    if (bPdf) bPdf.textContent = svgEl.querySelector('[data-agregado="ffield"]') ? '⬇ PDF completable' : '⬇ PDF'
     peCarrusel.hidden = carruselSlides < 2
     if (carruselSlides >= 2) peCarrusel.textContent = `⬇ Carrusel (${carruselSlides} imágenes)`
     panelExport.hidden = false
@@ -6759,9 +6768,22 @@ function svgParaExportar(transp: boolean): string {
   if (!/\sxmlns=/.test(s)) s = s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
   return s
 }
+// Pregunta el nombre del archivo ANTES de descargar (la extensión queda fija).
+// Devuelve null si el usuario cancela.
+function pedirNombreDescarga(sugerido: string): string | null {
+  const ext = sugerido.match(/\.(gastonart\.json|[a-z0-9]+)$/i)?.[0] ?? ''
+  const base = ext ? sugerido.slice(0, sugerido.length - ext.length) : sugerido
+  const r = prompt(`Nombre del archivo (${ext || 'archivo'}):`, base)
+  if (r == null) return null
+  const limpio = r.trim().replace(/[\\/:*?"<>|]+/g, '_')
+  return (limpio || base) + ext
+}
+
 function descargar(blob: Blob, nombre: string): void {
+  const n = pedirNombreDescarga(nombre)
+  if (!n) { estado.textContent = 'Descarga cancelada.'; return }
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click()
+  const a = document.createElement('a'); a.href = url; a.download = n; a.click()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
 function descargarSVG(): void {
@@ -6810,7 +6832,12 @@ function registrarFuentesPdf(pdf: jsPDF, extras: string[] = []): void {
 async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
   if (!svgEl) return
   cerrarEditor()
+  // Con CAMPOS DE FORMULARIO en el diseño, la descarga de PDF es SIEMPRE la
+  // completable (un PDF plano perdería los campos y confunde).
+  if (svgEl.querySelector('[data-agregado="ffield"]')) { await exportarPdfFormulario(); return }
   if (vistaCarrusel) toggleCarrusel() // el lienzo oculto rompe la detección del fondo
+  const nombre = pedirNombreDescarga(`${nombreArchivo()}.pdf`)
+  if (!nombre) { estado.textContent = 'Descarga cancelada.'; return }
   const txt = btn?.textContent
   if (btn) { btn.disabled = true; btn.textContent = '…' }
   estado.textContent = 'Generando PDF…'
@@ -6819,7 +6846,6 @@ async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
   if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
   const vb = svgEl.viewBox.baseVal
   const w = vb.width || 1080, h = vb.height || 1350
-  const nombre = `${nombreArchivo()}.pdf`
   try {
     const { jsPDF } = await import('jspdf')
     const nuevoPdf = () => new jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'pt', format: [w, h] })
@@ -8380,7 +8406,9 @@ async function exportarPdfFormulario(): Promise<void> {
       f.value = ''
       pdf.addField(f)
     }
-    pdf.save(`${nombreArchivo()} formulario.pdf`)
+    const n = pedirNombreDescarga(`${nombreArchivo()} formulario.pdf`)
+    if (!n) { estado.textContent = 'Descarga cancelada.'; return }
+    pdf.save(n)
     estado.textContent = `📋 PDF completable generado (${campos.length} campo${campos.length > 1 ? 's' : ''})`
   } catch (e) {
     estado.textContent = '❌ No se pudo generar el formulario: ' + (e instanceof Error ? e.message : String(e))
@@ -8673,8 +8701,11 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
           pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
           await new Promise((r) => setTimeout(r))
         }
-        pdf.save(`${nombreArchivo()} certificados.pdf`)
-        spProg.textContent = `✅ PDF generado (${filas.length} páginas)`
+        const nPdf = pedirNombreDescarga(`${nombreArchivo()} certificados.pdf`)
+        if (nPdf) {
+          pdf.save(nPdf)
+          spProg.textContent = `✅ PDF generado (${filas.length} páginas)`
+        } else spProg.textContent = 'Descarga cancelada.'
       } else {
         const tkNombre = normalizarCol(tokens[+selNombre.value || 0] ?? tokens[0])
         const archivos: { nombre: string; datos: Uint8Array }[] = []
