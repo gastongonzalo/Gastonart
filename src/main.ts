@@ -6782,8 +6782,12 @@ function pedirNombreDescarga(sugerido: string): string | null {
 function descargar(blob: Blob, nombre: string): void {
   const n = pedirNombreDescarga(nombre)
   if (!n) { estado.textContent = 'Descarga cancelada.'; return }
+  descargarSinPreguntar(blob, n)
+}
+// Descarga directa (cuando el nombre YA fue confirmado por el usuario).
+function descargarSinPreguntar(blob: Blob, nombre: string): void {
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url; a.download = n; a.click()
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
 function descargarSVG(): void {
@@ -8358,6 +8362,9 @@ function construirControlesFfield(tools: HTMLElement, el: SVGElement): void {
 }
 
 // Exporta el diseño como PDF con campos de texto COMPLETABLES (AcroForm).
+// Se usa pdf-lib (NO jsPDF): jsPDF nunca escribe el /DA de los TextField
+// (bug: su getter devuelve undefined para esa clase) → el lector caía al
+// default "0 Tf" y la letra se achicaba SIEMPRE, aunque el tamaño fuera fijo.
 async function exportarPdfFormulario(): Promise<void> {
   if (!svgEl) return
   cerrarEditor()
@@ -8372,43 +8379,70 @@ async function exportarPdfFormulario(): Promise<void> {
     const svg = new XMLSerializer().serializeToString(svgEl)
     for (const c of campos) c.style.display = ''
     const ancho = Math.round(Math.min(2480, Math.max(1080, w)))
-    const blob = await renderResvg(svg, facesPack.map((f) => f.bytes), ancho)
-    const dataUrl = await blobADataUrl(blob)
+    const blobFondo = await renderResvg(svg, facesPack.map((f) => f.bytes), ancho)
 
-    const { jsPDF, AcroFormTextField } = await import('jspdf')
-    const orient = w >= h ? 'landscape' : 'portrait'
-    const pdf = new jsPDF({ orientation: orient, unit: 'pt', format: [w, h] })
-    registrarFuentesPdf(pdf, campos.map((c) => c.getAttribute('data-ff-font') || '').filter(Boolean))
-    pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
+    const { PDFDocument, TextAlignment } = await import('pdf-lib')
+    const fontkit = (await import('@pdf-lib/fontkit')).default
+    const doc = await PDFDocument.create()
+    doc.registerFontkit(fontkit)
+    const pagina = doc.addPage([w, h])
+    const fondo = await doc.embedPng(await blobFondo.arrayBuffer())
+    pagina.drawImage(fondo, { x: 0, y: 0, width: w, height: h })
 
+    // Embeber (SIN subset: el usuario tipea texto libre) la fuente de cada campo.
+    const fuentes = new Map<string, Awaited<ReturnType<typeof doc.embedFont>>>()
+    const fuenteDeFamilia = async (fam: string) => {
+      const clave = fam.toLowerCase()
+      if (fuentes.has(clave)) return fuentes.get(clave)!
+      const cara = facesPack.find((f) => f.family.toLowerCase() === clave && f.weight === 400 && f.style === 'normal' && (f.formato === 'truetype' || f.formato === 'opentype'))
+        ?? facesPack.find((f) => f.family.toLowerCase() === clave && (f.formato === 'truetype' || f.formato === 'opentype'))
+      const fuente = await doc.embedFont(cara ? cara.bytes : (await import('pdf-lib')).StandardFonts.Helvetica)
+      fuentes.set(clave, fuente)
+      return fuente
+    }
+
+    const form = doc.getForm()
     const svgR = svgEl.getBoundingClientRect()
     const k = svgR.width / w || 1
     const usados = new Set<string>()
-    const enLista = pdf.getFontList()
     for (const c of campos) {
       const rb = c.getBoundingClientRect()
-      const f = new AcroFormTextField()
-      let nombre = (c.getAttribute('data-ff-nombre') || 'campo').trim() || 'campo'
+      const fx = (rb.left - svgR.left) / k
+      const fy = (rb.top - svgR.top) / k
+      const fw = rb.width / k, fh = rb.height / k
+      // El punto en el nombre crea jerarquías en AcroForm: mejor evitarlo.
+      let nombre = ((c.getAttribute('data-ff-nombre') || 'campo').trim() || 'campo').replace(/\./g, '_')
       while (usados.has(nombre)) nombre += '_b' // únicos: si no, comparten el valor
       usados.add(nombre)
-      f.fieldName = nombre
-      const tamMax = Math.max(4, parseFloat(c.getAttribute('data-ff-size') || '16'))
+      const tf = form.createTextField(nombre)
+      tf.addToPage(pagina, {
+        x: fx,
+        y: h - fy - fh, // pdf-lib usa origen abajo-izquierda
+        width: fw,
+        height: fh,
+        borderWidth: 0, // sin borde ni fondo: el diseño ya está pintado detrás
+      })
+      const tam = Math.max(4, parseFloat(c.getAttribute('data-ff-size') || '16'))
       const auto = c.getAttribute('data-ff-auto') !== '0'
-      f.fontSize = auto ? 0 : tamMax // 0 = auto-achicar (estándar AcroForm)
-      f.maxFontSize = tamMax
-      f.textAlign = (c.getAttribute('data-ff-align') as 'left' | 'center' | 'right') || 'left'
-      const fam = c.getAttribute('data-ff-font') || ''
-      if (fam && enLista[fam]) f.fontName = fam
-      f.x = (rb.left - svgR.left) / k
-      f.y = (rb.top - svgR.top) / k
-      f.width = rb.width / k
-      f.height = rb.height / k
-      f.value = ''
-      pdf.addField(f)
+      // Fijo → /DA con el tamaño (el lector NO achica: el sobrante no se ve).
+      // Auto → /DA "0 Tf" (default): el lector achica la letra hasta que entre.
+      if (!auto) tf.setFontSize(tam)
+      const align = c.getAttribute('data-ff-align') || 'left'
+      tf.setAlignment(align === 'center' ? TextAlignment.Center : align === 'right' ? TextAlignment.Right : TextAlignment.Left)
+      const fuente = await fuenteDeFamilia(c.getAttribute('data-ff-font') || 'Poppins')
+      tf.updateAppearances(fuente) // fija la fuente embebida en el /DA del campo
+      if (auto) {
+        // updateAppearances escribe un tamaño CALCULADO en el /DA (dejaría el
+        // campo fijo): volver a "0 Tf" = auto-achicar del estándar AcroForm.
+        const da = tf.acroField.getDefaultAppearance() ?? ''
+        if (da) tf.acroField.setDefaultAppearance(da.replace(/ \d+(\.\d+)? Tf/, ' 0 Tf'))
+      }
     }
+
+    const bytes = await doc.save()
     const n = pedirNombreDescarga(`${nombreArchivo()} formulario.pdf`)
     if (!n) { estado.textContent = 'Descarga cancelada.'; return }
-    pdf.save(n)
+    descargarSinPreguntar(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' }), n)
     estado.textContent = `📋 PDF completable generado (${campos.length} campo${campos.length > 1 ? 's' : ''})`
   } catch (e) {
     estado.textContent = '❌ No se pudo generar el formulario: ' + (e instanceof Error ? e.message : String(e))
@@ -9156,16 +9190,20 @@ function mostrarInicio(): void {
   cerrarInicio()
   const redes = [...new Set(PRESETS_TAMANO.map((p) => p.red))]
   // El tamaño PERSONALIZADO va inline, a la derecha de los formatos de impresión.
+  // Compacto: medidas ARRIBA, unidades ABAJO y el botón Crear AL LADO — así el
+  // bloque no agrega una línea y LinkedIn entra en la misma fila.
   const htmlCustom = `
-        <div class="ini-custom ini-custom-inline">
+        <div class="ini-custom-inline">
           <div class="ini-grupo-tit" style="margin:0">Personalizado</div>
-          <div class="ini-custom">
-            <div class="dim-group">
-              <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho">
-              <span class="dim-x">×</span>
-              <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
+          <div class="ini-custom-cuerpo">
+            <div class="ini-custom-col">
+              <div class="dim-group">
+                <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho">
+                <span class="dim-x">×</span>
+                <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
+              </div>
+              ${SEG_UNIDAD}
             </div>
-            ${SEG_UNIDAD}
             <button id="ini-crear-custom" class="ini-btn-acc">Crear</button>
           </div>
         </div>`

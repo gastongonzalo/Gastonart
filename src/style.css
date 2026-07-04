@@ -1612,7 +1612,8 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .ini-card4:hover { border-color: var(--accent); transform: translateY(-1px); }
 .ini-card4-ic { font-size: 26px; line-height: 1; }
 #ini-sec-plantillas[hidden] { display: none; }
-/* Personalizado inline, a la derecha de los formatos de impresión */
+/* Personalizado inline, a la derecha de los formatos de impresión.
+   Compacto: medidas arriba, unidades abajo, Crear al costado. */
 .ini-custom-inline {
   display: flex;
   flex-direction: column;
@@ -1622,6 +1623,11 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   border: 1px dashed var(--border);
   border-radius: 10px;
 }
+.ini-custom-cuerpo { display: flex; align-items: center; gap: 8px; }
+.ini-custom-col { display: flex; flex-direction: column; gap: 5px; }
+.ini-custom-inline { padding: 6px 8px; }
+.ini-custom-inline .dim-group input { width: 52px; }
+.ini-custom-inline .ini-btn-acc { padding: 8px 10px; }
 
 /* Controles del campo de formulario (sidebar) */
 .ff-tit { font-size: 13px; font-weight: 700; }
