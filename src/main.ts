@@ -544,6 +544,7 @@ app.innerHTML = `
       <button class="rail-item" data-cat="elementos" title="Formas, íconos y vectores"><span class="rail-ic">◇</span><span>Elementos</span></button>
       <button class="rail-item" data-cat="subir" title="Imágenes (subir o del banco)"><span class="rail-ic">▣</span><span>Imágenes</span></button>
       <button class="rail-item" data-cat="dibujar" title="Pluma y nodos"><span class="rail-ic">✎</span><span>Dibujar</span></button>
+      <button class="rail-item" data-cat="formulario" title="Campos que se completan en el lector de PDF"><span class="rail-ic">📋</span><span>Formulario</span></button>
       <button class="rail-item" data-cat="marca" title="Tipografías"><span class="rail-ic">Aa</span><span>Fuentes</span></button>
     </nav>
     <aside id="panel-lateral" aria-label="Contenido" hidden>
@@ -590,6 +591,12 @@ app.innerHTML = `
           <div id="pm-sugerencias" class="pg-sugerencias"></div>
           <div id="pm-estado" class="pg-estado"></div>
           <div id="pm-grid" class="pi-grid"></div>
+        </section>
+
+        <section class="pl-view" data-cat="formulario" hidden>
+          <button id="btn-add-ffield" class="pl-accion">＋ Agregar campo de texto</button>
+          <p class="pl-nota">Los campos quedan <strong>completables en el lector de PDF o el navegador</strong> (como en Acrobat). Seleccioná un campo en el diseño para elegir su tipografía, tamaño, alineación y si el texto se achica o se corta al no entrar.</p>
+          <button id="btn-export-form" class="pl-accion">⬇ Exportar PDF completable</button>
         </section>
 
         <section class="pl-view" data-cat="marca" hidden>
@@ -1212,7 +1219,7 @@ pgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && pgInput.va
 const panelLateral = document.querySelector<HTMLElement>('#panel-lateral')!
 const TITULOS_CAT: Record<string, string> = {
   plantillas: 'Plantillas', texto: 'Texto', elementos: 'Elementos',
-  subir: 'Imágenes', dibujar: 'Dibujar', marca: 'Fuentes',
+  subir: 'Imágenes', dibujar: 'Dibujar', formulario: 'Campos de formulario', marca: 'Fuentes',
 }
 let categoriaActiva: string | null = null
 function abrirCategoria(cat: string): void {
@@ -1297,6 +1304,10 @@ for (const b of Array.from(document.querySelectorAll<HTMLElement>('.pl-preset'))
     agregarTextoPreset(p === 'titulo' ? 1.7 : p === 'subtitulo' ? 1.1 : 0.7)
   })
 }
+
+// Campos de formulario (PDF completable): agregar campo + exportar.
+document.querySelector('#btn-add-ffield')!.addEventListener('click', () => insertarCampoForm())
+document.querySelector('#btn-export-form')!.addEventListener('click', () => void exportarPdfFormulario())
 
 // Campo de formulario dinámico: crea el cuadro de texto con el marcador +ASÍ+
 // y AHÍ MISMO abre (o refresca) el asistente de certificados con los controles
@@ -4162,6 +4173,20 @@ function dibujarSelGraf(): void {
   tools.addEventListener('pointerdown', (e) => e.stopPropagation())
 
   const multi = grafSeleccion.length > 1
+  // Campo de FORMULARIO: controles propios (nombre/fuente/tamaño/modo/alineación)
+  // en lugar de los de color; mover/escalar/eliminar funcionan igual que siempre.
+  if (!multi && grafSeleccion[0].getAttribute('data-agregado') === 'ffield') {
+    construirControlesFfield(tools, grafSeleccion[0])
+    const delf = document.createElement('button'); delf.className = 'graf-del'; delf.textContent = '🗑'; delf.title = 'Eliminar campo'
+    delf.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
+    tools.appendChild(delf)
+    alojarEnPanel(tools)
+    for (const dir of DIRS_TIRADOR) lienzo.appendChild(crearTiradorEscalaGraf(uni, dir))
+    const xDelF = crearBotonEliminar(uni, () => borrarGraf())
+    xDelF.style.top = uni.top - 26 + 'px'
+    lienzo.appendChild(xDelF)
+    return
+  }
   const cs = getComputedStyle(grafSeleccion[0])
   // Swatch con color + botón "∅" para vaciarlo (sin relleno / sin contorno).
   const swatch = (titulo: string, esStroke: boolean, cur: string, def: string, set: (v: string) => void): HTMLLabelElement => {
@@ -6693,6 +6718,8 @@ async function exportarPNG(): Promise<void> {
     // Fondo transparente: ocultar el fondo a sangre mientras serializamos.
     const ocultados: SVGElement[] = []
     if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
+    // Los recuadros de campos de formulario son guías del editor: nunca se imprimen.
+    for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="ffield"]'))) { el.style.display = 'none'; ocultados.push(el) }
     // Exportamos EXACTAMENTE el SVG vivo (ya tiene wrap + shrink + foto aplicados),
     // así el PNG es idéntico a lo que se ve en el editor.
     const svg = new XMLSerializer().serializeToString(svgEl)
@@ -6725,6 +6752,8 @@ function svgParaExportar(transp: boolean): string {
   if (!svgEl) return ''
   const ocultados: SVGElement[] = []
   if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
+  // Los recuadros de campos de formulario son guías del editor: nunca se imprimen.
+  for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="ffield"]'))) { el.style.display = 'none'; ocultados.push(el) }
   let s = new XMLSerializer().serializeToString(svgEl)
   for (const el of ocultados) el.style.display = ''
   if (!/\sxmlns=/.test(s)) s = s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
@@ -6751,10 +6780,11 @@ function descargarSVG(): void {
 // "600normal", 700 → "bold", 700+itálica → "bolditalic"). jsPDF solo admite sfnt
 // (ttf/otf): las woff/woff2 (p.ej. fuentes traídas de Google) no se pueden embeber
 // y ese texto cae igual a la fuente estándar.
-function registrarFuentesPdf(pdf: jsPDF): void {
+function registrarFuentesPdf(pdf: jsPDF, extras: string[] = []): void {
   if (!svgEl) return
   // Familias realmente usadas por el texto (1.ª de cada font-family), en minúscula.
-  const usadas = new Set<string>()
+  // `extras`: familias pedidas por fuera del texto (p.ej. campos de formulario).
+  const usadas = new Set<string>(extras.map((f) => f.toLowerCase()))
   for (const t of Array.from(svgEl.querySelectorAll('text'))) {
     const fam = getComputedStyle(t).fontFamily.split(',')[0]?.replace(/['"]/g, '').trim()
     if (fam) usadas.add(fam.toLowerCase())
@@ -8204,6 +8234,160 @@ async function importarArchivoDiseno(file: File): Promise<void> {
   else usarSvgImportado(await file.text(), file.name)
 }
 
+// ============ Campos de formulario (PDF completable, tipo Acrobat) ============
+// Un campo es un <rect data-agregado="ffield"> en el diseño (se mueve/escala
+// como cualquier elemento; visible solo en el editor). Al exportar, el fondo
+// sale rasterizado por resvg y cada rect se convierte en un AcroFormTextField
+// que se completa en cualquier lector de PDF o navegador.
+
+function insertarCampoForm(): void {
+  if (!svgEl) return
+  contadorAgregados++
+  const vb = svgEl.viewBox.baseVal
+  const vw = vb.width || 1080, vh = vb.height || 1080
+  const n = svgEl.querySelectorAll('[data-agregado="ffield"]').length + 1
+  const w = Math.round(vw * 0.4)
+  const h = Math.round(Math.max(24, vh * 0.06))
+  const x = Math.round((vw - w) / 2)
+  const y = Math.round(vh * 0.3) + ((n - 1) % 5) * Math.round(h * 1.35)
+  const r = document.createElementNS(SVGNS, 'rect')
+  r.setAttribute('x', '0'); r.setAttribute('y', '0')
+  r.setAttribute('width', String(w)); r.setAttribute('height', String(h))
+  r.setAttribute('transform', `translate(${x} ${y})`)
+  r.setAttribute('fill', 'rgba(56, 189, 248, 0.12)')
+  r.setAttribute('stroke', '#38bdf8'); r.setAttribute('stroke-width', '1.5'); r.setAttribute('stroke-dasharray', '6 4')
+  r.setAttribute('data-agregado', 'ffield')
+  r.setAttribute('data-ff-nombre', `campo_${n}`)
+  r.setAttribute('data-ff-font', 'Poppins')
+  r.setAttribute('data-ff-size', String(Math.round(h * 0.55)))
+  r.setAttribute('data-ff-auto', '1')
+  r.setAttribute('data-ff-align', 'left')
+  svgEl.appendChild(r)
+  seleccionarAgregado(r)
+}
+
+// Controles del campo seleccionado (van a la sidebar como el resto).
+function construirControlesFfield(tools: HTMLElement, el: SVGElement): void {
+  const set = (attr: string, v: string): void => { el.setAttribute(attr, v); registrarHistorial(); autoguardar() }
+  const tit = document.createElement('div'); tit.className = 'ff-tit'; tit.textContent = '📋 Campo de formulario'
+  const nota = document.createElement('div'); nota.className = 'cert-info'; nota.textContent = 'Se completa en el lector de PDF o el navegador.'
+  tools.append(tit, nota)
+
+  const fila = (etiqueta: string, ctrl: HTMLElement): void => {
+    const f = document.createElement('label'); f.className = 'ff-fila'
+    const s = document.createElement('span'); s.textContent = etiqueta
+    f.append(s, ctrl); tools.appendChild(f)
+  }
+  const nom = document.createElement('input'); nom.type = 'text'; nom.className = 'ff-input'
+  nom.value = el.getAttribute('data-ff-nombre') || 'campo'
+  nom.addEventListener('input', () => set('data-ff-nombre', nom.value.trim() || 'campo'))
+  nom.addEventListener('pointerdown', (e) => e.stopPropagation())
+  fila('Nombre', nom)
+
+  const sel = document.createElement('select'); sel.className = 'ff-input'
+  const famAct = el.getAttribute('data-ff-font') || 'Poppins'
+  const fams = familiasDisponibles()
+  sel.innerHTML = (fams.includes(famAct) ? fams : [famAct, ...fams]).map((f) => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('')
+  sel.value = famAct
+  sel.addEventListener('change', () => set('data-ff-font', sel.value))
+  fila('Tipografía', sel)
+
+  const tam = document.createElement('input'); tam.type = 'number'; tam.min = '4'; tam.max = '400'; tam.className = 'ff-input ff-num'
+  tam.value = el.getAttribute('data-ff-size') || '16'
+  tam.addEventListener('input', () => set('data-ff-size', String(Math.max(4, +tam.value || 16))))
+  fila('Tamaño', tam)
+
+  // Si el texto supera el espacio: achicar la letra (auto) o cortar lo que sobra.
+  const modo = document.createElement('div'); modo.className = 'unidad-seg ff-seg'
+  const bAuto = document.createElement('button'); bAuto.type = 'button'; bAuto.textContent = 'Se achica'
+  bAuto.title = 'Si el texto no entra, la letra se achica sola (el tamaño es el máximo)'
+  const bCorta = document.createElement('button'); bCorta.type = 'button'; bCorta.textContent = 'Se corta'
+  bCorta.title = 'La letra mantiene el tamaño y lo que no entra deja de verse'
+  const pintarModo = (): void => {
+    const auto = el.getAttribute('data-ff-auto') !== '0'
+    bAuto.classList.toggle('activo', auto); bCorta.classList.toggle('activo', !auto)
+  }
+  bAuto.addEventListener('click', () => { set('data-ff-auto', '1'); pintarModo() })
+  bCorta.addEventListener('click', () => { set('data-ff-auto', '0'); pintarModo() })
+  modo.append(bAuto, bCorta); pintarModo()
+  fila('Si no entra', modo)
+
+  const ali = document.createElement('div'); ali.className = 'unidad-seg ff-seg'
+  const alis: Array<['left' | 'center' | 'right', string, string]> = [['left', '⯇', 'Izquierda'], ['center', '≡', 'Centro'], ['right', '⯈', 'Derecha']]
+  const botones = alis.map(([val, sym, tt]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = sym; b.title = tt
+    b.addEventListener('click', () => {
+      set('data-ff-align', val)
+      botones.forEach((x, i) => x.classList.toggle('activo', alis[i][0] === val))
+    })
+    return b
+  })
+  botones.forEach((b, i) => b.classList.toggle('activo', (el.getAttribute('data-ff-align') || 'left') === alis[i][0]))
+  ali.append(...botones)
+  fila('Alineación', ali)
+
+  const exp = document.createElement('button'); exp.className = 'graf-btn destacado'; exp.textContent = '⬇ Exportar PDF completable'
+  exp.addEventListener('click', (e) => { e.stopPropagation(); void exportarPdfFormulario() })
+  tools.appendChild(exp)
+}
+
+// Exporta el diseño como PDF con campos de texto COMPLETABLES (AcroForm).
+async function exportarPdfFormulario(): Promise<void> {
+  if (!svgEl) return
+  cerrarEditor()
+  const campos = Array.from(svgEl.querySelectorAll<SVGGraphicsElement>('[data-agregado="ffield"]'))
+  if (!campos.length) { estado.textContent = '📋 Agregá al menos un campo de formulario al diseño'; return }
+  estado.textContent = 'Generando PDF completable…'
+  try {
+    const vb = svgEl.viewBox.baseVal
+    const w = vb.width || 1080, h = vb.height || 1080
+    // Fondo rasterizado SIN los recuadros de campo (son guías del editor).
+    for (const c of campos) c.style.display = 'none'
+    const svg = new XMLSerializer().serializeToString(svgEl)
+    for (const c of campos) c.style.display = ''
+    const ancho = Math.round(Math.min(2480, Math.max(1080, w)))
+    const blob = await renderResvg(svg, facesPack.map((f) => f.bytes), ancho)
+    const dataUrl = await blobADataUrl(blob)
+
+    const { jsPDF, AcroFormTextField } = await import('jspdf')
+    const orient = w >= h ? 'landscape' : 'portrait'
+    const pdf = new jsPDF({ orientation: orient, unit: 'pt', format: [w, h] })
+    registrarFuentesPdf(pdf, campos.map((c) => c.getAttribute('data-ff-font') || '').filter(Boolean))
+    pdf.addImage(dataUrl, 'PNG', 0, 0, w, h)
+
+    const svgR = svgEl.getBoundingClientRect()
+    const k = svgR.width / w || 1
+    const usados = new Set<string>()
+    const enLista = pdf.getFontList()
+    for (const c of campos) {
+      const rb = c.getBoundingClientRect()
+      const f = new AcroFormTextField()
+      let nombre = (c.getAttribute('data-ff-nombre') || 'campo').trim() || 'campo'
+      while (usados.has(nombre)) nombre += '_b' // únicos: si no, comparten el valor
+      usados.add(nombre)
+      f.fieldName = nombre
+      const tamMax = Math.max(4, parseFloat(c.getAttribute('data-ff-size') || '16'))
+      const auto = c.getAttribute('data-ff-auto') !== '0'
+      f.fontSize = auto ? 0 : tamMax // 0 = auto-achicar (estándar AcroForm)
+      f.maxFontSize = tamMax
+      f.textAlign = (c.getAttribute('data-ff-align') as 'left' | 'center' | 'right') || 'left'
+      const fam = c.getAttribute('data-ff-font') || ''
+      if (fam && enLista[fam]) f.fontName = fam
+      f.x = (rb.left - svgR.left) / k
+      f.y = (rb.top - svgR.top) / k
+      f.width = rb.width / k
+      f.height = rb.height / k
+      f.value = ''
+      pdf.addField(f)
+    }
+    pdf.save(`${nombreArchivo()} formulario.pdf`)
+    estado.textContent = `📋 PDF completable generado (${campos.length} campo${campos.length > 1 ? 's' : ''})`
+  } catch (e) {
+    estado.textContent = '❌ No se pudo generar el formulario: ' + (e instanceof Error ? e.message : String(e))
+    console.error('[formulario]', e)
+  }
+}
+
 // --- Asistente de certificados ---
 // (El ZIP se arma con crearZip/crc32, los mismos del export de carrusel.)
 // La plantilla marca lo que se completa con +MARCADORES+ dentro del texto:
@@ -8940,6 +9124,20 @@ function miniaturaSvg(svg: string): string {
 function mostrarInicio(): void {
   cerrarInicio()
   const redes = [...new Set(PRESETS_TAMANO.map((p) => p.red))]
+  // El tamaño PERSONALIZADO va inline, a la derecha de los formatos de impresión.
+  const htmlCustom = `
+        <div class="ini-custom ini-custom-inline">
+          <div class="ini-grupo-tit" style="margin:0">Personalizado</div>
+          <div class="ini-custom">
+            <div class="dim-group">
+              <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho">
+              <span class="dim-x">×</span>
+              <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
+            </div>
+            ${SEG_UNIDAD}
+            <button id="ini-crear-custom" class="ini-btn-acc">Crear</button>
+          </div>
+        </div>`
   const seccionesTamano = redes.map((red) => `
     <div class="ini-red">
       <div class="ini-red-tit"><span class="ini-red-ic">${ICONO_RED[red] ?? ''}</span>${escHtml(red)}</div>
@@ -8950,6 +9148,7 @@ function mostrarInicio(): void {
              <span class="ini-fmt-nom">${escHtml(p.formato)}</span>
              <span class="ini-fmt-dim">${p.w}×${p.h}</span>
            </button>`).join('')}
+        ${red === 'Impresión' ? htmlCustom : ''}
       </div>
     </div>`).join('')
 
@@ -8994,16 +9193,6 @@ function mostrarInicio(): void {
       <section class="ini-seccion">
         <h3>Imagen en blanco</h3>
         <div class="ini-redes">${seccionesTamano}</div>
-        <div class="ini-grupo-tit">Personalizado</div>
-        <div class="ini-custom">
-          <div class="dim-group">
-            <input type="number" id="ini-w" min="0.1" max="20000" step="any" value="1080" aria-label="Ancho">
-            <span class="dim-x">×</span>
-            <input type="number" id="ini-h" min="0.1" max="20000" step="any" value="1080" aria-label="Alto">
-          </div>
-          ${SEG_UNIDAD}
-          <button id="ini-crear-custom" class="ini-btn-acc">Crear</button>
-        </div>
       </section>
       <section class="ini-seccion">
         <h3>Carrusel para redes</h3>
@@ -9022,22 +9211,13 @@ function mostrarInicio(): void {
           <button id="ini-crear-carr" class="ini-btn-acc">Crear carrusel</button>
         </div>
       </section>
-      <section class="ini-seccion">
-        <h3>Collage de fotos</h3>
-        <p class="ini-nota" style="margin:0 0 8px">Sumá de 2 a 8 fotos y la app arma el collage. Elegís distribución, separación, bordes redondeados y acomodás cada foto.</p>
-        <button id="ini-crear-collage" class="ini-btn-acc">🖼 Crear un collage</button>
-      </section>
-      <section class="ini-seccion">
-        <h3>Código QR</h3>
-        <p class="ini-nota" style="margin:0 0 8px">Generá un QR de un link o texto: color, recto o redondeado y logo en el centro. Descargalo en PNG/SVG o insertalo en un diseño.</p>
-        <button id="ini-crear-qr" class="ini-btn-acc">▦ Crear un código QR</button>
-      </section>
-      <section class="ini-seccion">
-        <h3>Certificados en lote</h3>
-        <p class="ini-nota" style="margin:0 0 8px">Importá tu plantilla con marcadores <strong>+NOMBRE+ +APELLIDO+ +DNI+</strong> en el texto, cargá los datos (pegando la tabla de Excel, subiendo un CSV o completándolos a mano) y descargá <strong>un PDF con una página por persona</strong> o <strong>un ZIP con los archivos separados</strong>.</p>
-        <button id="ini-certificados" class="ini-btn-acc">🎓 Generar certificados</button>
-      </section>
-      <section class="ini-seccion">
+      <div class="ini-cards4">
+        <button class="ini-card4" id="ini-crear-collage"><span class="ini-card4-ic">🖼</span><span>Collage</span></button>
+        <button class="ini-card4" id="ini-crear-qr"><span class="ini-card4-ic">▦</span><span>Código QR</span></button>
+        <button class="ini-card4" id="ini-certificados"><span class="ini-card4-ic">🎓</span><span>Certificados</span></button>
+        <button class="ini-card4" id="ini-plantillas-toggle"><span class="ini-card4-ic">🗂</span><span>Plantillas</span></button>
+      </div>
+      <section class="ini-seccion" id="ini-sec-plantillas" hidden>
         <h3>Plantillas y guardados</h3>
         ${opcionesPlantilla
           ? `<div class="ini-plantillas">${opcionesPlantilla}</div>`
@@ -9067,7 +9247,17 @@ function mostrarInicio(): void {
   })
   ov.querySelector('#ini-crear-collage')!.addEventListener('click', () => abrirCollage())
   ov.querySelector('#ini-crear-qr')!.addEventListener('click', () => abrirQR())
-  ov.querySelector('#ini-certificados')!.addEventListener('click', () => { cerrarInicio(); abrirCertificados() })
+  // Certificados: directo a ELEGIR LA PLANTILLA (sin pasar por un lienzo en blanco).
+  ov.querySelector('#ini-certificados')!.addEventListener('click', () => {
+    cerrarInicio()
+    abrirCertificados()
+    ;(document.querySelector('#cert-file-tpl') as HTMLInputElement | null)?.click()
+  })
+  ov.querySelector('#ini-plantillas-toggle')!.addEventListener('click', () => {
+    const sec = ov.querySelector<HTMLElement>('#ini-sec-plantillas')!
+    sec.hidden = !sec.hidden
+    if (!sec.hidden) sec.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
   // Abrir un proyecto reciente.
   ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
     b.addEventListener('click', async () => {

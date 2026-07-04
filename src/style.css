@@ -1586,6 +1586,59 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   font-size: 12px;
 }
 .cert-nav { justify-content: center; }
+
+/* Inicio: fila de cards (Collage · QR · Certificados · Plantillas) */
+.ini-cards4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+.ini-card4 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s, transform 0.12s;
+}
+.ini-card4:hover { border-color: var(--accent); transform: translateY(-1px); }
+.ini-card4-ic { font-size: 26px; line-height: 1; }
+#ini-sec-plantillas[hidden] { display: none; }
+/* Personalizado inline, a la derecha de los formatos de impresión */
+.ini-custom-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+/* Controles del campo de formulario (sidebar) */
+.ff-tit { font-size: 13px; font-weight: 700; }
+.ff-fila { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); width: 100%; }
+.ff-fila > span { flex: 0 0 72px; }
+.ff-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: var(--inset);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12px;
+}
+.ff-num { max-width: 72px; }
+.ff-seg { flex: 1; }
 .cert-tokens { font-size: 12px; color: var(--dim); line-height: 1.9; }
 .cert-chip {
   display: inline-block;
