@@ -238,14 +238,69 @@ async function traerGoogleFontInterno(familia: string): Promise<string | null> {
   if (!fam) return null
   const ya = facesPack.find((f) => f.family.toLowerCase() === fam.toLowerCase())
   if (ya) { poblarFamilias(); return ya.family }
+  // 1) TTF desde el repo de Google Fonts en GitHub: resvg (export PNG y el PDF
+  //    de certificados) y jsPDF (PDF vectorial) SOLO entienden TTF/OTF. El woff2
+  //    de fonts.googleapis.com se ve bien en el EDITOR pero el export caía a
+  //    otra fuente — la causa de "el PDF exporta mal la tipografía".
+  let agregada = await traerTtfDeGithub(fam)
+  // 2) Último recurso: woff2 de css2 (solo arregla la vista del editor).
+  if (!agregada) agregada = await traerWoff2DeCss2(fam)
+  if (!agregada && !facesPack.some((f) => f.family.toLowerCase() === fam.toLowerCase())) return null
+  recordarFuenteGoogle(fam) // persistir para próximas sesiones
+  poblarFamilias()
+  return fam
+}
+
+// Baja los TTF reales de github.com/google/fonts (CORS abierto). Prefiere los
+// ESTÁTICOS (un TTF por peso: resvg elige el peso exacto); si la familia solo
+// tiene el variable (Family[wght].ttf), usa ese (instancia base).
+async function traerTtfDeGithub(fam: string): Promise<boolean> {
+  const slug = fam.toLowerCase().replace(/\s+/g, '')
+  let lista: Array<{ name: string; download_url: string }> | null = null
+  for (const lic of ['ofl', 'apache', 'ufl']) {
+    try {
+      const r = await fetchTimeout(`https://api.github.com/repos/google/fonts/contents/${lic}/${slug}`)
+      if (r.ok) { lista = await r.json() as Array<{ name: string; download_url: string }>; break }
+    } catch { /* probar la siguiente licencia */ }
+  }
+  if (!Array.isArray(lista)) return false
+  const ttfs = lista.filter((f) => /\.ttf$/i.test(f.name) && f.download_url)
+  if (!ttfs.length) return false
+  const estaticos = ttfs.filter((f) => !f.name.includes('['))
+  const usar = estaticos.length ? estaticos : ttfs
+  const caras = await Promise.all(usar.map(async (f) => {
+    try {
+      const bytes = new Uint8Array(await (await fetchTimeout(f.download_url)).arrayBuffer())
+      const esVariable = f.name.includes('[')
+      const info = faceDesdeNombre(f.name, bytes) // peso/estilo desde el nombre del archivo
+      const ff = new FontFace(fam, bytes, {
+        weight: esVariable ? '100 900' : String(info.weight),
+        style: info.style,
+      })
+      await ff.load()
+      return { bytes, weight: esVariable ? 400 : info.weight, style: info.style, ff }
+    } catch { return null }
+  }))
+  let agregada = false
+  for (const c of caras) {
+    if (!c) continue
+    ;(document as Document & { fonts: FontFaceSet }).fonts.add(c.ff)
+    facesPack.push({ bytes: c.bytes, family: fam, weight: c.weight, style: c.style, formato: 'truetype' })
+    agregada = true
+  }
+  return agregada
+}
+
+// Camino viejo: woff2 desde la API css2 (el navegador lo decodifica, resvg no).
+async function traerWoff2DeCss2(fam: string): Promise<boolean> {
   // Pedimos todas las variantes; Google devuelve solo las que la fuente tiene.
   const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fam)}:wght@100;200;300;400;500;600;700;800;900&display=swap`
   let css: string
   try {
     const r = await fetchTimeout(url)
-    if (!r.ok) return null
+    if (!r.ok) return false
     css = await r.text()
-  } catch { return null }
+  } catch { return false }
   // Google parte la fuente en subsets (latin, cyrillic, greek…). Hay que elegir
   // el LATINO (el único con A-Z, á, ñ); tomar otro deja el texto sin glifos.
   // Para cada peso guardamos la URL del subset latino (o el primero como fallback).
@@ -275,10 +330,7 @@ async function traerGoogleFontInterno(familia: string): Promise<string | null> {
     facesPack.push({ bytes: c.bytes, family: fam, weight: c.peso, style: 'normal', formato: 'woff2' })
     agregada = true
   }
-  if (!agregada && !facesPack.some((f) => f.family.toLowerCase() === fam.toLowerCase())) return null
-  recordarFuenteGoogle(fam) // persistir para próximas sesiones
-  poblarFamilias()
-  return fam
+  return agregada
 }
 
 // --- Persistencia de fuentes de Google agregadas (se re-bajan al iniciar) ---
@@ -321,10 +373,14 @@ function fuentesFaltantes(svg: string): string[] {
   for (const m of svg.matchAll(/font-family\s*:\s*([^;}"]+)/gi)) decls.add(m[1])
   for (const m of svg.matchAll(/font-family\s*=\s*["']([^"']+)["']/gi)) decls.add(m[1])
   const faltan = new Set<string>()
+  const generica = (s: string) => /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(s)
   for (const decl of decls) {
     const nombres = decl.split(',').map((s) => s.replace(/['"]/g, '').trim()).filter(Boolean)
-    const fam = nombres[nombres.length - 1]
-    if (!fam || /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(fam)) continue
+    // La fuente QUERIDA es la PRIMERA concreta del stack (lo demás es fallback).
+    // Antes se miraba la última: con "'Oswald', sans-serif" (import de PDF) caía
+    // en el genérico y se salteaba → nunca avisaba que faltaba Oswald.
+    const fam = nombres.find((n) => !generica(n))
+    if (!fam) continue
     if (!facesPack.some((f) => f.family.toLowerCase() === fam.toLowerCase())) faltan.add(fam)
   }
   return [...faltan]
