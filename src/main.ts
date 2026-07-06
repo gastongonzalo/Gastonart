@@ -9379,11 +9379,52 @@ function mostrarInicio(): void {
       </div>
       ${borradorHtml}
       ${recientesHtml}
-      <section class="ini-seccion">
-        <h3>Imagen en blanco</h3>
+      <div class="ini-cards">
+        <button class="ini-card ini-card-lg" data-panel="cargar">
+          <span class="ini-card-ic">📤</span>
+          <span class="ini-card-tit">Cargar</span>
+          <span class="ini-card-sub">PDF, AI, SVG o imágenes</span>
+        </button>
+        <button class="ini-card ini-card-lg" data-panel="blanco" aria-expanded="false">
+          <span class="ini-card-ic">📄</span>
+          <span class="ini-card-tit">Documento en blanco</span>
+          <span class="ini-card-sub">Elegí un formato o medida</span>
+        </button>
+        <button class="ini-card ini-card-lg" data-panel="plantillas" aria-expanded="false">
+          <span class="ini-card-ic">🗂</span>
+          <span class="ini-card-tit">Plantillas</span>
+          <span class="ini-card-sub">Guardadas o subí una</span>
+        </button>
+        <button class="ini-card ini-card-lg" data-panel="carrusel" aria-expanded="false">
+          <span class="ini-card-ic">🎠</span>
+          <span class="ini-card-tit">Carrusel para redes</span>
+          <span class="ini-card-sub">Varias slides de corrido</span>
+        </button>
+        <button class="ini-card ini-card-lg" data-panel="collage">
+          <span class="ini-card-ic">🖼</span>
+          <span class="ini-card-tit">Collage</span>
+          <span class="ini-card-sub">Varias fotos en una</span>
+        </button>
+      </div>
+      <div class="ini-cards-sec">
+        <button class="ini-card ini-card-sm" data-panel="qr"><span class="ini-card-ic">▦</span><span>Código QR</span></button>
+        <button class="ini-card ini-card-sm" data-panel="cert"><span class="ini-card-ic">🎓</span><span>Certificados</span></button>
+      </div>
+
+      <section class="ini-seccion ini-panel" id="ini-panel-blanco" hidden>
+        <h3>Documento en blanco</h3>
         <div class="ini-redes">${seccionesTamano}</div>
       </section>
-      <section class="ini-seccion">
+      <section class="ini-seccion ini-panel" id="ini-panel-plantillas" hidden>
+        <h3>Plantillas y guardados</h3>
+        ${opcionesPlantilla
+          ? `<div class="ini-plantillas">${opcionesPlantilla}</div>`
+          : `<p class="ini-nota" style="margin:0">Todavía no tenés plantillas. Subí un SVG o PDF (con el botón de abajo) o guardá un diseño con «Guardar como plantilla», y van a aparecer acá.</p>`}
+        <h3 style="margin-top:18px">Cargar multimedia</h3>
+        <button id="ini-cargar-svg" class="ini-btn-acc">Subir imagen, SVG o PDF…</button>
+        <p class="ini-nota">Cualquier imagen, SVG o PDF entra al editor. Después podés <strong>guardarlo como plantilla</strong> con el botón “Plantilla” de la barra superior.</p>
+      </section>
+      <section class="ini-seccion ini-panel" id="ini-panel-carrusel" hidden>
         <h3>Carrusel para redes</h3>
         <p class="ini-nota" style="margin:0 0 8px">Una sola mesa ancha para diseñar el carrusel de corrido. Al exportar se corta en una imagen por slide.</p>
         <div class="carr-formatos">
@@ -9399,21 +9440,6 @@ function mostrarInicio(): void {
           <span>slides</span>
           <button id="ini-crear-carr" class="ini-btn-acc">Crear carrusel</button>
         </div>
-      </section>
-      <div class="ini-cards4">
-        <button class="ini-card4" id="ini-crear-collage"><span class="ini-card4-ic">🖼</span><span>Collage</span></button>
-        <button class="ini-card4" id="ini-crear-qr"><span class="ini-card4-ic">▦</span><span>Código QR</span></button>
-        <button class="ini-card4" id="ini-certificados"><span class="ini-card4-ic">🎓</span><span>Certificados</span></button>
-        <button class="ini-card4" id="ini-plantillas-toggle"><span class="ini-card4-ic">🗂</span><span>Plantillas</span></button>
-      </div>
-      <section class="ini-seccion" id="ini-sec-plantillas" hidden>
-        <h3>Plantillas y guardados</h3>
-        ${opcionesPlantilla
-          ? `<div class="ini-plantillas">${opcionesPlantilla}</div>`
-          : `<p class="ini-nota" style="margin:0">Todavía no tenés plantillas. Subí un SVG o PDF (acá abajo) o guardá un diseño con «Guardar como plantilla», y van a aparecer en esta lista.</p>`}
-        <h3 style="margin-top:18px">Cargar multimedia</h3>
-        <button id="ini-cargar-svg" class="ini-btn-acc">Subir imagen, SVG o PDF…</button>
-        <p class="ini-nota">Cualquier imagen, SVG o PDF entra al editor. Después podés <strong>guardarlo como plantilla</strong> con el botón “Plantilla” de la barra superior.</p>
       </section>
     </div>`
   document.body.appendChild(ov)
@@ -9434,19 +9460,32 @@ function mostrarInicio(): void {
     const n = Math.max(2, Math.min(20, Math.round(+ov.querySelector<HTMLInputElement>('#ini-carr-n')!.value || 3)))
     cerrarInicio(); crearCarrusel(sw, sh, n)
   })
-  ov.querySelector('#ini-crear-collage')!.addEventListener('click', () => abrirCollage())
-  ov.querySelector('#ini-crear-qr')!.addEventListener('click', () => abrirQR())
-  // Certificados: directo a ELEGIR LA PLANTILLA (sin pasar por un lienzo en blanco).
-  ov.querySelector('#ini-certificados')!.addEventListener('click', () => {
-    cerrarInicio()
-    abrirCertificados()
-    ;(document.querySelector('#cert-file-tpl') as HTMLInputElement | null)?.click()
-  })
-  ov.querySelector('#ini-plantillas-toggle')!.addEventListener('click', () => {
-    const sec = ov.querySelector<HTMLElement>('#ini-sec-plantillas')!
-    sec.hidden = !sec.hidden
-    if (!sec.hidden) sec.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
+  // Cards del inicio: acción directa (Cargar/Collage/QR/Certificados) o desplegar
+  // su panel (Documento en blanco / Plantillas / Carrusel), tipo acordeón (uno a la vez).
+  const panelesInicio: Record<string, string> = { blanco: 'ini-panel-blanco', plantillas: 'ini-panel-plantillas', carrusel: 'ini-panel-carrusel' }
+  const togglePanelInicio = (key: string): void => {
+    const id = panelesInicio[key]; if (!id) return
+    const sec = ov.querySelector<HTMLElement>('#' + id)!
+    const abrir = sec.hidden
+    Object.values(panelesInicio).forEach((pid) => { const s = ov.querySelector<HTMLElement>('#' + pid); if (s) s.hidden = true })
+    ov.querySelectorAll('.ini-card[aria-expanded]').forEach((c) => c.setAttribute('aria-expanded', 'false'))
+    if (abrir) {
+      sec.hidden = false
+      ov.querySelector(`.ini-card[data-panel="${key}"]`)?.setAttribute('aria-expanded', 'true')
+      sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }
+  ov.querySelectorAll<HTMLButtonElement>('.ini-card').forEach((b) =>
+    b.addEventListener('click', () => {
+      switch (b.dataset.panel) {
+        case 'cargar': inSvgPlantilla.click(); break
+        case 'collage': abrirCollage(); break
+        case 'qr': abrirQR(); break
+        // Certificados: directo a ELEGIR LA PLANTILLA (sin pasar por un lienzo en blanco).
+        case 'cert': cerrarInicio(); abrirCertificados(); (document.querySelector('#cert-file-tpl') as HTMLInputElement | null)?.click(); break
+        default: togglePanelInicio(b.dataset.panel!)
+      }
+    }))
   // Recuperar el borrador sin nombre.
   ov.querySelector<HTMLButtonElement>('.ini-borrador-open')?.addEventListener('click', async () => {
     let raw: string | null = null
