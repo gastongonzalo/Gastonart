@@ -7385,7 +7385,16 @@ function ejecutarAutoguardado(): void {
     // fotos superan la cuota de localStorage). Guardia blanda ante casos absurdos.
     const json = JSON.stringify(data)
     if (json.length > 60_000_000) return
-    void guardarReciente(json)
+    if ((inNombre.value || '').trim()) {
+      // Con nombre → va a Recientes. Si este mismo proyecto (por id) estaba como
+      // borrador sin nombre, ya quedó a salvo → limpiar el borrador.
+      void guardarReciente(json)
+      const b = leerBorrador()
+      if (b && b.id === proyectoActualId) void limpiarBorrador()
+    } else if (histIdx > 0) {
+      // Sin nombre pero con trabajo real → guardar un borrador recuperable.
+      void guardarBorrador(json)
+    }
   } catch { /* ignorar */ }
 }
 // Al ocultarse/cerrarse la app, disparar el autoguardado pendiente YA (sin el
@@ -7534,6 +7543,39 @@ async function guardarReciente(json: string): Promise<void> {
   try { localStorage.setItem(LS_RECIENTES, JSON.stringify(lista)) } catch { /* ignorar */ }
 }
 
+// ---------------------------------------------------------------
+//  BORRADOR de recuperación: un ÚNICO slot para el trabajo SIN NOMBRE.
+//  Recientes solo guarda lo nombrado; sin esto, si el navegador/SO mata la
+//  pestaña (típico en el celu por memoria) el trabajo sin nombre se perdía.
+//  Se autoguarda en cada cambio y se ofrece recuperar en la pantalla de inicio.
+//  En cuanto el diseño recibe nombre pasa a Recientes y el borrador se limpia.
+// ---------------------------------------------------------------
+const IDB_BORRADOR = 'gastonart-borrador'
+const LS_BORRADOR = 'gastonart-borrador-meta'
+interface BorradorMeta { fecha: number; thumb: string; id: string | null }
+function leerBorrador(): BorradorMeta | null {
+  try { const s = localStorage.getItem(LS_BORRADOR); return s ? (JSON.parse(s) as BorradorMeta) : null } catch { return null }
+}
+async function guardarBorrador(json: string): Promise<void> {
+  if (!proyectoActualId) proyectoActualId = genIdProyecto()
+  const svgMini = mesas.length ? (mesas[mesaActiva]?.svg || '') : (svgEl ? new XMLSerializer().serializeToString(svgEl) : '')
+  const thumb = svgMini ? await miniaturaRaster(svgMini) : ''
+  try { await idbSet(IDB_BORRADOR, json) } catch (e) { console.warn('[borrador] no se pudo guardar:', e); return }
+  try { localStorage.setItem(LS_BORRADOR, JSON.stringify({ fecha: Date.now(), thumb, id: proyectoActualId })) } catch { /* quota: los datos igual quedan en IDB */ }
+}
+async function limpiarBorrador(): Promise<void> {
+  try { localStorage.removeItem(LS_BORRADOR) } catch { /* ignorar */ }
+  await idbDel(IDB_BORRADOR)
+}
+// "hace 5 min" / "hace 2 h" / "hace 3 días" para la tarjeta de recuperación.
+function hace(ms: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
+  if (s < 60) return 'recién'
+  const m = Math.round(s / 60); if (m < 60) return `hace ${m} min`
+  const h = Math.round(m / 60); if (h < 24) return `hace ${h} h`
+  const d = Math.round(h / 24); return `hace ${d} día${d > 1 ? 's' : ''}`
+}
+
 document.querySelector('#btn-guardar')!.addEventListener('click', () => {
   cerrarEditor()
   guardarMesaActiva()
@@ -7573,7 +7615,7 @@ document.querySelector('#btn-guardar-plantilla')!.addEventListener('click', () =
 // confirmar antes de descartarlo. Devuelve true si se puede continuar.
 function confirmarDescarteSinNombre(): boolean {
   if (!proyectoActualId || inNombre.value.trim() || histIdx <= 0) return true
-  return confirm('Este diseño no tiene nombre, así que NO va a quedar en Recientes.\n¿Salir sin guardar?\n\n(Para conservarlo, cancelá y ponele un nombre arriba.)')
+  return confirm('Este diseño no tiene nombre. Vas a poder recuperarlo desde la pantalla de inicio como «Borrador», pero se reemplaza si empezás otro diseño sin nombre.\n\n¿Continuar? (Para conservarlo siempre, cancelá y ponele un nombre arriba.)')
 }
 document.querySelector('#btn-nuevo')!.addEventListener('click', () => {
   if (!confirmarDescarteSinNombre()) return
@@ -9293,6 +9335,23 @@ function mostrarInicio(): void {
     </span>`
   }).join('')
 
+  // Borrador de recuperación: trabajo SIN NOMBRE que quedó sin guardar (p.ej. el
+  // navegador/SO cerró la pestaña). Se ofrece retomarlo o descartarlo.
+  const borr = leerBorrador()
+  const borradorHtml = borr ? `
+      <section class="ini-seccion" id="ini-sec-borrador">
+        <h3>Continuar donde dejaste</h3>
+        <div class="ini-plantillas">
+          <span class="ini-plantilla-wrap">
+            <button class="ini-borrador-open ini-reciente" title="Recuperar el trabajo sin guardar (${escAttr(hace(borr.fecha))})">
+              <span class="ini-plantilla-thumb">${borr.thumb ? `<img src="${escAttr(borr.thumb)}" alt="" loading="lazy">` : ''}</span>
+              <span class="ini-plantilla-nom">Borrador · ${escHtml(hace(borr.fecha))}</span>
+            </button>
+            <button class="ini-borrador-del ini-reciente-del" title="Descartar el borrador">✕</button>
+          </span>
+        </div>
+      </section>` : ''
+
   // Proyectos recientes (guardados automáticamente).
   const recientes = leerRecientes()
   const recientesHtml = recientes.length ? `
@@ -9318,6 +9377,7 @@ function mostrarInicio(): void {
         <span>¿Cómo querés empezar?</span>
         <button id="ini-cerrar" class="mini" title="Cerrar">✕</button>
       </div>
+      ${borradorHtml}
       ${recientesHtml}
       <section class="ini-seccion">
         <h3>Imagen en blanco</h3>
@@ -9387,8 +9447,29 @@ function mostrarInicio(): void {
     sec.hidden = !sec.hidden
     if (!sec.hidden) sec.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
-  // Abrir un proyecto reciente.
-  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente').forEach((b) =>
+  // Recuperar el borrador sin nombre.
+  ov.querySelector<HTMLButtonElement>('.ini-borrador-open')?.addEventListener('click', async () => {
+    let raw: string | null = null
+    try { raw = await idbGet(IDB_BORRADOR) } catch { /* sin IDB */ }
+    if (!raw) { alert('No se encontró el borrador (puede haberse borrado por espacio).'); void limpiarBorrador(); mostrarInicio(); return }
+    cerrarInicio()
+    clearTimeout(tGuardar) // que un autosave pendiente no cruce proyectos
+    try { await restaurarGuardado(JSON.parse(raw)) } catch { estado.textContent = '❌ No se pudo abrir el borrador'; return }
+    // Sigue SIN nombre: el id se mantiene para que, al nombrarlo, se limpie el
+    // borrador correcto (ver ejecutarAutoguardado). El borrador queda en pie hasta
+    // que el diseño reciba nombre; los cambios siguientes lo van refrescando.
+    proyectoActualId = borr?.id || genIdProyecto()
+    inNombre.value = ''
+    try { localStorage.setItem('gastonart-nombre', '') } catch { /* ignorar */ }
+    estado.textContent = 'Borrador recuperado. Poné un nombre para guardarlo en Recientes.'
+  })
+  ov.querySelector<HTMLButtonElement>('.ini-borrador-del')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    if (!confirm('¿Descartar el borrador sin guardar? No se puede deshacer.')) return
+    void limpiarBorrador(); mostrarInicio()
+  })
+  // Abrir un proyecto reciente. (Excluir el botón del borrador, que reusa la clase.)
+  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente:not(.ini-borrador-open)').forEach((b) =>
     b.addEventListener('click', async () => {
       const id = b.dataset.id!
       // Datos en IndexedDB; los guardados de la era localStorage quedan como fallback.
@@ -9407,7 +9488,7 @@ function mostrarInicio(): void {
       try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* ignorar */ }
       estado.textContent = 'Proyecto abierto.'
     }))
-  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente-del').forEach((b) =>
+  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente-del:not(.ini-borrador-del)').forEach((b) =>
     b.addEventListener('click', (e) => {
       e.stopPropagation()
       const id = b.dataset.id!
