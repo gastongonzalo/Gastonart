@@ -500,17 +500,22 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   .pl-head { position: sticky; top: 0; background: var(--panel); z-index: 1; }
   .pl-head #pl-cerrar { width: 36px; height: 36px; font-size: 16px; }
 
-  /* --- Panel contextual de la selección = bottom-sheet (debajo de la categoría) --- */
+  /* --- Panel contextual de la selección = TOOLBAR horizontal compacta: UNA fila
+     que scrollea al costado, justo sobre el riel. Ocupa poco alto (no un sheet). --- */
   #panel-props {
     top: auto; left: 0; right: 0; bottom: 56px;
-    width: 100%; max-width: 100%; max-height: 52vh;
-    border-radius: 16px 16px 0 0;
-    box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.24);
+    width: 100%; max-width: 100%; max-height: none;
+    flex-direction: row; flex-wrap: nowrap; align-items: center;
+    gap: 6px; padding: 7px 8px;
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
     z-index: 58;
     animation: sheet-subir 0.18s ease-out;
   }
-  /* Barrita de "agarre" arriba de cada sheet (aspecto de panel deslizable). */
-  #panel-lateral::before, #panel-props::before {
+  /* Barrita de "agarre" solo en el sheet de CATEGORÍA (el contextual ya no es alto). */
+  #panel-lateral::before {
     content: ''; flex: none; width: 40px; height: 4px; border-radius: 2px;
     background: var(--border-strong); margin: 8px auto 2px;
   }
@@ -613,6 +618,34 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 #panel-props #barra-texto #bt-gfonts { flex: 1 1 100%; min-height: 38px; }
 #panel-props #barra-texto button { height: 36px; min-width: 36px; }
 #panel-props #barra-texto .bt-color input[type='color'] { width: 40px; height: 36px; }
+
+/* MÓVIL: dentro de la toolbar horizontal de #panel-props, las barras (texto,
+   forma/vector, foto) van en UNA FILA que scrollea al costado (no apiladas).
+   Va DESPUÉS de las reglas verticales de arriba para ganarles por orden. */
+@media (max-width: 640px) {
+  #panel-props .graf-tools, #panel-props .foto-tools, #panel-props #barra-texto {
+    flex-direction: row; flex-wrap: nowrap; align-items: center;
+    width: max-content; gap: 6px;
+  }
+  /* Etiquetas/notas que sólo ocuparían en una fila. */
+  #panel-props #barra-texto .bt-label { display: none; }
+  #panel-props #barra-texto .bt-sep { flex: 0 0 auto; width: 1px; height: 24px; margin: 0 2px; background: var(--border); }
+  /* Selects y botones a ancho natural, con alto táctil uniforme. */
+  #panel-props #barra-texto select { flex: 0 0 auto; width: auto; min-width: 104px; height: 38px; }
+  #panel-props #barra-texto #bt-gfonts { flex: 0 0 auto; min-height: 38px; white-space: nowrap; }
+  #panel-props #barra-texto button { flex: 0 0 auto; height: 38px; min-width: 38px; }
+  #panel-props #barra-texto .bt-color input[type='color'] { width: 40px; height: 34px; }
+  /* Forma/vector y foto: botones en fila; sliders con ancho fijo. */
+  #panel-props .graf-btn, #panel-props .graf-del,
+  #panel-props .foto-tools .ft-cambiar, #panel-props .foto-tools .ft-fondo {
+    width: auto; flex: 0 0 auto; min-height: 38px; white-space: nowrap; padding: 0 12px; margin: 0;
+  }
+  #panel-props .graf-color, #panel-props .graf-opac,
+  #panel-props .foto-tools .ft-zoom { flex: 0 0 auto; width: auto; }
+  #panel-props .graf-opac input[type='range'],
+  #panel-props .foto-tools .ft-zoom input[type='range'] { width: 96px; flex: 0 0 auto; }
+  #panel-props .graf-mascara { width: auto; flex: 0 0 auto; }
+}
 #lienzo {
   position: relative;
   width: 100%;
