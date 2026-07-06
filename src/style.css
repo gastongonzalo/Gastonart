@@ -497,8 +497,30 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
     box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.24);
     z-index: 62; animation: sheet-subir 0.18s ease-out;
   }
-  .pl-head { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  .pl-head { position: sticky; top: 0; background: var(--panel); z-index: 1; padding: 8px 12px 6px; }
+  .pl-head strong { font-size: 15px; }
   .pl-head #pl-cerrar { width: 36px; height: 36px; font-size: 16px; }
+  /* Sheet de categoría MÁS COMPACTO: más bajo, denso y con los presets/acciones
+     simples en fila (no apilados). Las grillas de resultados scrollean adentro. */
+  #panel-lateral { max-height: 46vh; }
+  #panel-lateral .pl-body { padding: 0 12px 12px; gap: 8px; }
+  #panel-lateral .pl-view { gap: 8px; }
+  #panel-lateral .pl-accion { min-height: 38px; }
+  #panel-lateral .pl-preset { padding: 9px 12px; }
+  #panel-lateral .pl-nota { font-size: 11px; line-height: 1.35; margin: 0; }
+  /* Texto: acción principal full, presets en fila (2 por línea). */
+  #panel-lateral .pl-view[data-cat="texto"],
+  #panel-lateral .pl-view[data-cat="formulario"] { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+  #panel-lateral .pl-view[data-cat="texto"] .pl-sub,
+  #panel-lateral .pl-view[data-cat="texto"] .pl-nota,
+  #panel-lateral .pl-view[data-cat="texto"] #btn-add-texto,
+  #panel-lateral .pl-view[data-cat="texto"] #btn-add-campo-cert,
+  #panel-lateral .pl-view[data-cat="formulario"] .pl-nota { flex: 1 1 100%; }
+  #panel-lateral .pl-view[data-cat="texto"] .pl-preset { flex: 1 1 46%; width: auto; }
+  #panel-lateral .pl-view[data-cat="formulario"] .pl-accion { flex: 1 1 46%; }
+  /* Grillas de resultados: menos columnas (ítems más grandes / táctiles). */
+  #panel-lateral .pi-grid { grid-template-columns: repeat(5, 1fr); }
+  #panel-lateral .menu-figs { grid-template-columns: repeat(6, 1fr); }
 
   /* --- Panel contextual de la selección = TOOLBAR horizontal compacta: UNA fila
      que scrollea al costado, justo sobre el riel. Ocupa poco alto (no un sheet). --- */
