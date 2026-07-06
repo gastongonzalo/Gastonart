@@ -1,0 +1,47 @@
+name: Deploy PWA a GitHub Pages
+
+# Buildea (tsc + vite build) y publica dist/ en GitHub Pages en cada push.
+# El sitio queda en https://<usuario>.github.io/<repo>/ con HTTPS → la PWA se
+# puede instalar en el celu. base:'./' (rutas relativas) hace que ande en la
+# subruta del repo sin hardcodear el nombre.
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: # permite lanzarlo a mano desde la pestaña Actions
+
+# Permisos que necesita el deploy oficial de Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un deploy a la vez; si llega otro push, cancela el anterior en curso.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
