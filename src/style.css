@@ -455,14 +455,82 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 @media (max-width: 900px) {
   #panel-props { width: 208px; padding: 12px 10px; gap: 10px; }
 }
-/* En teléfono la sidebar se ancla ABAJO (bottom sheet) a todo el ancho, en vez de
-   ocultarse: así los controles de lo seleccionado siguen accesibles. */
-@media (max-width: 560px) {
+/* ================================================================
+   MÓVIL (≤640px): lienzo siempre visible; el riel de categorías pasa a
+   BARRA INFERIOR (pestañas) y los paneles (categoría y contextual) se abren
+   como BOTTOM-SHEET, uno por encima del otro. Patrón Canva/apps móviles.
+   ================================================================ */
+@keyframes sheet-subir { from { transform: translateY(100%); } to { transform: none; } }
+@media (max-width: 640px) {
+  /* --- Topbar compacta: solo íconos + nombre + descargar --- */
+  .topbar { padding: 8px 10px; gap: 8px; }
+  .tb-marca { flex: 1; min-width: 0; gap: 6px; }
+  .tb-marca strong { display: none; }            /* el wordmark no aporta en móvil */
+  .tb-lbl { display: none; }                     /* "Archivo"/"Descargar": solo el ícono */
+  .tb-nombre { flex: 1; width: auto; min-width: 40px; }
+  .tb-centro { flex: none; gap: 2px; }
+  .tb-centro .tb-div, #btn-copiar, #btn-pegar { display: none; } /* copiar/pegar: por teclado/atajo */
+  .tb-icono { height: 34px; min-width: 34px; padding: 0 6px; font-size: 18px; }
+  .tb-acciones { gap: 6px; }
+  .modo-tit { display: none; }
+  .modo-lbl { display: none; }                   /* switch de modo: solo ✎ / 🗂 */
+  .modo-switch button { padding: 6px 9px; font-size: 14px; }
+  .tb-export { padding: 8px 11px; }
+
+  /* --- Cuerpo: lienzo llena, el riel se fija abajo (fuera de flujo) --- */
+  #escenario { padding: 12px 8px 78px; }         /* deja lugar para el riel fijo */
+  .rail {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 65;
+    flex-direction: row; justify-content: flex-start;
+    gap: 2px; padding: 5px 6px calc(5px + env(safe-area-inset-bottom));
+    border-right: 0; border-top: 1px solid var(--border);
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  .rail-item { width: auto; flex: 0 0 auto; min-width: 58px; padding: 6px 8px; gap: 2px; font-size: 10px; border-radius: 8px; }
+  .rail-ic { font-size: 20px; }
+
+  /* --- Panel de categoría = bottom-sheet (arriba del riel) --- */
+  #panel-lateral {
+    position: fixed; left: 0; right: 0; top: auto; bottom: 56px;
+    width: 100%; flex: none; max-height: 60vh;
+    border: 0; border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.24);
+    z-index: 62; animation: sheet-subir 0.18s ease-out;
+  }
+  .pl-head { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  .pl-head #pl-cerrar { width: 36px; height: 36px; font-size: 16px; }
+
+  /* --- Panel contextual de la selección = bottom-sheet (debajo de la categoría) --- */
   #panel-props {
-    top: auto; left: 0; right: 0; bottom: 0;
-    width: 100%; max-width: 100%; max-height: 46vh;
-    border-radius: 14px 14px 0 0;
-    box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.18);
+    top: auto; left: 0; right: 0; bottom: 56px;
+    width: 100%; max-width: 100%; max-height: 52vh;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 34px rgba(0, 0, 0, 0.24);
+    z-index: 58;
+    animation: sheet-subir 0.18s ease-out;
+  }
+  /* Barrita de "agarre" arriba de cada sheet (aspecto de panel deslizable). */
+  #panel-lateral::before, #panel-props::before {
+    content: ''; flex: none; width: 40px; height: 4px; border-radius: 2px;
+    background: var(--border-strong); margin: 8px auto 2px;
+  }
+
+  /* Zoom flotando por encima del riel. */
+  #zoom-ctrl { bottom: 66px; right: 8px; }
+
+  /* Sin hover en touch: el ✕ de borrar recientes/plantillas SIEMPRE visible y grande.
+     El prefijo .ini-plantilla-wrap sube la especificidad (0,2,0) para ganarle a la
+     regla base opacity:0 que está más abajo en el archivo. */
+  .ini-plantilla-wrap .ini-plantilla-del, .ini-plantilla-wrap .ini-reciente-del {
+    opacity: 1; width: 26px; height: 26px; line-height: 26px; font-size: 14px; top: -8px; right: -8px;
+  }
+}
+
+/* Controles que se revelaban al HOVER: en touch no hay hover → mostrarlos siempre.
+   Prefijo .ini-plantilla-wrap para especificidad (le gana a la regla base opacity:0). */
+@media (hover: none) {
+  .ini-plantilla-wrap .ini-plantilla-del, .ini-plantilla-wrap .ini-reciente-del {
+    opacity: 1; width: 24px; height: 24px; line-height: 24px; font-size: 13px;
   }
 }
 

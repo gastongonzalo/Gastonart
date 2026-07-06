@@ -424,7 +424,7 @@ app.innerHTML = `
   <header class="topbar">
     <div class="tb-marca">
       <span class="tb-menu-wrap">
-        <button id="btn-menu" class="mini" title="Archivo">☰ Archivo</button>
+        <button id="btn-menu" class="mini" title="Archivo">☰ <span class="tb-lbl">Archivo</span></button>
         <div id="menu-archivo" class="menu-archivo" hidden>
           <button id="btn-nuevo" class="tb-menu-item">＋ Nuevo diseño</button>
           <button id="btn-guardar" class="tb-menu-item">💾 Guardar proyecto</button>
@@ -451,11 +451,11 @@ app.innerHTML = `
       <div class="modo-wrap">
         <span class="modo-tit">Modo de trabajo</span>
         <div class="modo-switch" role="group">
-          <button data-modo="completa" class="activo" title="Edición completa: todo disponible">✎ Completo</button>
-          <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">🗂 Plantilla</button>
+          <button data-modo="completa" class="activo" title="Edición completa: todo disponible">✎ <span class="modo-lbl">Completo</span></button>
+          <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">🗂 <span class="modo-lbl">Plantilla</span></button>
         </div>
       </div>
-      <button id="btn-export" class="tb-export">⬇ Descargar</button>
+      <button id="btn-export" class="tb-export">⬇ <span class="tb-lbl">Descargar</span></button>
     </div>
   </header>
   <span class="estado" id="estado" hidden></span>
@@ -1282,6 +1282,10 @@ for (const b of Array.from(document.querySelectorAll<HTMLElement>('.rail-item'))
   })
 }
 document.querySelector('#pl-cerrar')!.addEventListener('click', cerrarCategoria)
+// En móvil, tocar el lienzo cierra la categoría abierta (como tocar "afuera" del sheet).
+document.querySelector('#escenario')!.addEventListener('pointerdown', () => {
+  if (esMovil() && categoriaActiva) cerrarCategoria()
+}, true)
 // Cerrar el popover de Dibujar al clic afuera.
 document.addEventListener('pointerdown', (e) => {
   if (menuDibujar.hidden) return
@@ -4161,12 +4165,17 @@ function construirPuntasCont(): HTMLElement {
 // #panel-props, una sidebar FLOTANTE fija a la derecha de la pantalla (más práctica
 // que la barra que flotaba encima del elemento y se movía / tapaba el contenido).
 const panelProps = document.querySelector<HTMLElement>('#panel-props')!
+// ¿Layout móvil? (riel abajo + paneles como bottom-sheet). En móvil se muestra un
+// solo sheet a la vez: al aparecer los controles de la selección, se cierra la categoría.
+const mqMovil = window.matchMedia('(max-width: 640px)')
+function esMovil(): boolean { return mqMovil.matches }
 // Aloja una barra en la sidebar. `exclusivo`: saca las otras barras (graf/foto)
 // antes (para mostrar un solo contexto); las foto-tools de varios huecos se apilan.
 function alojarEnPanel(el: HTMLElement, exclusivo = true): void {
   if (exclusivo) panelProps.querySelectorAll('.graf-tools, .foto-tools').forEach((n) => { if (n !== el) n.remove() })
   if (el.parentElement !== panelProps) panelProps.appendChild(el)
   panelProps.hidden = false
+  if (esMovil()) cerrarCategoria() // un sheet a la vez: los controles de la selección cierran la categoría
 }
 // Muestra la sidebar solo si tiene alguna barra adentro (si no, se esconde).
 // Mientras el panel de Exportar está abierto se mantiene oculta (comparten la
@@ -5581,6 +5590,7 @@ function sincronizarBarra(nombre: string): void {
     b.classList.toggle('activo', b.getAttribute('data-bt') === 'al:' + ef.align)
   }
   barraTexto.hidden = false // la posición la fija abrirEditor (flota sobre el texto)
+  if (esMovil()) cerrarCategoria() // móvil: los controles de texto cierran la categoría abierta
 }
 
 // Evitar que los botones de la barra roben el foco del textarea (si no, el
