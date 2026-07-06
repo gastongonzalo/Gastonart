@@ -157,6 +157,13 @@ function familiasDisponibles(): string[] {
   const s = new Set(facesPack.map((f) => f.family))
   return Array.from(s).sort((a, b) => a.localeCompare(b))
 }
+// Familias que se pueden EMBEBER en un PDF completable (pdf-lib solo acepta sfnt:
+// ttf/otf). Las de Google Fonts vienen como woff2 y NO sirven → para un campo de
+// formulario caerían a Helvetica sin aviso. Se usa en el selector del campo.
+function familiasEmbebibles(): string[] {
+  const s = new Set(facesPack.filter((f) => f.formato === 'truetype' || f.formato === 'opentype').map((f) => f.family))
+  return Array.from(s).sort((a, b) => a.localeCompare(b))
+}
 
 // Pesos cargados para una familia (variantes reales que tenemos para el export).
 function pesosDisponibles(family: string): number[] {
@@ -373,14 +380,19 @@ function fuentesFaltantes(svg: string): string[] {
   for (const m of svg.matchAll(/font-family\s*:\s*([^;}"]+)/gi)) decls.add(m[1])
   for (const m of svg.matchAll(/font-family\s*=\s*["']([^"']+)["']/gi)) decls.add(m[1])
   const faltan = new Set<string>()
-  const generica = (s: string) => /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/i.test(s)
+  const generica = (s: string) => /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-(sans-serif|serif|monospace))$/i.test(s)
+  // Fuentes de SISTEMA/web-safe: no se bajan de Google y renderizan con un
+  // sustituto razonable → no marcarlas "faltantes" (si no, un stack tipo
+  // "Helvetica Neue, Arial, sans-serif" de Figma disparaba un aviso falso y un
+  // fetch inútil a Google/GitHub).
+  const sistema = new Set(['arial', 'helvetica', 'helvetica neue', 'times', 'times new roman', 'georgia', 'verdana', 'tahoma', 'trebuchet ms', 'courier', 'courier new', 'segoe ui', 'roboto', 'sans', 'serif'])
   for (const decl of decls) {
     const nombres = decl.split(',').map((s) => s.replace(/['"]/g, '').trim()).filter(Boolean)
     // La fuente QUERIDA es la PRIMERA concreta del stack (lo demás es fallback).
     // Antes se miraba la última: con "'Oswald', sans-serif" (import de PDF) caía
     // en el genérico y se salteaba → nunca avisaba que faltaba Oswald.
     const fam = nombres.find((n) => !generica(n))
-    if (!fam) continue
+    if (!fam || sistema.has(fam.toLowerCase())) continue
     if (!facesPack.some((f) => f.family.toLowerCase() === fam.toLowerCase())) faltan.add(fam)
   }
   return [...faltan]
@@ -4018,6 +4030,10 @@ function construirOrdenarCont(): HTMLElement {
 // <path data-rect data-radios> (resvg renderiza ambos igual en el export).
 let puntasAbierto = false
 let puntasElem: SVGElement | null = null
+// Esquina cuyo input se estaba editando: al setear un radio por esquina el rect se
+// convierte a path y dibujarSelGraf reconstruye el panel (destruye el input y roba
+// el foco). Se restaura one-shot tras reconstruir.
+let puntasFoco: number | null = null
 
 // Geometría base + radios actuales del elemento, si es redondeable.
 function infoRedondeo(el: SVGElement): { x: number; y: number; w: number; h: number; radios: [number, number, number, number] } | null {
@@ -4122,6 +4138,7 @@ function construirPuntasCont(): HTMLElement {
     n.value = String(Math.round(radios[i]))
     n.addEventListener('input', () => {
       radios[i] = Math.max(0, Math.min(max, +n.value || 0))
+      puntasFoco = i // por si aplicar() reconstruye el panel: recuperar el foco acá
       aplicar()
     })
     n.addEventListener('change', fin)
@@ -4130,6 +4147,12 @@ function construirPuntasCont(): HTMLElement {
     filaE.append(wrap)
   })
   cont.append(filaE)
+  // Si venimos de una reconstrucción por conversión rect→path, devolver el foco al
+  // input que se estaba editando (una sola vez).
+  if (puntasFoco != null && nums[puntasFoco]) {
+    const idx = puntasFoco; puntasFoco = null
+    requestAnimationFrame(() => { const inp = nums[idx]; if (inp) { inp.focus(); const L = inp.value.length; try { inp.setSelectionRange(L, L) } catch { /* */ } } })
+  }
   return cont
 }
 
@@ -5767,8 +5790,13 @@ async function ejecutarQuitarFondo(src: string, aplicar: (foto: Foto) => void, b
     estado.textContent = 'Fondo quitado ✓'
   } catch (e) {
     console.error('quitar fondo:', e)
-    estado.textContent = 'No se pudo quitar el fondo'
-    alert('No se pudo quitar el fondo: ' + (e as Error).message)
+    // "Quitar fondo" baja el modelo de IA (~40MB) de internet la 1.ª vez: sin
+    // conexión falla con un error de red críptico. Aviso claro.
+    const offline = !navigator.onLine
+    estado.textContent = offline ? '❌ "Quitar fondo" necesita conexión' : 'No se pudo quitar el fondo'
+    alert(offline
+      ? '«Quitar fondo» usa un modelo de IA que se descarga de internet la primera vez. Conectate a una red y volvé a intentar.'
+      : 'No se pudo quitar el fondo: ' + (e as Error).message)
   } finally {
     quitandoFondo = false
     if (btn) { btn.disabled = false; btn.textContent = txt }
@@ -7346,6 +7374,11 @@ function ejecutarAutoguardado(): void {
     // quitado, wrapper 0.5, contorno rosa): no serializarlo — salirReencuadre
     // vuelve a disparar el autoguardado al confirmar.
     if (reframeG) return
+    // Asistente de certificados abierto/generando: el diseño vivo muestra los DATOS
+    // de una fila (Ana Pérez) en vez de los +MARCADORES+ → no persistir, o el
+    // proyecto guardado perdería los marcadores. Al minimizar/cerrar se restauran
+    // y ahí sí se autoguarda.
+    if (certAbierto) return
     guardarMesaActiva()
     const data = mesas.length ? { multi: true, mesaActiva, mesas } : snapshotProyecto()
     // El proyecto va a "recientes" (datos en IndexedDB → los collages con muchas
@@ -8316,8 +8349,12 @@ function construirControlesFfield(tools: HTMLElement, el: SVGElement): void {
 
   const sel = document.createElement('select'); sel.className = 'ff-input'
   const famAct = el.getAttribute('data-ff-font') || 'Poppins'
-  const fams = familiasDisponibles()
-  sel.innerHTML = (fams.includes(famAct) ? fams : [famAct, ...fams]).map((f) => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('')
+  // Solo familias EMBEBIBLES (ttf/otf): una woff2 de Google caería a Helvetica en
+  // el PDF completable, sin aviso. Si el campo ya tenía una no-embebible, se muestra
+  // igual (para no perderla) pero con un aviso.
+  const fams = familiasEmbebibles()
+  const noEmb = !fams.includes(famAct)
+  sel.innerHTML = (noEmb ? [famAct, ...fams] : fams).map((f) => `<option value="${escAttr(f)}">${escHtml(f)}</option>`).join('')
   sel.value = famAct
   sel.addEventListener('change', () => set('data-ff-font', sel.value))
   fila('Tipografía', sel)
@@ -8424,6 +8461,9 @@ async function exportarPdfFormulario(): Promise<void> {
       })
       const tam = Math.max(4, parseFloat(c.getAttribute('data-ff-size') || '16'))
       const auto = c.getAttribute('data-ff-auto') !== '0'
+      // Campo ALTO (más de ~2 líneas): multilínea, para que el texto largo se
+      // envuelva en vez de encogerse en una sola línea hasta ser ilegible.
+      if (fh > tam * 2.2) tf.enableMultiline()
       // Fijo → /DA con el tamaño (el lector NO achica: el sobrante no se ve).
       // Auto → /DA "0 Tf" (default): el lector achica la letra hasta que entre.
       if (!auto) tf.setFontSize(tam)
@@ -8442,7 +8482,7 @@ async function exportarPdfFormulario(): Promise<void> {
     const bytes = await doc.save()
     const n = pedirNombreDescarga(`${nombreArchivo()} formulario.pdf`)
     if (!n) { estado.textContent = 'Descarga cancelada.'; return }
-    descargarSinPreguntar(new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' }), n)
+    descargarSinPreguntar(new Blob([bytes as BlobPart], { type: 'application/pdf' }), n) // la vista, no .buffer (evita basura si byteOffset≠0)
     estado.textContent = `📋 PDF completable generado (${campos.length} campo${campos.length > 1 ? 's' : ''})`
   } catch (e) {
     estado.textContent = '❌ No se pudo generar el formulario: ' + (e instanceof Error ? e.message : String(e))
@@ -8458,11 +8498,16 @@ const RE_TOKEN = /\+([^+\n]+?)\+/g
 // Hook para refrescar el asistente ABIERTO cuando se agrega un campo +MARCADOR+
 // desde el panel Texto (las dos herramientas conviven).
 let certRefrescar: (() => void) | null = null
+// true mientras el modal de certificados está VISIBLE (mostrando la vista previa de
+// una fila): suprime el autoguardado para no persistir el diseño con datos de una
+// fila. Al minimizar/cerrar se restauran los marcadores y se vuelve a false.
+let certAbierto = false
 
 function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
   cerrarInicio()
   cerrarEditor()
   document.querySelectorAll('#modal-cert, #cert-chip').forEach((n) => n.remove())
+  certAbierto = true
 
   let tokens: string[] = [] // marcadores tal como aparecen (sin los +)
   let textoOrig: Record<string, string> = {} // campo → texto original con +MARCADORES+
@@ -8540,9 +8585,10 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
   const gridWrap = $c<HTMLDivElement>('#cert-grid-wrap')
 
   // -- Paso 1: detectar los +MARCADORES+ del diseño abierto --
+  let colisiones: [string, string][] = [] // pares de marcadores que se confunden (misma clave normalizada)
   const escanear = (): void => {
-    tokens = []; textoOrig = {}
-    const vistos = new Set<string>()
+    tokens = []; textoOrig = {}; colisiones = []
+    const porClave = new Map<string, string>() // clave normalizada → 1er token
     if (!svgEl) return
     for (const c of camposActuales) {
       const els = Array.from(svgEl.querySelectorAll(`[data-campo="${c.nombre}"]`))
@@ -8553,7 +8599,9 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
         hubo = true
         const t = m[1].trim()
         const k = normalizarCol(t)
-        if (k && !vistos.has(k)) { vistos.add(k); tokens.push(t) }
+        if (!k) continue
+        if (porClave.has(k)) { if (porClave.get(k) !== t) colisiones.push([porClave.get(k)!, t]) } // dos marcadores distintos → misma columna
+        else { porClave.set(k, t); tokens.push(t) }
       }
       if (hubo) textoOrig[c.nombre] = txt
     }
@@ -8562,7 +8610,11 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
     if (!tokens.length) {
       divTokens.innerHTML = '<span class="cert-info">⚠ No encontré marcadores +ASÍ+ en el diseño abierto. Importá la plantilla que los tenga.</span>'
     } else {
-      divTokens.innerHTML = 'Detectados: ' + tokens.map((t) => `<span class="cert-chip">+${escHtml(t)}+</span>`).join(' ')
+      let html = 'Detectados: ' + tokens.map((t) => `<span class="cert-chip">+${escHtml(t)}+</span>`).join(' ')
+      // Aviso: marcadores que colapsan a la misma columna se completarían con el
+      // mismo dato (p.ej. +N°+ y +N+). Que el usuario los renombre.
+      if (colisiones.length) html += colisiones.map(([a, b]) => `<div class="cert-info" style="color:#b45309">⚠ «+${escHtml(a)}+» y «+${escHtml(b)}+» se toman como el mismo dato: renombrá uno para diferenciarlos.</div>`).join('')
+      divTokens.innerHTML = html
     }
     selNombre.innerHTML = tokens.map((t, i) => `<option value="${i}">${escHtml(t)}</option>`).join('')
   }
@@ -8617,9 +8669,9 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
     } else {
       filas = manual.map((f) => {
         const o: Record<string, string> = {}
-        // Celda vacía → NO se define la clave: el marcador queda visible en la
-        // vista previa (feedback de que falta completar), en vez de desaparecer.
-        tokens.forEach((t, i) => { const v = (f[i] ?? '').trim(); if (v !== '') o[normalizarCol(t)] = v })
+        // Celda vacía → queda EN BLANCO en el certificado (igual que en modo pegar):
+        // dejar el marcador «+NOMBRE+» visible en un certificado final sería peor.
+        tokens.forEach((t, i) => { o[normalizarCol(t)] = (f[i] ?? '').trim() })
         return o
       })
     }
@@ -8830,13 +8882,24 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
 
   // MINIMIZAR: se oculta el panel (con todos los datos) y queda un botón
   // flotante 🎓 para volver — así se puede editar el diseño sin perder nada.
+  const restaurarMarcadores = (): void => {
+    for (const [campo, orig] of Object.entries(textoOrig)) {
+      if (metricas[campo]) { valores[campo] = orig; pintarCampo(campo) }
+    }
+  }
   $c('#cert-min').addEventListener('click', () => {
+    if (generando) return
     ov.hidden = true
+    // Minimizado: se edita el DISEÑO (plantilla con marcadores), no una fila →
+    // restaurar los marcadores y permitir el autoguardado normal.
+    certAbierto = false
+    restaurarMarcadores()
+    autoguardar()
     const chip = document.createElement('button')
     chip.id = 'cert-chip'
     chip.textContent = '🎓 Certificados'
     chip.title = 'Volver al asistente de certificados (los datos quedaron cargados)'
-    chip.addEventListener('click', () => { chip.remove(); ov.hidden = false })
+    chip.addEventListener('click', () => { chip.remove(); ov.hidden = false; certAbierto = true; refrescar() })
     document.body.appendChild(chip)
   })
 
@@ -8857,16 +8920,13 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
   $c('#cert-cerrar').addEventListener('click', () => {
     if (generando) return
     certRefrescar = null
+    certAbierto = false
     ov.remove()
     document.querySelectorAll('#cert-chip').forEach((n) => n.remove())
     // El diseño QUEDA abierto (para guardarlo como plantilla, retocarlo, etc.):
     // solo se deshacen los datos de la fila en vista, restaurando los
     // +MARCADORES+ originales. Los ajustes de tamaño/tipografía se conservan.
-    for (const [campo, orig] of Object.entries(textoOrig)) {
-      if (!metricas[campo]) continue
-      valores[campo] = orig
-      pintarCampo(campo)
-    }
+    restaurarMarcadores()
     registrarHistorial(); autoguardar()
   })
 

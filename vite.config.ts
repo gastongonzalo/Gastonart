@@ -47,7 +47,13 @@ export default defineConfig({
         // OJO: incluye 'mjs' — el worker de pdf.js se emite como .mjs; sin él en
         // el precache, importar un PDF con la app offline fallaba.
         globPatterns: ['**/*.{js,mjs,css,html,wasm,ttf,otf,woff,woff2,png,svg,webmanifest}'],
-        maximumFileSizeToCacheInBytes: 40 * 1024 * 1024,
+        // Excluir el wasm de onnxruntime (~23MB, de "quitar fondo"): ese servicio
+        // baja su modelo de staticimgly.com igual (no anda offline), así que
+        // precachearlo solo inflaba la instalación (riesgo de fallar por cuota en
+        // el celu) sin dar offline real. El de resvg (index_bg.wasm, ~2.4MB) SÍ
+        // queda: es lo que hace funcionar el export offline.
+        globIgnores: ['**/ort-wasm-*.wasm'],
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         // Los servicios online (Iconify, Openverse, Google Fonts, quitar fondo)
         // requieren red igual; no se cachean.
       },
