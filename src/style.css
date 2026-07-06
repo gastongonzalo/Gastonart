@@ -2036,4 +2036,24 @@ button.mini {
   .imged-aplicar { min-height: 38px; }
   .imged-opts { max-height: 34vh; overflow-y: auto; }
   .imged-slider input[type='range'] { width: 108px; }
+
+  /* Pinch-zoom: el escenario controla los gestos (sin zoom/scroll del navegador). */
+  #escenario { touch-action: none; }
+
+  /* Asistente de certificados: anclado como bottom-sheet a todo el ancho (no se
+     arrastra en móvil; el drag está guardado con esMovil()). */
+  #modal-cert {
+    top: auto; left: 0; right: 0; bottom: 0;
+    width: 100%; max-width: 100%; max-height: 86vh;
+    border-radius: 16px 16px 0 0;
+  }
+  .cert-head { cursor: default; }
+  #cert-chip { bottom: 72px; }
+
+  /* Inicio más compacto y cards de recientes/plantillas más chicas (menos alto). */
+  .ini-wrap { padding: 18px 14px 60px; }
+  .ini-head { margin-bottom: 18px; }
+  .ini-seccion { margin-bottom: 22px; }
+  .ini-plantillas { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .ini-plantilla-thumb { aspect-ratio: 1 / 1; }
 }

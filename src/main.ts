@@ -8915,6 +8915,7 @@ function abrirCertificados(modoInicial: 'pegar' | 'manual' = 'pegar'): void {
   const head = $c<HTMLElement>('.cert-head')
   head.addEventListener('pointerdown', (e) => {
     if ((e.target as Element).closest('button')) return
+    if (esMovil()) return // en móvil el panel va anclado como bottom-sheet (no se arrastra)
     e.preventDefault()
     const r = ov.getBoundingClientRect()
     ov.style.left = r.left + 'px'; ov.style.top = r.top + 'px'; ov.style.right = 'auto'
@@ -9965,6 +9966,43 @@ escenario.addEventListener('wheel', (e) => {
   e.preventDefault()
   setZoom(zoomLienzo + (e.deltaY < 0 ? 0.1 : -0.1))
 }, { passive: false })
+
+// --- Pinch-zoom (+ desplazamiento) con dos dedos en móvil ---
+// Se escucha en FASE DE CAPTURA sobre el escenario: al haber 2 dedos, se hace
+// stopPropagation para que los handlers de arrastre/selección (que viven en svgEl
+// o document, más abajo/arriba en la propagación) NO corran mientras se pinza.
+const pinchPtrs = new Map<number, { x: number; y: number }>()
+let pinchDist0 = 0, pinchZoom0 = 1, pinchCx = 0, pinchCy = 0
+escenario.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return
+  pinchPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  if (pinchPtrs.size === 2) {
+    const [a, b] = [...pinchPtrs.values()]
+    pinchDist0 = Math.hypot(a.x - b.x, a.y - b.y) || 1
+    pinchZoom0 = zoomLienzo
+    pinchCx = (a.x + b.x) / 2; pinchCy = (a.y + b.y) / 2
+    e.preventDefault(); e.stopPropagation()
+  }
+}, true)
+escenario.addEventListener('pointermove', (e) => {
+  if (!pinchPtrs.has(e.pointerId)) return
+  pinchPtrs.set(e.pointerId, { x: e.clientX, y: e.clientY })
+  if (pinchPtrs.size < 2) return
+  e.preventDefault(); e.stopPropagation() // bloquear arrastre/selección durante el pinch
+  const [a, b] = [...pinchPtrs.values()]
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2
+  escenario.scrollLeft -= cx - pinchCx // seguir el centro de los dedos (pan)
+  escenario.scrollTop -= cy - pinchCy
+  pinchCx = cx; pinchCy = cy
+  const dist = Math.hypot(a.x - b.x, a.y - b.y)
+  if (dist > 0) setZoom(pinchZoom0 * dist / pinchDist0)
+}, true)
+const finPinch = (e: PointerEvent): void => {
+  if (!pinchPtrs.delete(e.pointerId)) return
+  if (pinchPtrs.size < 2) pinchDist0 = 0
+}
+escenario.addEventListener('pointerup', finPinch, true)
+escenario.addEventListener('pointercancel', finPinch, true)
 
 let tResize: number | undefined
 window.addEventListener('resize', () => {
