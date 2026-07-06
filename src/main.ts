@@ -9898,8 +9898,11 @@ async function importarPDF(file: File): Promise<void> {
 // plantilla). PDF → importarPDF; SVG → usarSvgImportado.
 async function crearPlacaDesdeMultimedia(file: File): Promise<void> {
   const foto = await leerFoto(file)
+  // data-agregado="imagen": entra como imagen EDITABLE (mover/escalar/editar), NO
+  // como hueco de plantilla. Sin esto, prepararEditor la marcaba data-foto y en
+  // modo completo tocarla abría "subir otra" (comportamiento de hueco de plantilla).
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="${XLINK}" viewBox="0 0 ${foto.w} ${foto.h}">` +
-    `<image x="0" y="0" width="${foto.w}" height="${foto.h}" href="${foto.dataUrl}" xlink:href="${foto.dataUrl}"/></svg>`
+    `<image data-agregado="imagen" x="0" y="0" width="${foto.w}" height="${foto.h}" href="${foto.dataUrl}" xlink:href="${foto.dataUrl}"/></svg>`
   modoEdicion = 'completa'
   usarSvgImportado(svg, file.name.replace(/\.[^.]+$/, ''))
   estado.textContent = `Multimedia cargada: ${file.name}`
@@ -10022,6 +10025,23 @@ function escHtml(s: string): string {
 // Redondea a 2 decimales para coords/atributos del SVG (evita ruido de floats).
 function r2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+// ---------------------------------------------------------------
+//  Auto-recarga al actualizar el service worker (nuevo build de la PWA).
+//  Sin esto, con skipWaiting+clientsClaim el SW nuevo tomaba control pero la
+//  página YA cargada seguía mostrando el CSS/JS viejo hasta recargar a mano.
+//  Solo recargamos ante una ACTUALIZACIÓN (ya había un SW controlando); en la
+//  primera instalación no hay versión vieja, así que no recargamos.
+// ---------------------------------------------------------------
+if ('serviceWorker' in navigator) {
+  const teniaControl = !!navigator.serviceWorker.controller
+  let recargando = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (recargando || !teniaControl) return
+    recargando = true
+    window.location.reload()
+  })
 }
 
 // ---------------------------------------------------------------
