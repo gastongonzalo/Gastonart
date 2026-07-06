@@ -2008,3 +2008,32 @@ button.mini {
   border-radius: 6px;
   cursor: pointer;
 }
+
+/* ================================================================
+   MÓVIL — ETAPA 2: targets táctiles. Va al FINAL del archivo para ganarle por
+   orden de cascada a las reglas base (tiradores/borrar/candado/zoom/imged están
+   más arriba con la misma especificidad).
+   ================================================================ */
+@media (max-width: 640px) {
+  /* Controles sobre el lienzo: más grandes para el dedo. */
+  .resize-handle { width: 20px; height: 20px; }
+  .resize-handle-e, .resize-handle-w, .resize-handle-n, .resize-handle-s { border-radius: 10px; }
+  .btn-eliminar { width: 30px; height: 30px; font-size: 15px; line-height: 30px; }
+  .btn-candado { width: 30px; height: 30px; font-size: 14px; line-height: 28px; }
+  .mesa-size-handle { width: 22px; height: 22px; }
+  /* Tiradores de caja de texto (barras finas de 8px): engrosar para el dedo. */
+  .resize-caja { min-width: 18px; min-height: 18px; }
+
+  /* Zoom con botones táctiles. */
+  #zoom-ctrl button { height: 38px; min-width: 38px; font-size: 17px; }
+
+  /* Editor de imágenes: pantalla completa, tools en fila scrollable (no se comen
+     el canvas), botones táctiles y opciones acotadas con scroll. */
+  .imged-modal { width: 100vw; height: 100dvh; max-width: 100vw; border-radius: 0; border: 0; }
+  .imged-tools { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 8px 12px; }
+  .imged-tbtn { flex: 0 0 auto; padding: 9px 13px; font-size: 13px; white-space: nowrap; }
+  .imged-top { padding: 10px 12px; }
+  .imged-aplicar { min-height: 38px; }
+  .imged-opts { max-height: 34vh; overflow-y: auto; }
+  .imged-slider input[type='range'] { width: 108px; }
+}
