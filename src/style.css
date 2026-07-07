@@ -1942,62 +1942,63 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .ini-btn-acc:hover { filter: brightness(1.08); }
 
 /* --- Panel de exportación --- */
+/* Pantalla de EXPORTAR: un PASO DEDICADO a pantalla completa (antes era un panel
+   inline arriba-derecha, apretado y encimado con la sidebar). Preview grande +
+   opciones + botones de descarga. */
 #panel-export {
   position: fixed;
-  top: 70px;
-  right: 18px;
-  width: 320px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
-  padding: 12px;
-  z-index: 50;
+  inset: 0;
+  z-index: 120;
+  background: var(--workspace);
+  overflow-y: auto;
 }
-.pe-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  font-size: 13px;
-  margin-bottom: 10px;
+.pe-wrap { max-width: 1000px; margin: 0 auto; padding: 16px 20px 40px; }
+.pe-topbar { display: flex; align-items: center; gap: 14px; padding: 6px 0 18px; }
+.pe-topbar strong { font-size: 18px; }
+.pe-volver {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 14px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--panel); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
 }
-.pe-head span { flex: 1 1 100%; color: var(--dim); }
-.pe-transp {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: 1;
-  font-size: 12px;
-  color: var(--text);
-  cursor: pointer;
+.pe-volver:hover { border-color: var(--accent); }
+.pe-cuerpo { display: flex; gap: 20px; align-items: flex-start; }
+.pe-preview-col {
+  flex: 1 1 60%; min-width: 0;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
 }
-.pe-transp input { cursor: pointer; }
-#pe-descargar {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 13px;
-}
-.pe-dl {
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--inset);
-  color: var(--accent);
-  font-weight: 600;
-  font-size: 12px;
-  padding: 4px 9px;
+#pe-img {
+  max-width: 100%; max-height: 70vh; width: auto; height: auto; display: block;
   border-radius: 6px;
-  text-decoration: none;
+  background: repeating-conic-gradient(#e3e7ee 0% 25%, #f3f5f8 0% 50%) 50% / 18px 18px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+}
+.pe-opciones {
+  flex: 0 0 300px; max-width: 300px;
+  display: flex; flex-direction: column; gap: 18px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+}
+.pe-sec { display: flex; flex-direction: column; gap: 10px; }
+.pe-op-tit { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
+.pe-transp { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
+.pe-transp input { cursor: pointer; width: 16px; height: 16px; }
+.pe-dl {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px 14px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--inset); color: var(--text); font-weight: 600; font-size: 14px;
+  cursor: pointer; text-decoration: none;
 }
 .pe-dl:hover { border-color: var(--accent); }
 .pe-dl:disabled { opacity: 0.6; cursor: progress; }
-#pe-img {
-  width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 6px;
-  background: repeating-conic-gradient(#e3e7ee 0% 25%, #f3f5f8 0% 50%) 50% / 18px 18px;
+.pe-dl[hidden] { display: none; } /* display:flex de arriba pisaba el atributo hidden */
+.pe-dl-main { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.pe-dl-main:hover { filter: brightness(1.06); border-color: var(--accent); }
+@media (max-width: 640px) {
+  .pe-wrap { padding: 12px 12px 32px; }
+  .pe-cuerpo { flex-direction: column; }
+  .pe-preview-col { flex: none; width: 100%; padding: 12px; }
+  #pe-img { max-height: 46vh; }
+  .pe-opciones { flex: none; max-width: 100%; width: 100%; }
 }
 button.mini {
   background: transparent;

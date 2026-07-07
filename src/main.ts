@@ -648,16 +648,30 @@ app.innerHTML = `
   <input type="file" id="in-svg-plantilla" accept=".svg,image/svg+xml,.pdf,application/pdf,.ai,application/illustrator,application/postscript,image/*" hidden>
 
   <div id="panel-export" hidden>
-    <div class="pe-head">
-      <span>Exportar</span>
-      <label class="pe-transp" title="Oculta el fondo a sangre de la placa para que el PNG quede transparente"><input type="checkbox" id="pe-transparente"> Fondo transparente</label>
-      <a id="pe-descargar" class="pe-dl" download>⬇ PNG</a>
-      <button id="pe-svg" class="pe-dl mini" title="Descargar SVG (vectorial, reabre en Illustrator/Figma)">⬇ SVG</button>
-      <button id="pe-pdf" class="pe-dl mini" title="Descargar PDF vectorial">⬇ PDF</button>
-      <button id="pe-carrusel" class="pe-dl" title="Cortar el carrusel en una imagen por slide (ZIP)" hidden>⬇ Carrusel (ZIP)</button>
-      <button id="pe-cerrar" class="mini">Cerrar</button>
+    <div class="pe-wrap">
+      <header class="pe-topbar">
+        <button id="pe-cerrar" class="pe-volver" title="Volver al editor">← Volver al editor</button>
+        <strong>Exportar</strong>
+      </header>
+      <div class="pe-cuerpo">
+        <div class="pe-preview-col">
+          <img id="pe-img" alt="Vista previa del PNG exportado">
+        </div>
+        <aside class="pe-opciones">
+          <div class="pe-sec">
+            <div class="pe-op-tit">Opciones</div>
+            <label class="pe-transp" title="Oculta el fondo a sangre de la placa para que el PNG quede transparente"><input type="checkbox" id="pe-transparente"> Fondo transparente</label>
+          </div>
+          <div class="pe-sec">
+            <div class="pe-op-tit">Descargar</div>
+            <a id="pe-descargar" class="pe-dl pe-dl-main" download>⬇ PNG</a>
+            <button id="pe-carrusel" class="pe-dl pe-dl-main" title="Cortar el carrusel en una imagen por slide (ZIP)" hidden>⬇ Carrusel (ZIP)</button>
+            <button id="pe-svg" class="pe-dl" title="Descargar SVG (vectorial, reabre en Illustrator/Figma)">⬇ SVG (vectorial)</button>
+            <button id="pe-pdf" class="pe-dl" title="Descargar PDF vectorial">⬇ PDF</button>
+          </div>
+        </aside>
+      </div>
     </div>
-    <img id="pe-img" alt="Vista previa del PNG exportado">
   </div>
 `
 
