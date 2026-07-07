@@ -8308,29 +8308,49 @@ async function qrSvgActual(): Promise<string | null> {
 // Completa los textos del diseño abierto con cada fila de una tabla (pegada
 // desde Excel/Sheets o subida como CSV) y genera un PDF con una página por fila.
 
-// Parsea texto tabular: detecta el separador (tab / ; / ,) y respeta comillas.
-// Primera línea = encabezados.
+// Parsea texto tabular (CSV/TSV pegado o subido) respetando COMILLAS de verdad:
+// una celda entre "..." puede contener el separador Y saltos de línea (celdas
+// multi-línea de Excel/Sheets). Se detecta el separador (tab / ; / ,) contándolo
+// SOLO fuera de comillas en la 1.ª fila. Primera fila = encabezados.
 function parsearTabla(texto: string): { cols: string[]; filas: string[][] } {
-  const lineas = texto.replace(/\r\n?/g, '\n').split('\n').filter((l) => l.trim() !== '')
-  if (lineas.length < 2) return { cols: [], filas: [] }
-  const cuenta = (ch: string) => (lineas[0].split(ch).length - 1)
-  const del = [['\t', cuenta('\t')], [';', cuenta(';')], [',', cuenta(',')]]
-    .sort((a, b) => (b[1] as number) - (a[1] as number))[0][0] as string
-  const parseLinea = (l: string): string[] => {
-    const out: string[] = []; let cur = ''; let q = false
-    for (let i = 0; i < l.length; i++) {
-      const ch = l[i]
-      if (q) { if (ch === '"') { if (l[i + 1] === '"') { cur += '"'; i++ } else q = false } else cur += ch }
-      else if (ch === '"') q = true
-      else if (ch === del) { out.push(cur); cur = '' }
-      else cur += ch
-    }
-    out.push(cur)
-    return out.map((c) => c.trim())
+  const txt = texto.replace(/\r\n?/g, '\n')
+  // 1.ª línea LÓGICA (hasta el primer \n que no esté dentro de comillas).
+  let finHeader = txt.length, q0 = false
+  for (let i = 0; i < txt.length; i++) {
+    const c = txt[i]
+    if (c === '"') { if (q0 && txt[i + 1] === '"') i++; else q0 = !q0 }
+    else if (c === '\n' && !q0) { finHeader = i; break }
   }
-  const cols = parseLinea(lineas[0])
-  const filas = lineas.slice(1).map(parseLinea).filter((f) => f.some((c) => c !== ''))
-  return { cols, filas }
+  const header = txt.slice(0, finHeader)
+  const cuentaFuera = (ch: string): number => {
+    let n = 0, q = false
+    for (let i = 0; i < header.length; i++) {
+      const c = header[i]
+      if (c === '"') { if (q && header[i + 1] === '"') i++; else q = !q }
+      else if (c === ch && !q) n++
+    }
+    return n
+  }
+  const del = ([['\t', cuentaFuera('\t')], [';', cuentaFuera(';')], [',', cuentaFuera(',')]] as [string, number][])
+    .sort((a, b) => b[1] - a[1])[0][0]
+  // Tokenizar TODO el texto de una: comillas que abarcan separador/salto de línea
+  // se mantienen dentro de la celda ("" = comilla escapada).
+  const filasRaw: string[][] = []
+  let fila: string[] = [], cur = '', q = false
+  for (let i = 0; i < txt.length; i++) {
+    const ch = txt[i]
+    if (q) {
+      if (ch === '"') { if (txt[i + 1] === '"') { cur += '"'; i++ } else q = false }
+      else cur += ch
+    } else if (ch === '"') q = true
+    else if (ch === del) { fila.push(cur); cur = '' }
+    else if (ch === '\n') { fila.push(cur); filasRaw.push(fila); fila = []; cur = '' }
+    else cur += ch
+  }
+  fila.push(cur); filasRaw.push(fila)
+  const limpias = filasRaw.map((f) => f.map((c) => c.trim())).filter((f) => f.some((c) => c !== ''))
+  if (limpias.length < 2) return { cols: [], filas: [] }
+  return { cols: limpias[0], filas: limpias.slice(1) }
 }
 
 // Lee un archivo de texto tolerando el encoding de Excel es-AR (Windows-1252).
