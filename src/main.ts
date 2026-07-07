@@ -398,6 +398,24 @@ function fuentesFaltantes(svg: string): string[] {
   return [...faltan]
 }
 
+// Familias USADAS en el diseño que solo tienen cara woff2 en el pack (p.ej. Google
+// Fonts cuando el TTF de GitHub falló por rate-limit/red): resvg (PNG) y jsPDF (PDF)
+// NO decodifican woff2 → el export sale con OTRA tipografía, en silencio. Se avisa.
+function fuentesSoloWoff2(svg: string): string[] {
+  const decls = new Set<string>()
+  for (const m of svg.matchAll(/font-family\s*:\s*([^;}"]+)/gi)) decls.add(m[1])
+  for (const m of svg.matchAll(/font-family\s*=\s*["']([^"']+)["']/gi)) decls.add(m[1])
+  const generica = (s: string) => /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-(sans-serif|serif|monospace))$/i.test(s)
+  const malas = new Set<string>()
+  for (const decl of decls) {
+    const fam = decl.split(',').map((s) => s.replace(/['"]/g, '').trim()).filter(Boolean).find((n) => !generica(n))
+    if (!fam) continue
+    const caras = facesPack.filter((f) => f.family.toLowerCase() === fam.toLowerCase())
+    if (caras.length && caras.every((f) => f.formato === 'woff2')) malas.add(fam)
+  }
+  return [...malas]
+}
+
 // Estilo efectivo de un campo = base (métrica) + overrides del usuario.
 function estiloEfectivo(nombre: string): {
   fontSize: number; weight: string; italic: boolean; family: string; align: 'start' | 'middle' | 'end'; color: string; manual: boolean; lineHeight: number
@@ -661,6 +679,7 @@ app.innerHTML = `
           <div class="pe-sec">
             <div class="pe-op-tit">Opciones</div>
             <label class="pe-transp" title="Oculta el fondo a sangre de la placa para que el PNG quede transparente"><input type="checkbox" id="pe-transparente"> Fondo transparente</label>
+            <div id="pe-aviso" class="pe-aviso" hidden></div>
           </div>
           <div class="pe-sec">
             <div class="pe-op-tit">Descargar</div>
@@ -6798,6 +6817,14 @@ async function exportarPNG(): Promise<void> {
     if (bPdf) bPdf.textContent = svgEl.querySelector('[data-agregado="ffield"]') ? '⬇ PDF completable' : '⬇ PDF'
     peCarrusel.hidden = carruselSlides < 2
     if (carruselSlides >= 2) peCarrusel.textContent = `⬇ Carrusel (${carruselSlides} imágenes)`
+    // Aviso si alguna fuente usada solo está como woff2 (resvg/jsPDF no la incrustan
+    // → el export sale con otra tipografía). Persistente en la pantalla de export.
+    const soloWoff2 = fuentesSoloWoff2(svg)
+    const peAviso = document.querySelector<HTMLDivElement>('#pe-aviso')
+    if (peAviso) {
+      peAviso.hidden = soloWoff2.length === 0
+      if (soloWoff2.length) peAviso.textContent = `⚠ ${soloWoff2.join(', ')} no se pudo incrustar (solo hay woff2): el export sale con otra tipografía. Reintentá en un rato (límite de Google/GitHub) o importá su .ttf/.otf.`
+    }
     panelExport.hidden = false
     panelProps.hidden = true // no solapar la sidebar contextual con el panel de export
     estado.textContent = transp ? 'PNG exportado (fondo transparente).' : 'PNG exportado.'
@@ -8561,7 +8588,9 @@ async function exportarPdfFormulario(): Promise<void> {
         // updateAppearances escribe un tamaño CALCULADO en el /DA (dejaría el
         // campo fijo): volver a "0 Tf" = auto-achicar del estándar AcroForm.
         const da = tf.acroField.getDefaultAppearance() ?? ''
-        if (da) tf.acroField.setDefaultAppearance(da.replace(/ \d+(\.\d+)? Tf/, ' 0 Tf'))
+        // Poner el tamaño del operador Tf en 0 (auto-achicar del lector). Tolerante
+        // al formato del /DA: cualquier espacio y número (entero o decimal) antes de Tf.
+        if (da) tf.acroField.setDefaultAppearance(da.replace(/(\d+(?:\.\d+)?)\s+Tf/, '0 Tf'))
       }
     }
 

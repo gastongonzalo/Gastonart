@@ -1982,6 +1982,11 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 .pe-op-tit { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
 .pe-transp { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
 .pe-transp input { cursor: pointer; width: 16px; height: 16px; }
+.pe-aviso {
+  font-size: 12px; line-height: 1.4; color: #92400e;
+  background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 10px;
+}
+.pe-aviso[hidden] { display: none; }
 .pe-dl {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 12px 14px; border-radius: 9px; border: 1px solid var(--border);
