@@ -558,11 +558,17 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
      lienzo y sin saber qué era qué). Se sale con el ✕. */
   body.con-seleccion .rail { display: none; }
   body.con-seleccion #panel-props {
-    bottom: 0;
+    /* --teclado = alto que tapa el teclado virtual (lo mide seguirTecladoVirtual con
+       visualViewport). Sin esto los controles de texto quedaban DEBAJO del teclado,
+       justo cuando hacen falta. Con el teclado cerrado vale 0. */
+    bottom: var(--teclado, 0px);
     border-radius: 0;
     border-top: 1px solid var(--border);
+    /* La safe-area (home indicator) sólo aplica con el teclado cerrado: cuando está
+       abierto, el teclado ya ocupa esa zona. */
     padding-bottom: calc(7px + env(safe-area-inset-bottom));
     box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.12);
+    transition: bottom 0.12s ease-out;
   }
   /* ✕ para salir de la selección. Sticky: sigue a la vista aunque la fila de
      controles se scrollee al costado. */

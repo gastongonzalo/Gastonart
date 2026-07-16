@@ -4369,6 +4369,27 @@ function sincronizarBarraUnica(): void {
   document.body.classList.toggle('con-seleccion', !panelProps.hidden)
 }
 
+// El TECLADO VIRTUAL tapaba la barra contextual: es position:fixed; bottom:0 y ni
+// iOS ni Android achican el viewport de LAYOUT al abrirlo (solo el visual), así que
+// los controles de texto quedaban debajo del teclado justo cuando se los necesita.
+// Con visualViewport medimos cuánto tapa y publicamos --teclado; el CSS levanta la
+// barra esa cantidad. Al cerrarse vuelve a 0.
+function seguirTecladoVirtual(): void {
+  const vv = window.visualViewport
+  if (!vv) return
+  const ajustar = (): void => {
+    const tapado = Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)))
+    document.documentElement.style.setProperty('--teclado', tapado + 'px')
+    // Si hay una sub-hoja abierta, reubicarla sobre la barra ya desplazada.
+    const g = document.querySelector<HTMLElement>('.ctx-grupo.abierto')
+    if (g) g.style.bottom = Math.round(window.innerHeight - panelProps.getBoundingClientRect().top) + 'px'
+  }
+  vv.addEventListener('resize', ajustar)
+  vv.addEventListener('scroll', ajustar)
+  ajustar()
+}
+seguirTecladoVirtual()
+
 // Salir de la selección (✕ de la barra contextual) → vuelve el riel de categorías.
 function deseleccionarTodo(): void {
   cerrarEditor()
@@ -4395,10 +4416,11 @@ function armarChips(cont: HTMLElement): void {
       cerrarSubhojas()
       if (!abrir) return
       g.classList.add('abierto'); chip.classList.add('activo')
-      // La barra tiene overflow-x: la sub-hoja va FIXED por encima de ella. El alto
-      // se mide en vivo (los chips y la safe-area cambian según el dispositivo).
-      const barra = cont.closest('#panel-props') as HTMLElement | null
-      g.style.bottom = Math.round(barra?.getBoundingClientRect().height ?? 60) + 'px'
+      // La barra tiene overflow-x: la sub-hoja va FIXED por encima de ella. Se
+      // posiciona desde el BORDE SUPERIOR REAL de la barra (no desde su alto), así
+      // sigue pegada aunque el teclado virtual la haya levantado (--teclado).
+      const barra = (cont.closest('#panel-props') as HTMLElement | null) ?? panelProps
+      g.style.bottom = Math.round(window.innerHeight - barra.getBoundingClientRect().top) + 'px'
     })
     cont.insertBefore(chip, g) // el chip queda en la fila; el grupo sale del flujo (CSS)
   }
