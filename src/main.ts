@@ -97,6 +97,11 @@ let fotos: Record<string, Foto> = {}
 let framesFoto: Record<string, FrameFoto> = {}
 let encuadres: Record<string, Encuadre> = {}
 let fotoActiva: string | null = null // slot al que se sube/cambia la foto
+// Hueco TOCADO en el lienzo: solo ESE muestra sus controles en el panel (ver
+// actualizarPanelProps). null = ninguno → se listan todos. Evita que, con varias
+// <image> en la plantilla (degradado rasterizado + foto), se apilen N juegos de
+// controles iguales y no se sepa cuál es cuál.
+let fotoSel: string | null = null
 // Si está seteado, la próxima imagen elegida (banco/subida) REEMPLAZA a esta
 // (mantiene tamaño/posición/recorte/opacidad/filtro; solo cambia el href).
 let reemplazarDestino: SVGImageElement | null = null
@@ -3094,6 +3099,13 @@ function actualizarPanelProps(): void {
   // Collage: solo la celda seleccionada muestra sus controles (no las N juntas).
   if (collageActual) { if (collageHueco != null && svgEl.querySelector(`[data-foto="${collageHueco}"]`)) construirFotoTools(collageHueco); return }
   const huecos = idsFoto().filter((id) => { const im = svgEl!.querySelector(`[data-foto="${id}"]`); return im && !im.closest('[data-recorte]') })
+  // Foto TOCADA: solo la de ella. Una plantilla de Illustrator puede traer varias
+  // <image> (p.ej. un degradado rasterizado ADEMÁS de la foto de fondo) y listar
+  // los controles de todas daba N juegos idénticos: en el riel horizontal del celu
+  // solo se veía el PRIMERO (el degradado) → parecía que "no se puede hacer nada"
+  // con la foto real. Sin foto tocada se listan todas (una foto a sangre puede ser
+  // difícil de tocar, así que sus controles siguen a mano).
+  if (fotoSel != null && huecos.includes(fotoSel)) { construirFotoTools(fotoSel); return }
   for (const id of huecos) construirFotoTools(id)
 }
 
@@ -3121,6 +3133,7 @@ function grafPointerDown(e: PointerEvent): void {
   if (reframeG) { iniciarPanReencuadre(e); return } // en reencuadre, arrastrar = mover la foto
   const tgt = e.target as Element
   const aditivo = e.ctrlKey || e.metaKey
+  fotoSel = null // se re-setea abajo si el clic cayó en una foto; si no, el panel lista todas
   // Confirmar cualquier texto en edición ANTES de procesar el clic: como abajo
   // hacemos e.preventDefault() (para no seleccionar texto del SVG), el textarea no
   // pierde el foco solo → sin esto, su editor quedaba abierto tapando el hit y el
@@ -3151,6 +3164,7 @@ function grafPointerDown(e: PointerEvent): void {
     // Celda de collage: marcarla activa ANTES de limpiar (limpiarGraf →
     // actualizarPanelProps arma los controles de ESA celda en la sidebar).
     if (collageActual) collageHueco = fid
+    fotoSel = fid // solo ESTA foto muestra sus controles (no las N de la plantilla)
     grafSeleccion = []; limpiarGraf() // panel muestra los controles de la foto (placa)
     // OJO: fotos[fid] solo tiene las que subió el usuario → una imagen que VIENE con
     // la plantilla (p.ej. el fondo) se veía como "hueco vacío" y en completa el clic
