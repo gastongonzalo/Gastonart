@@ -484,27 +484,41 @@ app.innerHTML = `
   <span class="estado" id="estado" hidden></span>
   <input type="file" id="in-proyecto" accept=".json,application/json" hidden>
 
+  <!-- Los controles van en GRUPOS (.ctx-grupo): en escritorio se muestran en línea
+       como siempre; en móvil cada grupo se colapsa en un chip ícono+etiqueta que
+       abre su sub-hoja (modelo Adobe Express). Envolver es seguro: los handlers
+       usan delegación (closest('[data-bt]')) y querySelectorAll (recursivo). -->
   <div id="barra-texto" class="barra-formato" hidden>
     <span class="bt-label">Texto</span>
-    <select id="bt-family" title="Tipografía"></select>
-    <select id="bt-weight" title="Variante / peso"></select>
-    <button id="bt-gfonts" class="mini" title="Buscar y agregar una fuente de Google Fonts">🔤 Google</button>
+    <div class="ctx-grupo" data-ic="Aa" data-lb="Fuente">
+      <select id="bt-family" title="Tipografía"></select>
+      <select id="bt-weight" title="Variante / peso"></select>
+      <button id="bt-gfonts" class="mini" title="Buscar y agregar una fuente de Google Fonts">🔤 Google</button>
+    </div>
     <span class="bt-sep"></span>
-    <button data-bt="size-" title="Achicar">A−</button>
-    <span id="bt-size" class="bt-val">–</span>
-    <button data-bt="size+" title="Agrandar">A+</button>
+    <div class="ctx-grupo" data-ic="⇕" data-lb="Tamaño">
+      <button data-bt="size-" title="Achicar">A−</button>
+      <span id="bt-size" class="bt-val">–</span>
+      <button data-bt="size+" title="Agrandar">A+</button>
+    </div>
     <span class="bt-sep"></span>
-    <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
-    <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
-    <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
+    <div class="ctx-grupo" data-ic="N" data-lb="Estilo">
+      <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
+      <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
+      <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
+    </div>
     <span class="bt-sep"></span>
-    <button data-bt="al:start" title="Alinear a la izquierda">⯇</button>
-    <button data-bt="al:middle" title="Centrar">≡</button>
-    <button data-bt="al:end" title="Alinear a la derecha">⯈</button>
+    <div class="ctx-grupo" data-ic="≡" data-lb="Alinear">
+      <button data-bt="al:start" title="Alinear a la izquierda">⯇</button>
+      <button data-bt="al:middle" title="Centrar">≡</button>
+      <button data-bt="al:end" title="Alinear a la derecha">⯈</button>
+    </div>
     <span class="bt-sep"></span>
-    <button data-bt="lh-" title="Menos interlineado">↕−</button>
-    <span id="bt-lh" class="bt-val" title="Interlineado">–</span>
-    <button data-bt="lh+" title="Más interlineado">↕+</button>
+    <div class="ctx-grupo" data-ic="↕" data-lb="Interlineado">
+      <button data-bt="lh-" title="Menos interlineado">↕−</button>
+      <span id="bt-lh" class="bt-val" title="Interlineado">–</span>
+      <button data-bt="lh+" title="Más interlineado">↕+</button>
+    </div>
   </div>
 
   <div id="aviso-fuentes" hidden></div>
@@ -3118,6 +3132,7 @@ function actualizarPanelProps(): void {
 // si no, el marco de la foto quedaba huérfano señalando algo que ya no se edita.
 function limpiarFotoSel(): void {
   fotoSel = null
+  cerrarSubhojas() // una sub-hoja abierta de la selección anterior no debe sobrevivir
   lienzo.querySelectorAll('.foto-sel-marco').forEach((n) => n.remove())
 }
 
@@ -4320,6 +4335,11 @@ function construirPuntasCont(): HTMLElement {
 // que la barra que flotaba encima del elemento y se movía / tapaba el contenido).
 const panelProps = document.querySelector<HTMLElement>('#panel-props')!
 document.querySelector('#pp-cerrar-sel')!.addEventListener('click', (e) => { e.stopPropagation(); deseleccionarTodo() })
+// La clase body.con-seleccion (modelo "una sola barra" en móvil) DEBE seguir a la
+// visibilidad del panel siempre, la cambie quien la cambie: varios caminos hacen
+// panelProps.hidden = false directo (alojarEnPanel, la barra de texto) sin pasar por
+// refrescarPanelProps, y el riel quedaba visible junto con la barra contextual.
+new MutationObserver(() => sincronizarBarraUnica()).observe(panelProps, { attributes: true, attributeFilter: ['hidden'] })
 // ¿Layout móvil? (riel abajo + paneles como bottom-sheet). En móvil se muestra un
 // solo sheet a la vez: al aparecer los controles de la selección, se cierra la categoría.
 const mqMovil = window.matchMedia('(max-width: 640px)')
@@ -4356,6 +4376,36 @@ function deseleccionarTodo(): void {
   limpiarFotoSel()
   grafSeleccion = []
   limpiarGraf()
+}
+
+// Móvil (Express): cada .ctx-grupo de una barra contextual se colapsa en un CHIP
+// ícono+etiqueta; tocarlo abre una SUB-HOJA con sus controles, de a una. En
+// escritorio los grupos van en línea y el CSS oculta los chips.
+// Idempotente: los chips se arman una sola vez por barra.
+function armarChips(cont: HTMLElement): void {
+  if (cont.dataset.chips === '1') return
+  cont.dataset.chips = '1'
+  for (const g of Array.from(cont.querySelectorAll<HTMLElement>('.ctx-grupo'))) {
+    const chip = document.createElement('button')
+    chip.className = 'ctx-chip'
+    chip.innerHTML = `<span class="ctx-ic">${escHtml(g.dataset.ic || '•')}</span><span class="ctx-lb">${escHtml(g.dataset.lb || '')}</span>`
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const abrir = !g.classList.contains('abierto')
+      cerrarSubhojas()
+      if (!abrir) return
+      g.classList.add('abierto'); chip.classList.add('activo')
+      // La barra tiene overflow-x: la sub-hoja va FIXED por encima de ella. El alto
+      // se mide en vivo (los chips y la safe-area cambian según el dispositivo).
+      const barra = cont.closest('#panel-props') as HTMLElement | null
+      g.style.bottom = Math.round(barra?.getBoundingClientRect().height ?? 60) + 'px'
+    })
+    cont.insertBefore(chip, g) // el chip queda en la fila; el grupo sale del flujo (CSS)
+  }
+}
+function cerrarSubhojas(): void {
+  document.querySelectorAll('.ctx-grupo.abierto').forEach((n) => n.classList.remove('abierto'))
+  document.querySelectorAll('.ctx-chip.activo').forEach((n) => n.classList.remove('activo'))
 }
 
 function dibujarSelGraf(): void {
@@ -5515,10 +5565,12 @@ function construirFotoTools(id: string): void {
   const op0 = imgFoto?.getAttribute('opacity') ?? '1'
   // En "foto completa" (fit) el zoom no aplica (se ve toda la foto).
   const conZoom = !(collageActual && collageActual.opts.ajuste === 'fit')
+  // Zoom y Opacidad van en .ctx-grupo: en móvil se colapsan en un chip que abre su
+  // sub-hoja (Express); en escritorio se muestran en línea como siempre.
   tools.innerHTML =
     `<button class="ft-cambiar mini">Cambiar foto</button>` +
-    (conZoom ? `<label class="ft-zoom">Zoom <input class="ft-in-zoom" type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label>` : '') +
-    `<label class="ft-zoom" title="Opacidad">Opac. <input class="ft-in-opac" type="range" min="0" max="1" step="0.01" value="${op0}"></label>`
+    (conZoom ? `<div class="ctx-grupo" data-ic="🔍" data-lb="Zoom"><label class="ft-zoom">Zoom <input class="ft-in-zoom" type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label></div>` : '') +
+    `<div class="ctx-grupo" data-ic="◑" data-lb="Opacidad"><label class="ft-zoom" title="Opacidad">Opac. <input class="ft-in-opac" type="range" min="0" max="1" step="0.01" value="${op0}"></label></div>`
   tools.querySelector('.ft-cambiar')!.addEventListener('click', () => { fotoActiva = id; inFoto.click() })
   const slider = tools.querySelector<HTMLInputElement>('.ft-in-zoom')
   slider?.addEventListener('input', () => {
@@ -5553,6 +5605,7 @@ function construirFotoTools(id: string): void {
     qf.addEventListener('click', () => void ejecutarQuitarFondo(fotos[id].dataUrl, reaplicar, qf))
     tools.appendChild(qf)
   }
+  armarChips(tools) // móvil: Zoom/Opacidad como chips que abren su sub-hoja
   // Los controles de la foto van a la sidebar (varios huecos → se apilan).
   alojarEnPanel(tools, false)
 }
@@ -5763,6 +5816,11 @@ function sincronizarBarra(nombre: string): void {
   }
   barraTexto.hidden = false // la posición la fija abrirEditor (flota sobre el texto)
   limpiarFotoSel() // editando texto: solo lo de texto (sin controles ni marco de foto)
+  armarChips(barraTexto) // móvil: fuente/tamaño/estilo/alinear/interlineado como chips
+  // Recalcular la visibilidad del panel Y la clase body.con-seleccion: sin esto,
+  // editar texto mostraba la barra pero NO ocultaba el riel (quedaban las dos) ni
+  // bajaba la barra a bottom:0 → el modelo "una sola barra" no aplicaba al texto.
+  refrescarPanelProps()
   if (esMovil()) cerrarCategoria() // móvil: los controles de texto cierran la categoría abierta
 }
 

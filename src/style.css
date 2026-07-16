@@ -454,6 +454,10 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 /* El ✕ de "salir de la selección" es del modelo móvil (una sola barra abajo);
    en escritorio el panel es una sidebar y no corresponde. */
 .pp-cerrar-sel { display: none; }
+/* Los chips ícono+etiqueta son del modelo móvil: en escritorio los .ctx-grupo se
+   muestran en línea (como siempre) y los chips no existen. */
+.ctx-chip { display: none; }
+.ctx-grupo { display: contents; } /* escritorio: el grupo no altera el layout de la barra */
 /* En pantallas medianas la sidebar se angosta pero sigue a la derecha. */
 @media (max-width: 900px) {
   #panel-props { width: 208px; padding: 12px 10px; gap: 10px; }
@@ -675,9 +679,33 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
     flex-direction: row; flex-wrap: nowrap; align-items: center;
     width: max-content; gap: 6px;
   }
-  /* Etiquetas/notas que sólo ocuparían en una fila. */
+  /* Etiquetas/separadores: con los chips no aportan (cada grupo ya tiene su nombre). */
   #panel-props #barra-texto .bt-label { display: none; }
-  #panel-props #barra-texto .bt-sep { flex: 0 0 auto; width: 1px; height: 28px; margin: 0 3px; background: var(--border); }
+  #panel-props #barra-texto .bt-sep { display: none; }
+
+  /* === Express: CHIPS ícono+etiqueta; cada uno abre su SUB-HOJA === */
+  .ctx-chip {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    flex: 0 0 auto; min-width: 62px; height: 48px; padding: 4px 8px;
+    background: transparent; border: 0; border-radius: 9px;
+    color: var(--text); cursor: pointer;
+  }
+  .ctx-chip.activo { background: var(--bg-accent, #e0f2fe); color: var(--accent); }
+  .ctx-ic { font-size: 17px; line-height: 1; font-weight: 700; }
+  .ctx-lb { font-size: 10px; line-height: 1; white-space: nowrap; }
+  /* El grupo SALE del flujo (no ocupa la fila) y se muestra como sub-hoja al abrirlo.
+     Va FIXED porque la barra tiene overflow-x y lo recortaría; el `bottom` lo fija el
+     JS con el alto real de la barra. */
+  #panel-props .ctx-grupo { display: none; }
+  #panel-props .ctx-grupo.abierto {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    position: fixed; left: 0; right: 0;
+    background: var(--panel); border-top: 1px solid var(--border);
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.16);
+    padding: 14px 12px; z-index: 59;
+  }
+  /* Dentro de la sub-hoja los controles pueden ocupar todo el ancho (hay lugar). */
+  #panel-props .ctx-grupo.abierto select { flex: 1 1 46%; }
   /* Selects y botones a ancho natural, con alto táctil GRANDE (44px) para editar
      cómodo con el dedo: son la herramienta principal en el celu. */
   #panel-props #barra-texto select { flex: 0 0 auto; width: auto; min-width: 112px; height: 44px; font-size: 14px; }
