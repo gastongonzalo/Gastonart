@@ -2014,6 +2014,7 @@ function crearFiguraEl(tipo: string, S: number): { el: SVGElement; modo: 'fill' 
 // (caja + panel de propiedades) y registra historial/autoguardado. Antes el
 // recién agregado no quedaba seleccionado y tampoco se anotaba en el historial.
 function seleccionarAgregado(el: SVGElement): void {
+  limpiarFotoSel() // lo nuevo pasa a ser lo seleccionado: sacar el marco de la foto
   construirOverlays()
   if (modoGrafico) { grafSeleccion = [graficoSeleccionable(el) ?? el]; dibujarSelGraf() }
   registrarHistorial(); autoguardar()
@@ -3082,7 +3083,7 @@ function limpiarGraf(): void {
   // Las barras (graf-tools, foto-tools) viven en la sidebar #panel-props; el resto
   // de overlays (cajas, tiradores, marquee) en el lienzo.
   document.querySelectorAll('.graf-tools, .foto-tools').forEach((n) => n.remove())
-  lienzo.querySelectorAll('.graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel').forEach((n) => n.remove())
+  lienzo.querySelectorAll('.graf-sel, .resize-handle, .btn-eliminar, .graf-marquee, .grad-panel, .alinear-panel, .foto-sel-marco').forEach((n) => n.remove())
   actualizarBotonesEdicion()
   actualizarPanelProps() // sin selección: muestra las foto-tools de los huecos
   refrescarPanelProps() // esconde la sidebar si no quedó ninguna barra
@@ -3099,14 +3100,42 @@ function actualizarPanelProps(): void {
   // Collage: solo la celda seleccionada muestra sus controles (no las N juntas).
   if (collageActual) { if (collageHueco != null && svgEl.querySelector(`[data-foto="${collageHueco}"]`)) construirFotoTools(collageHueco); return }
   const huecos = idsFoto().filter((id) => { const im = svgEl!.querySelector(`[data-foto="${id}"]`); return im && !im.closest('[data-recorte]') })
-  // Foto TOCADA: solo la de ella. Una plantilla de Illustrator puede traer varias
-  // <image> (p.ej. un degradado rasterizado ADEMÁS de la foto de fondo) y listar
-  // los controles de todas daba N juegos idénticos: en el riel horizontal del celu
-  // solo se veía el PRIMERO (el degradado) → parecía que "no se puede hacer nada"
-  // con la foto real. Sin foto tocada se listan todas (una foto a sangre puede ser
-  // difícil de tocar, así que sus controles siguen a mano).
-  if (fotoSel != null && huecos.includes(fotoSel)) { construirFotoTools(fotoSel); return }
+  // COMPLETA: los controles de foto salen SOLO con la foto seleccionada, y se marca
+  // cuál es. Antes se listaban los de TODOS los huecos: quedaban siempre visibles
+  // (sin saber qué se editaba), se apilaban con la barra de texto, y una plantilla
+  // de Illustrator puede traer varias <image> (un degradado rasterizado ADEMÁS de la
+  // foto) → N juegos idénticos de controles.
+  if (modoEdicion === 'completa') {
+    if (fotoSel != null && huecos.includes(fotoSel)) { construirFotoTools(fotoSel); marcarFotoSel(fotoSel) }
+    return
+  }
+  // PLANTILLA: se listan todos (ahí las fotos se tocan por su hit, que sube/reemplaza).
   for (const id of huecos) construirFotoTools(id)
+}
+
+// Deselecciona la foto y saca su marco. Necesario en los caminos que NO pasan por
+// grafPointerDown (agregar texto/figura desde el panel, abrir el editor de texto):
+// si no, el marco de la foto quedaba huérfano señalando algo que ya no se edita.
+function limpiarFotoSel(): void {
+  fotoSel = null
+  lienzo.querySelectorAll('.foto-sel-marco').forEach((n) => n.remove())
+}
+
+// Marco que SEÑALA la foto seleccionada. En completa las fotos no tienen hit overlay
+// (el svg captura los clics), así que sin esto no se veía QUÉ imagen se está
+// editando — sobre todo en el celu, donde el panel es una tira de controles.
+function marcarFotoSel(id: string): void {
+  if (!svgEl) return
+  lienzo.querySelectorAll('.foto-sel-marco').forEach((n) => n.remove()) // idempotente
+  const im = svgEl.querySelector(`[data-foto="${id}"]`)
+  if (!im) return
+  const base = lienzo.getBoundingClientRect()
+  const r = rectFotoVisible(im, base) ?? rectUnion([im], base)
+  if (!r) return
+  const m = document.createElement('div')
+  m.className = 'foto-sel-marco'
+  Object.assign(m.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' })
+  lienzo.appendChild(m)
 }
 
 // Nodo realmente manipulable: si el elemento ya está envuelto para mover, su wrapper.
@@ -5715,6 +5744,7 @@ function sincronizarBarra(nombre: string): void {
     b.classList.toggle('activo', b.getAttribute('data-bt') === 'al:' + ef.align)
   }
   barraTexto.hidden = false // la posición la fija abrirEditor (flota sobre el texto)
+  limpiarFotoSel() // editando texto: solo lo de texto (sin controles ni marco de foto)
   if (esMovil()) cerrarCategoria() // móvil: los controles de texto cierran la categoría abierta
 }
 

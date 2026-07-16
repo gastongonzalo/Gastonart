@@ -651,17 +651,20 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   }
   /* Etiquetas/notas que sólo ocuparían en una fila. */
   #panel-props #barra-texto .bt-label { display: none; }
-  #panel-props #barra-texto .bt-sep { flex: 0 0 auto; width: 1px; height: 24px; margin: 0 2px; background: var(--border); }
-  /* Selects y botones a ancho natural, con alto táctil uniforme. */
-  #panel-props #barra-texto select { flex: 0 0 auto; width: auto; min-width: 104px; height: 38px; }
-  #panel-props #barra-texto #bt-gfonts { flex: 0 0 auto; min-height: 38px; white-space: nowrap; }
-  #panel-props #barra-texto button { flex: 0 0 auto; height: 38px; min-width: 38px; }
-  #panel-props #barra-texto .bt-color input[type='color'] { width: 40px; height: 34px; }
+  #panel-props #barra-texto .bt-sep { flex: 0 0 auto; width: 1px; height: 28px; margin: 0 3px; background: var(--border); }
+  /* Selects y botones a ancho natural, con alto táctil GRANDE (44px) para editar
+     cómodo con el dedo: son la herramienta principal en el celu. */
+  #panel-props #barra-texto select { flex: 0 0 auto; width: auto; min-width: 112px; height: 44px; font-size: 14px; }
+  #panel-props #barra-texto #bt-gfonts { flex: 0 0 auto; min-height: 44px; white-space: nowrap; font-size: 14px; }
+  #panel-props #barra-texto button { flex: 0 0 auto; height: 44px; min-width: 44px; font-size: 15px; }
+  #panel-props #barra-texto .bt-val { font-size: 14px; min-width: 30px; }
+  #panel-props #barra-texto .bt-color input[type='color'] { width: 46px; height: 40px; }
   /* Forma/vector y foto: botones en fila; sliders con ancho fijo. */
   #panel-props .graf-btn, #panel-props .graf-del,
   #panel-props .foto-tools .ft-cambiar, #panel-props .foto-tools .ft-fondo {
-    width: auto; flex: 0 0 auto; min-height: 38px; white-space: nowrap; padding: 0 12px; margin: 0;
+    width: auto; flex: 0 0 auto; min-height: 44px; white-space: nowrap; padding: 0 14px; margin: 0; font-size: 14px;
   }
+  #panel-props .foto-tools .ft-zoom, #panel-props .graf-opac { min-height: 44px; font-size: 14px; }
   #panel-props .graf-color, #panel-props .graf-opac,
   #panel-props .foto-tools .ft-zoom { flex: 0 0 auto; width: auto; }
   #panel-props .graf-opac input[type='range'],
@@ -872,6 +875,18 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   pointer-events: none;
 }
 .hit.activo { outline-color: var(--accent); }
+
+/* Marco que SEÑALA la foto seleccionada. En modo completa las fotos no tienen hit
+   overlay (el svg captura los clics) → sin esto no se sabía qué imagen se editaba.
+   El halo blanco lo hace visible sobre cualquier foto. */
+.foto-sel-marco {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.65) inset;
+}
 
 /* Controles por elemento (swatches, tiradores, ✕, candado): ocultos por defecto,
    se revelan al pasar el mouse sobre el elemento (ver revelarAlHover). Así la
