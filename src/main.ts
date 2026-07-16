@@ -3156,7 +3156,13 @@ function grafPointerDown(e: PointerEvent): void {
     // la plantilla (p.ej. el fondo) se veía como "hueco vacío" y en completa el clic
     // abría "subir otra" en vez de sus opciones.
     if (modoEdicion !== 'completa' && !fotos[fid]) { fotoActiva = fid; inFoto.click() }
-    else iniciarPanFoto(e, fid)
+    else if (!fotos[fid]) {
+      // Imagen que trae la plantilla: adoptarla (crearle su Foto desde el href) para
+      // que sus controles dejen de estar muertos, y rearmar el panel ya con las
+      // opciones completas (Zoom / ✎ Editar / Quitar fondo). El arrastre reencuadra
+      // desde el toque siguiente, cuando fotos[fid] ya existe.
+      void adoptarFotoDeHueco(fid).then((ok) => { if (ok) limpiarGraf() })
+    } else iniciarPanFoto(e, fid)
     return
   }
   const el = graficoSeleccionable(e.target as Element)
@@ -5862,6 +5868,37 @@ function leerFoto(file: File): Promise<Foto> {
     }
     reader.readAsDataURL(file)
   })
+}
+
+// Foto a partir del href de una <image> ya montada (no re-encodea: usa el mismo
+// dataUrl; solo necesita el tamaño natural para el encuadre).
+function fotoDesdeHref(href: string): Promise<Foto | null> {
+  return new Promise((res) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => res({ dataUrl: href, w: img.naturalWidth, h: img.naturalHeight })
+    img.onerror = () => res(null)
+    img.src = href
+  })
+}
+
+// "Adopta" la imagen que YA trae la plantilla en un hueco: le crea su entrada en
+// fotos[] desde el href del SVG. Sin esto, los controles de foto (Zoom, arrastrar
+// para reencuadrar, ✎ Editar, Quitar fondo) quedaban MUERTOS con las imágenes de
+// plantilla: todos dependen de fotos[id], que solo se llenaba al SUBIR una foto.
+// Se hace LAZY (al tocarla, no al montar) a propósito: snapshotProyecto guarda
+// fotos[] Y el svg, así que adoptar de entrada duplicaría la imagen en TODOS los
+// proyectos guardados aunque nunca se la edite.
+async function adoptarFotoDeHueco(id: string): Promise<boolean> {
+  if (fotos[id]) return true
+  if (!svgEl) return false
+  const im = svgEl.querySelector(`[data-foto="${id}"]`)
+  const href = im?.getAttribute('href') || im?.getAttributeNS(XLINK, 'href') || ''
+  if (!href) return false
+  const f = await fotoDesdeHref(href)
+  if (!f) return false
+  fotos[id] = f
+  return true
 }
 
 // ---------------------------------------------------------------
