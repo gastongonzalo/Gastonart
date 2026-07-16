@@ -3826,8 +3826,13 @@ function reordenarSel(modo: 'arriba' | 'abajo' | 'tope' | 'fondo'): void {
 interface ParadaGrad { color: string; pos: number; alpha?: number } // pos 0..100; alpha 0..100 (100 = opaco)
 
 // id del gradiente si el fill del elemento es url(#...).
+// OJO: los SVG de Illustrator aplican el relleno por CLASE CSS
+// (<style>.cls-9{fill:url(#Degradado_sin_nombre_67)}</style> + class="cls-9"), sin
+// atributo fill ni style inline → hay que mirar también el estilo COMPUTADO. Sin
+// esto, el degradado que traía la plantilla no se detectaba y el panel arrancaba
+// de cero, pisando el original.
 function gradIdDe(el: SVGElement): string | null {
-  const f = el.style.fill || el.getAttribute('fill') || ''
+  const f = el.style.fill || el.getAttribute('fill') || getComputedStyle(el).fill || ''
   const m = f.match(/url\(["']?#([^"')]+)/)
   return m ? m[1] : null
 }
@@ -3909,6 +3914,11 @@ function abrirPanelDegradado(els: SVGElement[]): void {
   panel.className = 'grad-panel'
   panel.addEventListener('pointerdown', (e) => e.stopPropagation())
   const aplicar = () => aplicarDegradado(els, stops, angulo)
+  // Commit del cambio: al SOLTAR el control (change), no en cada input del arrastre
+  // (inundaría el historial). Antes solo se registraba al cerrar con ✕ → si el panel
+  // se cerraba de otra forma, el cambio quedaba fuera del historial y no se podía
+  // deshacer. Mismo patrón que el slider de zoom de las fotos.
+  const commit = () => { registrarHistorial(); autoguardar() }
   const render = () => {
     panel.innerHTML = '<div class="grad-head">Degradado <button class="grad-cerrar">✕</button></div>'
     const lista = document.createElement('div'); lista.className = 'grad-stops'
@@ -3916,43 +3926,51 @@ function abrirPanelDegradado(els: SVGElement[]): void {
       const fila = document.createElement('div'); fila.className = 'grad-fila'
       const col = document.createElement('input'); col.type = 'color'; col.value = s.color
       col.addEventListener('input', () => { stops[i].color = col.value; aplicar() })
+      col.addEventListener('change', commit)
       const pos = document.createElement('input'); pos.type = 'range'; pos.min = '0'; pos.max = '100'; pos.value = String(s.pos)
       pos.title = 'Posición'
       pos.addEventListener('input', () => { stops[i].pos = +pos.value; aplicar() })
+      pos.addEventListener('change', commit)
       // Opacidad de la parada: 0 = transparente (degradado hacia transparencia).
       const op = document.createElement('input'); op.type = 'range'; op.min = '0'; op.max = '100'
       op.className = 'grad-alpha'; op.value = String(s.alpha ?? 100)
       op.title = 'Opacidad de este color (0 = transparente)'
       op.addEventListener('input', () => { stops[i].alpha = +op.value; aplicar() })
+      op.addEventListener('change', commit)
       fila.append(col, pos, op)
       if (stops.length > 2) {
         const del = document.createElement('button'); del.className = 'grad-del-stop'; del.textContent = '−'
-        del.addEventListener('click', () => { stops.splice(i, 1); aplicar(); render() })
+        del.addEventListener('click', () => { stops.splice(i, 1); aplicar(); commit(); render() })
         fila.append(del)
       }
       lista.append(fila)
     })
     panel.append(lista)
     const add = document.createElement('button'); add.className = 'grad-add'; add.textContent = '+ color'
-    add.addEventListener('click', () => { stops.push({ color: '#000000', pos: 100 }); aplicar(); render() })
+    add.addEventListener('click', () => { stops.push({ color: '#000000', pos: 100 }); aplicar(); commit(); render() })
     // Atajo clásico: el mismo color desvaneciéndose a transparente.
     const trans = document.createElement('button'); trans.className = 'grad-add'; trans.textContent = '→ transparente'
     trans.title = 'Desvanecer el color hacia transparente'
     trans.addEventListener('click', () => {
       const u = stops[stops.length - 1]
       u.color = stops[0].color; u.alpha = 0
-      aplicar(); render()
+      aplicar(); commit(); render()
     })
     const angLab = document.createElement('label'); angLab.className = 'grad-ang'; angLab.textContent = 'Ángulo '
     const ang = document.createElement('input'); ang.type = 'range'; ang.min = '0'; ang.max = '360'; ang.value = String(angulo)
     ang.addEventListener('input', () => { angulo = +ang.value; aplicar() })
+    ang.addEventListener('change', commit)
     angLab.append(ang)
     panel.append(add, trans, angLab)
-    panel.querySelector('.grad-cerrar')!.addEventListener('click', () => { registrarHistorial(); autoguardar(); panel.remove() })
+    panel.querySelector('.grad-cerrar')!.addEventListener('click', () => { panel.remove() })
   }
   render()
   lienzo.append(panel)
-  aplicar()
+  // NO se aplica al abrir: antes el solo hecho de abrir el panel pisaba el relleno
+  // (el degradado que traía la plantilla se perdía sin haber tocado nada) y, recién
+  // cargada la plantilla, el historial estaba en 0 → deshacer no tenía a dónde
+  // volver. Ahora el panel solo MUESTRA el degradado actual; se aplica cuando el
+  // usuario mueve algún control.
 }
 
 // --- Alinear / distribuir --------------------------------------------------
