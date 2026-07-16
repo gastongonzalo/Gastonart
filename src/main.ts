@@ -3139,8 +3139,11 @@ function grafPointerDown(e: PointerEvent): void {
     else fijarCampo(nom)
     return
   }
-  // Foto de hueco suelto (no recorte): vacío → subir; cargada → arrastrar reencuadra.
-  // (La mini-barra Cambiar/Zoom/Opac/Editar/Quitar fondo la arma construirOverlays.)
+  // Foto de hueco suelto (no recorte). En PLANTILLA: vacío → subir (tocar el hueco
+  // = reemplazar la foto, que es el punto de ese modo). En COMPLETA: nunca abrir el
+  // selector de archivos solo — se muestran las OPCIONES de la imagen y arrastrar
+  // reencuadra. (La mini-barra Cambiar/Zoom/Opac/Editar/Quitar fondo la arma
+  // construirOverlays / actualizarPanelProps.)
   const fotoEl = tgt.closest?.('[data-foto]') as SVGElement | null
   if (fotoEl && !fotoEl.closest('[data-recorte]')) {
     e.preventDefault()
@@ -3149,7 +3152,10 @@ function grafPointerDown(e: PointerEvent): void {
     // actualizarPanelProps arma los controles de ESA celda en la sidebar).
     if (collageActual) collageHueco = fid
     grafSeleccion = []; limpiarGraf() // panel muestra los controles de la foto (placa)
-    if (!fotos[fid]) { fotoActiva = fid; inFoto.click() }
+    // OJO: fotos[fid] solo tiene las que subió el usuario → una imagen que VIENE con
+    // la plantilla (p.ej. el fondo) se veía como "hueco vacío" y en completa el clic
+    // abría "subir otra" en vez de sus opciones.
+    if (modoEdicion !== 'completa' && !fotos[fid]) { fotoActiva = fid; inFoto.click() }
     else iniciarPanFoto(e, fid)
     return
   }
