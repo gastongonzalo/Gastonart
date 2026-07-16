@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# Copias de conflicto que crea OneDrive al sincronizar entre equipos
+# (p.ej. main-DESKTOP-2TMROU2.ts): son versiones viejas, no código del proyecto.
+*-DESKTOP-*.*
+*-LAPTOP-*.*
