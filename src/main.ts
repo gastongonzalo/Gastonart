@@ -1224,6 +1224,9 @@ document.querySelector<HTMLButtonElement>('#btn-import-font')!.addEventListener(
 inFont.addEventListener('change', async () => {
   for (const file of Array.from(inFont.files ?? [])) await importarFont(file)
   inFont.value = ''
+  // Repintar con la fuente nueva y RE-EVALUAR el aviso: sin esto, subir la fuente
+  // que faltaba no quitaba el cartel de "faltan fuentes" ni actualizaba el diseño.
+  if (svgEl) { await refrescarTrasFuente(); void revisarFuentes() }
 })
 
 // --- Vista de Google Fonts (categoría Marca) ---
@@ -1419,6 +1422,45 @@ async function cargarPack(): Promise<void> {
 // las usa) y solo muestra el aviso para las que no estén en Google.
 const avisoFuentes = document.querySelector<HTMLDivElement>('#aviso-fuentes')!
 let revisandoFuentes = false
+
+// Las plantillas exportadas de Illustrator/Figma/PDF suelen declarar la familia CON
+// el peso ADENTRO ("Poppins-SemiBold", "Poppins Bold"), mientras que el pack tiene la
+// familia BASE ("Poppins") con sus pesos → figuraban como faltantes PARA SIEMPRE, y
+// subir el .ttf no ayudaba (se registra con su nombre INTERNO — "Poppins" 600 — no con
+// el nombre declarado, y avisaba "ya estaba cargada"). Acá registramos un ALIAS con el
+// nombre declarado apuntando a los BYTES del peso correcto: así lo resuelven el editor
+// (FontFace) y el export (resvg/facesPack), y deja de figurar como faltante.
+async function resolverAliasDePeso(fam: string): Promise<boolean> {
+  const cands = [fam]
+  const i = fam.lastIndexOf(' ')
+  // "Poppins Bold" → "Poppins-Bold" (interpretarNombreFuente solo separa por guion).
+  if (!fam.includes('-') && i > 0) cands.push(fam.slice(0, i) + '-' + fam.slice(i + 1))
+  for (const cand of cands) {
+    const v = interpretarNombreFuente(cand)
+    if (v.family.toLowerCase() === fam.toLowerCase()) continue // el nombre no traía peso
+    const base = v.family.toLowerCase()
+    const buscar = () =>
+      facesPack.find((f) => f.family.toLowerCase() === base && f.weight === v.weight && f.style === v.style) ??
+      facesPack.find((f) => f.family.toLowerCase() === base && f.weight === v.weight)
+    let cara = buscar()
+    // La base tampoco está: intentar traerla (p.ej. "Oswald-Bold" → bajar Oswald).
+    if (!cara && !facesPack.some((f) => f.family.toLowerCase() === base)) {
+      await traerGoogleFont(v.family)
+      cara = buscar()
+    }
+    if (!cara) continue
+    try {
+      // Copia tipada: facesPack guarda Uint8Array<ArrayBufferLike> y FontFace pide BufferSource.
+      const ff = new FontFace(fam, new Uint8Array(cara.bytes), { weight: String(v.weight), style: v.style })
+      await ff.load()
+      ;(document as Document & { fonts: FontFaceSet }).fonts.add(ff)
+      facesPack.push({ bytes: cara.bytes, family: fam, weight: v.weight, style: v.style, formato: cara.formato })
+      poblarFamilias()
+      return true
+    } catch { /* probar el siguiente candidato */ }
+  }
+  return false
+}
 async function revisarFuentes(): Promise<void> {
   if (revisandoFuentes) return
   const faltan = fuentesFaltantes(svgActual)
@@ -1427,8 +1469,14 @@ async function revisarFuentes(): Promise<void> {
   revisandoFuentes = true
   let noHay: string[] = faltan
   try {
-    const res = await Promise.all(faltan.map((fam) => traerGoogleFont(fam).then((ok) => ({ fam, ok }))))
-    if (res.some((r) => r.ok)) await refrescarTrasFuente()
+    // 1) Nombres con el peso adentro ("Poppins-SemiBold") → alias a la familia base
+    //    que ya tenemos. Va PRIMERO: esos nombres no existen como familia en Google,
+    //    así que pedirlos solo gastaría el rate-limit (60/h) de la API de GitHub.
+    const alias = await Promise.all(faltan.map((fam) => resolverAliasDePeso(fam)))
+    const quedan = faltan.filter((_, i) => !alias[i])
+    // 2) El resto: bajarlas de Google por su nombre completo.
+    const res = await Promise.all(quedan.map((fam) => traerGoogleFont(fam).then((ok) => ({ fam, ok }))))
+    if (alias.some(Boolean) || res.some((r) => r.ok)) await refrescarTrasFuente()
     noHay = res.filter((r) => !r.ok).map((r) => r.fam)
   } catch (e) { console.error('[revisarFuentes]', e) }
   finally { revisandoFuentes = false }
