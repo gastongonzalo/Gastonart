@@ -570,7 +570,7 @@ app.innerHTML = `
   </div>
 
   <!-- Sidebar flotante derecha: aloja la barra contextual de lo seleccionado. -->
-  <aside id="panel-props" hidden></aside>
+  <aside id="panel-props" hidden><button id="pp-cerrar-sel" class="pp-cerrar-sel" title="Listo (deseleccionar)">✕</button></aside>
 
   <div class="cuerpo">
     <nav class="rail" aria-label="Categorías">
@@ -4319,6 +4319,7 @@ function construirPuntasCont(): HTMLElement {
 // #panel-props, una sidebar FLOTANTE fija a la derecha de la pantalla (más práctica
 // que la barra que flotaba encima del elemento y se movía / tapaba el contenido).
 const panelProps = document.querySelector<HTMLElement>('#panel-props')!
+document.querySelector('#pp-cerrar-sel')!.addEventListener('click', (e) => { e.stopPropagation(); deseleccionarTodo() })
 // ¿Layout móvil? (riel abajo + paneles como bottom-sheet). En móvil se muestra un
 // solo sheet a la vez: al aparecer los controles de la selección, se cierra la categoría.
 const mqMovil = window.matchMedia('(max-width: 640px)')
@@ -4335,9 +4336,26 @@ function alojarEnPanel(el: HTMLElement, exclusivo = true): void {
 // Mientras el panel de Exportar está abierto se mantiene oculta (comparten la
 // esquina superior derecha y se superponían).
 function refrescarPanelProps(): void {
-  if (!panelExport.hidden) { panelProps.hidden = true; return }
+  if (!panelExport.hidden) { panelProps.hidden = true; sincronizarBarraUnica(); return }
   const hayTexto = panelProps.contains(barraTexto) && !barraTexto.hidden
   panelProps.hidden = !(panelProps.querySelector('.graf-tools, .foto-tools') || hayTexto)
+  sincronizarBarraUnica()
+}
+
+// Modelo Adobe Express en móvil: UNA sola barra abajo. Con algo seleccionado, la
+// barra contextual TOMA el lugar del riel de categorías (antes se apilaban las dos
+// y se comían el lienzo). El CSS cuelga de esta clase.
+function sincronizarBarraUnica(): void {
+  document.body.classList.toggle('con-seleccion', !panelProps.hidden)
+}
+
+// Salir de la selección (✕ de la barra contextual) → vuelve el riel de categorías.
+function deseleccionarTodo(): void {
+  cerrarEditor()
+  fijarCampo(null)
+  limpiarFotoSel()
+  grafSeleccion = []
+  limpiarGraf()
 }
 
 function dibujarSelGraf(): void {

@@ -451,6 +451,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   gap: 12px;
 }
 #panel-props[hidden] { display: none; }
+/* El ✕ de "salir de la selección" es del modelo móvil (una sola barra abajo);
+   en escritorio el panel es una sidebar y no corresponde. */
+.pp-cerrar-sel { display: none; }
 /* En pantallas medianas la sidebar se angosta pero sigue a la derecha. */
 @media (max-width: 900px) {
   #panel-props { width: 208px; padding: 12px 10px; gap: 10px; }
@@ -544,6 +547,29 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 
   /* Zoom flotando por encima del riel. */
   #zoom-ctrl { bottom: 66px; right: 8px; }
+
+  /* === Modelo Adobe Express: UNA sola barra abajo ===
+     Sin selección → riel de categorías. Con algo seleccionado → la barra contextual
+     TOMA su lugar (antes se apilaban las dos: dos filas de controles comiéndose el
+     lienzo y sin saber qué era qué). Se sale con el ✕. */
+  body.con-seleccion .rail { display: none; }
+  body.con-seleccion #panel-props {
+    bottom: 0;
+    border-radius: 0;
+    border-top: 1px solid var(--border);
+    padding-bottom: calc(7px + env(safe-area-inset-bottom));
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.12);
+  }
+  /* ✕ para salir de la selección. Sticky: sigue a la vista aunque la fila de
+     controles se scrollee al costado. */
+  .pp-cerrar-sel {
+    display: flex; align-items: center; justify-content: center;
+    position: sticky; left: 0; z-index: 2; flex: 0 0 auto;
+    width: 44px; height: 44px; padding: 0;
+    border: 1px solid var(--border); border-radius: 9px;
+    background: var(--panel); color: var(--dim);
+    font-size: 16px; cursor: pointer;
+  }
 
   /* Sin hover en touch: el ✕ de borrar recientes/plantillas SIEMPRE visible y grande.
      El prefijo .ini-plantilla-wrap sube la especificidad (0,2,0) para ganarle a la
