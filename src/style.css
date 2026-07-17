@@ -207,6 +207,23 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .tb-icono:hover:not(:disabled) { background: var(--inset-hover); border-color: var(--border-strong); }
 .tb-icono:disabled { opacity: 0.4; cursor: default; }
+
+/* === Íconos de UI (line-art SVG, svgIcono/ICONOS_UI) — dimensionado por contexto.
+   Los botones que además llevan texto (Archivo/Descargar/Completo) se alinean con
+   flex + gap; los que son solo ícono, centrados. === */
+.ui-ic { display: block; flex: 0 0 auto; }
+.tb-icono { display: inline-flex; align-items: center; justify-content: center; }
+.tb-icono .ui-ic { width: 22px; height: 22px; }
+#btn-menu, .tb-export, .modo-switch button { display: inline-flex; align-items: center; gap: 7px; }
+#btn-menu .ui-ic, .tb-export .ui-ic, .modo-switch button .ui-ic { width: 18px; height: 18px; }
+.rail-ic { display: flex; align-items: center; justify-content: center; }
+.rail-ic .ui-ic { width: 24px; height: 24px; }
+/* Botones de control DENTRO de un grupo (negrita/cursiva/alinear/±): scopeado a
+   .ctx-grupo para NO tocar los .ctx-chip (que también son <button> de #barra-texto
+   y con display:inline-flex se mostrarían en escritorio). El ícono del chip se
+   dimensiona aparte (.ctx-ic svg). */
+#barra-texto .ctx-grupo button { display: inline-flex; align-items: center; justify-content: center; }
+#barra-texto .ctx-grupo button .ui-ic { width: 18px; height: 18px; }
 /* "Modo de trabajo" + switch */
 .modo-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .modo-tit { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }

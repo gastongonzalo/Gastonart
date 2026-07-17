@@ -46,6 +46,53 @@ const rutasPlantilla = Object.keys(plantillas).sort() // mutable: se le suman la
 const nombreCorto = (r: string) => r.split('/').pop()!.replace(/\.svg$/i, '')
 
 // ---------------------------------------------------------------
+//  Set de íconos de UI (line-art propio: trazo parejo, puntas redondeadas,
+//  monocromo vía currentColor). Un solo lugar para toda la app (riel, barra
+//  superior, controles, chips). Lienzo 24×24. Cambiar un ícono = editar su path.
+//  Va acá arriba porque el HTML de la barra superior (más abajo) los usa.
+// ---------------------------------------------------------------
+const ICONOS_UI: Record<string, string> = {
+  // — Chips / controles de texto y foto —
+  fuente: '<path d="M4.5 19 12 5l7.5 14"/><path d="M8 14.5h8"/>',
+  tamano: '<path d="M12 4.5v15"/><path d="M8 8.5 12 4.5l4 4"/><path d="M8 15.5 12 19.5l4-4"/>',
+  estilo: '<path d="M12 3.5c0 0-5.5 6.2-5.5 10a5.5 5.5 0 0 0 11 0c0-3.8-5.5-10-5.5-10Z"/>',
+  alinear: '<path d="M4 6.5h16"/><path d="M4 11h9"/><path d="M4 15.5h16"/><path d="M4 20h9"/>',
+  interlineado: '<path d="M9.5 5.5H20"/><path d="M9.5 12H20"/><path d="M9.5 18.5H20"/><path d="M4.5 5.5v13"/><path d="M2.8 7.2 4.5 5.5l1.7 1.7"/><path d="M2.8 16.8 4.5 18.5l1.7-1.7"/>',
+  zoom: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l4.5 4.5"/>',
+  opacidad: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/>',
+  negrita: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/>',
+  cursiva: '<path d="M10 5h7"/><path d="M7 19h7"/><path d="M14 5l-4 14"/>',
+  color: '<path d="M12 3.5c0 0-5.5 6.2-5.5 10a5.5 5.5 0 0 0 11 0c0-3.8-5.5-10-5.5-10Z"/>',
+  'al-izq': '<path d="M4 6h16"/><path d="M4 10h10"/><path d="M4 14h16"/><path d="M4 18h10"/>',
+  'al-centro': '<path d="M4 6h16"/><path d="M7 10h10"/><path d="M4 14h16"/><path d="M7 18h10"/>',
+  'al-der': '<path d="M4 6h16"/><path d="M10 10h10"/><path d="M4 14h16"/><path d="M10 18h10"/>',
+  mas: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  menos: '<path d="M5 12h14"/>',
+  // — Barra superior —
+  menu: '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>',
+  deshacer: '<path d="M8 6 3 11l5 5"/><path d="M3 11h10a5.5 5.5 0 0 1 0 11H9"/>',
+  rehacer: '<path d="M16 6l5 5-5 5"/><path d="M21 11H11a5.5 5.5 0 0 0 0 11h4"/>',
+  copiar: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+  pegar: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3.2A1.2 1.2 0 0 1 10.2 2h3.6A1.2 1.2 0 0 1 15 3.2V4Z"/>',
+  descargar: '<path d="M12 4v10"/><path d="M8 10.5l4 4 4-4"/><path d="M5 19.5h14"/>',
+  editar: '<path d="M4 20l1-4.5L15 5.5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="M13.5 7l3 3"/>',
+  plantilla: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 9.5h16"/><path d="M9.5 9.5V19"/>',
+  // — Riel de categorías —
+  'cat-plantillas': '<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>',
+  'cat-texto': '<path d="M5 6h14"/><path d="M12 6v13"/><path d="M9 19h6"/>',
+  'cat-elementos': '<rect x="3.5" y="9.5" width="9" height="9" rx="1.4"/><circle cx="15.5" cy="9" r="4.7"/>',
+  'cat-imagenes': '<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.7"/><path d="M4 16l4.5-4 3.5 3 4-4.5 4 4.5"/>',
+  'cat-dibujar': '<path d="M4 20l1-4.5L15 5.5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="M13.5 7l3 3"/><path d="M5 15.5l3 3"/>',
+  'cat-formulario': '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9z"/><path d="M8.5 11h7"/><path d="M8.5 15h4.5"/>',
+  'cat-fuentes': '<path d="M3.5 18l4.5-11 4.5 11"/><path d="M5 14h6"/><path d="M20.5 12.2a2.5 2.5 0 1 0-.2 4.3"/><path d="M20.5 12v5"/>',
+}
+function svgIcono(clave: string): string {
+  const d = ICONOS_UI[clave]
+  if (!d) return `<span class="ctx-ic-txt">${escHtml(clave)}</span>` // fallback: texto
+  return `<svg class="ui-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
+}
+
+// ---------------------------------------------------------------
 //  Estado
 // ---------------------------------------------------------------
 interface Rect { left: number; top: number; width: number; height: number }
@@ -447,7 +494,7 @@ app.innerHTML = `
   <header class="topbar">
     <div class="tb-marca">
       <span class="tb-menu-wrap">
-        <button id="btn-menu" class="mini" title="Archivo">☰ <span class="tb-lbl">Archivo</span></button>
+        <button id="btn-menu" class="mini" title="Archivo">${svgIcono('menu')}<span class="tb-lbl">Archivo</span></button>
         <div id="menu-archivo" class="menu-archivo" hidden>
           <button id="btn-nuevo" class="tb-menu-item">＋ Nuevo diseño</button>
           <button id="btn-guardar" class="tb-menu-item">💾 Guardar proyecto</button>
@@ -464,21 +511,21 @@ app.innerHTML = `
       </select>
     </div>
     <div class="tb-centro">
-      <button id="btn-deshacer" class="tb-icono" title="Deshacer (Ctrl+Z)" disabled>↶</button>
-      <button id="btn-rehacer" class="tb-icono" title="Rehacer (Ctrl+Y)" disabled>↷</button>
+      <button id="btn-deshacer" class="tb-icono" title="Deshacer (Ctrl+Z)" disabled>${svgIcono('deshacer')}</button>
+      <button id="btn-rehacer" class="tb-icono" title="Rehacer (Ctrl+Y)" disabled>${svgIcono('rehacer')}</button>
       <span class="tb-div"></span>
-      <button id="btn-copiar" class="tb-icono" title="Copiar (Ctrl+C)" disabled>⧉</button>
-      <button id="btn-pegar" class="tb-icono" title="Pegar (Ctrl+V)" disabled>📋</button>
+      <button id="btn-copiar" class="tb-icono" title="Copiar (Ctrl+C)" disabled>${svgIcono('copiar')}</button>
+      <button id="btn-pegar" class="tb-icono" title="Pegar (Ctrl+V)" disabled>${svgIcono('pegar')}</button>
     </div>
     <div class="tb-acciones">
       <div class="modo-wrap">
         <span class="modo-tit">Modo de trabajo</span>
         <div class="modo-switch" role="group">
-          <button data-modo="completa" class="activo" title="Edición completa: todo disponible">✎ <span class="modo-lbl">Completo</span></button>
-          <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">🗂 <span class="modo-lbl">Plantilla</span></button>
+          <button data-modo="completa" class="activo" title="Edición completa: todo disponible">${svgIcono('editar')}<span class="modo-lbl">Completo</span></button>
+          <button data-modo="plantilla" title="Modo plantilla: solo cambiar textos y reemplazar fotos">${svgIcono('plantilla')}<span class="modo-lbl">Plantilla</span></button>
         </div>
       </div>
-      <button id="btn-export" class="tb-export">⬇ <span class="tb-lbl">Descargar</span></button>
+      <button id="btn-export" class="tb-export">${svgIcono('descargar')}<span class="tb-lbl">Descargar</span></button>
     </div>
   </header>
   <span class="estado" id="estado" hidden></span>
@@ -503,21 +550,21 @@ app.innerHTML = `
     </div>
     <span class="bt-sep"></span>
     <div class="ctx-grupo" data-ic="estilo" data-lb="Estilo">
-      <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
-      <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
+      <button data-bt="bold" id="bt-bold" title="Negrita">${svgIcono('negrita')}</button>
+      <button data-bt="italic" id="bt-italic" title="Cursiva">${svgIcono('cursiva')}</button>
       <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
     </div>
     <span class="bt-sep"></span>
     <div class="ctx-grupo" data-ic="alinear" data-lb="Alinear">
-      <button data-bt="al:start" title="Alinear a la izquierda">⯇</button>
-      <button data-bt="al:middle" title="Centrar">≡</button>
-      <button data-bt="al:end" title="Alinear a la derecha">⯈</button>
+      <button data-bt="al:start" title="Alinear a la izquierda">${svgIcono('al-izq')}</button>
+      <button data-bt="al:middle" title="Centrar">${svgIcono('al-centro')}</button>
+      <button data-bt="al:end" title="Alinear a la derecha">${svgIcono('al-der')}</button>
     </div>
     <span class="bt-sep"></span>
     <div class="ctx-grupo" data-ic="interlineado" data-lb="Interlineado">
-      <button data-bt="lh-" title="Menos interlineado">↕−</button>
+      <button data-bt="lh-" title="Menos interlineado">${svgIcono('menos')}</button>
       <span id="bt-lh" class="bt-val" title="Interlineado">–</span>
-      <button data-bt="lh+" title="Más interlineado">↕+</button>
+      <button data-bt="lh+" title="Más interlineado">${svgIcono('mas')}</button>
     </div>
   </div>
 
@@ -588,13 +635,13 @@ app.innerHTML = `
 
   <div class="cuerpo">
     <nav class="rail" aria-label="Categorías">
-      <button class="rail-item" data-cat="plantillas" title="Plantillas"><span class="rail-ic">▦</span><span>Plantillas</span></button>
-      <button class="rail-item" data-cat="texto" title="Texto"><span class="rail-ic">T</span><span>Texto</span></button>
-      <button class="rail-item" data-cat="elementos" title="Formas, íconos y vectores"><span class="rail-ic">◇</span><span>Elementos</span></button>
-      <button class="rail-item" data-cat="subir" title="Imágenes (subir o del banco)"><span class="rail-ic">▣</span><span>Imágenes</span></button>
-      <button class="rail-item" data-cat="dibujar" title="Pluma y nodos"><span class="rail-ic">✎</span><span>Dibujar</span></button>
-      <button class="rail-item" data-cat="formulario" title="Campos que se completan en el lector de PDF"><span class="rail-ic">📋</span><span>Formulario</span></button>
-      <button class="rail-item" data-cat="marca" title="Tipografías"><span class="rail-ic">Aa</span><span>Fuentes</span></button>
+      <button class="rail-item" data-cat="plantillas" title="Plantillas"><span class="rail-ic">${svgIcono('cat-plantillas')}</span><span>Plantillas</span></button>
+      <button class="rail-item" data-cat="texto" title="Texto"><span class="rail-ic">${svgIcono('cat-texto')}</span><span>Texto</span></button>
+      <button class="rail-item" data-cat="elementos" title="Formas, íconos y vectores"><span class="rail-ic">${svgIcono('cat-elementos')}</span><span>Elementos</span></button>
+      <button class="rail-item" data-cat="subir" title="Imágenes (subir o del banco)"><span class="rail-ic">${svgIcono('cat-imagenes')}</span><span>Imágenes</span></button>
+      <button class="rail-item" data-cat="dibujar" title="Pluma y nodos"><span class="rail-ic">${svgIcono('cat-dibujar')}</span><span>Dibujar</span></button>
+      <button class="rail-item" data-cat="formulario" title="Campos que se completan en el lector de PDF"><span class="rail-ic">${svgIcono('cat-formulario')}</span><span>Formulario</span></button>
+      <button class="rail-item" data-cat="marca" title="Tipografías"><span class="rail-ic">${svgIcono('cat-fuentes')}</span><span>Fuentes</span></button>
     </nav>
     <aside id="panel-lateral" aria-label="Contenido" hidden>
       <div class="pl-head">
@@ -4420,31 +4467,6 @@ function deseleccionarTodo(): void {
   limpiarFotoSel()
   grafSeleccion = []
   limpiarGraf()
-}
-
-// Íconos de UI de los chips: line-art propio (trazo parejo, puntas redondeadas,
-// monocromo vía currentColor). Los sets de íconos de negocios no traen "Fuente" /
-// "Alinear" / "Interlineado", así que van dibujados acá. Lienzo 24×24.
-const ICONOS_UI: Record<string, string> = {
-  // "A" con travesaño = tipografía.
-  fuente: '<path d="M4.5 19 12 5l7.5 14"/><path d="M8 14.5h8"/>',
-  // Flecha vertical de dos puntas = tamaño.
-  tamano: '<path d="M12 4.5v15"/><path d="M8 8.5 12 4.5l4 4"/><path d="M8 15.5 12 19.5l4-4"/>',
-  // Gota = color / estilo.
-  estilo: '<path d="M12 3.5c0 0-5.5 6.2-5.5 10a5.5 5.5 0 0 0 11 0c0-3.8-5.5-10-5.5-10Z"/>',
-  // Renglones desparejos = alineación.
-  alinear: '<path d="M4 6.5h16"/><path d="M4 11h9"/><path d="M4 15.5h16"/><path d="M4 20h9"/>',
-  // Renglones + flecha vertical = interlineado.
-  interlineado: '<path d="M9.5 5.5H20"/><path d="M9.5 12H20"/><path d="M9.5 18.5H20"/><path d="M4.5 5.5v13"/><path d="M2.8 7.2 4.5 5.5l1.7 1.7"/><path d="M2.8 16.8 4.5 18.5l1.7-1.7"/>',
-  // Lupa = zoom.
-  zoom: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l4.5 4.5"/>',
-  // Círculo con media mitad llena = opacidad.
-  opacidad: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/>',
-}
-function svgIcono(clave: string): string {
-  const d = ICONOS_UI[clave]
-  if (!d) return `<span class="ctx-ic-txt">${escHtml(clave)}</span>` // fallback: texto
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
 }
 
 // Móvil (Express): cada .ctx-grupo de una barra contextual se colapsa en un CHIP
