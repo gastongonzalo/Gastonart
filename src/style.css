@@ -2061,6 +2061,19 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   font-size: 12px; line-height: 1.4; color: #92400e;
   background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 10px;
 }
+/* Vista previa del degradado en su panel. El damero de fondo deja ver la
+   TRANSPARENCIA: los "fades" de Illustrator son dos paradas del mismo color con la
+   opacidad bajando a 0, y sin esto parecían dos swatches iguales (como si el panel
+   no hubiera leído el degradado de la plantilla). */
+.grad-preview {
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 2px 0 8px;
+  /* 1.ª capa = el degradado (la pone el JS), 2.ª = el damero de transparencia. */
+  background-size: auto, 14px 14px;
+  background-repeat: no-repeat, repeat;
+}
 .pe-aviso[hidden] { display: none; }
 .pe-dl {
   display: flex; align-items: center; justify-content: center; gap: 8px;

@@ -3957,7 +3957,26 @@ function abrirPanelDegradado(els: SVGElement[]): void {
   const panel = document.createElement('div')
   panel.className = 'grad-panel'
   panel.addEventListener('pointerdown', (e) => e.stopPropagation())
-  const aplicar = () => aplicarDegradado(els, stops, angulo)
+  // Vista previa EN VIVO del degradado. Sin esto no se entendía que el panel SÍ había
+  // leído el degradado de la plantilla: Illustrator hace los "fades" con dos paradas
+  // del MISMO color y la opacidad bajando a 0 (p.ej. #006ec6 100% → #006ec6 0%), así
+  // que se veían dos swatches idénticos y parecía que había arrancado de cero.
+  let prevEl: HTMLDivElement | null = null
+  const rgbaDe = (hex: string, a: number): string => {
+    const n = parseInt(hex.replace('#', ''), 16)
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a / 100})`
+  }
+  const cssGrad = (): string => {
+    const ord = [...stops].sort((a, b) => a.pos - b.pos)
+    const partes = ord.map((s) => `${rgbaDe(s.color, s.alpha ?? 100)} ${s.pos}%`).join(', ')
+    // SVG: 0° = hacia la derecha. CSS: 0° = hacia arriba, 90° = derecha → +90.
+    return `linear-gradient(${90 + angulo}deg, ${partes})`
+  }
+  // El degradado va ENCIMA y el damero atrás → se ve dónde es transparente.
+  const refrescarPrev = (): void => {
+    if (prevEl) prevEl.style.backgroundImage = cssGrad() + ', repeating-conic-gradient(#e3e7ee 0% 25%, #f3f5f8 0% 50%)'
+  }
+  const aplicar = () => { aplicarDegradado(els, stops, angulo); refrescarPrev() }
   // Commit del cambio: al SOLTAR el control (change), no en cada input del arrastre
   // (inundaría el historial). Antes solo se registraba al cerrar con ✕ → si el panel
   // se cerraba de otra forma, el cambio quedaba fuera del historial y no se podía
@@ -3965,6 +3984,10 @@ function abrirPanelDegradado(els: SVGElement[]): void {
   const commit = () => { registrarHistorial(); autoguardar() }
   const render = () => {
     panel.innerHTML = '<div class="grad-head">Degradado <button class="grad-cerrar">✕</button></div>'
+    prevEl = document.createElement('div'); prevEl.className = 'grad-preview'
+    prevEl.title = 'Así se ve el degradado (el damero = transparencia)'
+    refrescarPrev()
+    panel.append(prevEl)
     const lista = document.createElement('div'); lista.className = 'grad-stops'
     stops.forEach((s, i) => {
       const fila = document.createElement('div'); fila.className = 'grad-fila'
