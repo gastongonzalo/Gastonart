@@ -2981,18 +2981,44 @@ function desactivarNodos(): void {
   if (editandoPuntos()) salirEditarPuntos()
 }
 
+// Trazo/polígono EDITABLE más cercano a un punto de pantalla, dentro de la
+// tolerancia (px). Mide la distancia REAL del toque a la geometría (muestreando la
+// curva y llevándola a pantalla con getScreenCTM), no el píxel exacto: un trazo con
+// fill:none y stroke fino era casi imposible de acertar con el dedo.
+function trazoMasCercano(clientX: number, clientY: number, tolPx = 24): SVGElement | null {
+  if (!svgEl) return null
+  const cands = Array.from(svgEl.querySelectorAll<SVGGeometryElement>('path, polygon, polyline, line'))
+    .filter((el) => graficoSeleccionable(el) === el) // editable como sí mismo (no dentro de un grupo)
+  let best: SVGElement | null = null
+  let bestD = tolPx
+  for (const el of cands) {
+    const ctm = el.getScreenCTM()
+    if (!ctm) continue
+    let len = 0
+    try { len = el.getTotalLength() } catch { continue }
+    if (!len) continue
+    const N = Math.min(160, Math.max(16, Math.round(len / 5))) // ~1 muestra cada 5u
+    for (let i = 0; i <= N; i++) {
+      let lp: DOMPoint
+      try { lp = el.getPointAtLength((len * i) / N) } catch { break }
+      const sp = lp.matrixTransform(ctm) // a coords de pantalla
+      const d = Math.hypot(sp.x - clientX, sp.y - clientY)
+      if (d < bestD) { bestD = d; best = el }
+    }
+  }
+  return best
+}
+
 function nodosPointerDown(e: PointerEvent): void {
   if (!nodosCapa || !svgEl) return
   e.preventDefault()
-  // Buscar el elemento bajo el puntero (la capa tapa el svg → la apagamos un instante).
-  nodosCapa.style.pointerEvents = 'none'
-  const bajo = document.elementFromPoint(e.clientX, e.clientY) as Element | null
-  nodosCapa.style.pointerEvents = ''
-  const u = bajo ? graficoSeleccionable(bajo) : null
-  if (!u) return
-  const tag = u.tagName.toLowerCase()
-  if (!['path', 'polygon', 'polyline', 'line'].includes(tag)) {
-    estado.textContent = 'El puntero blanco edita trazos y polígonos; esta forma no.'
+  const u = trazoMasCercano(e.clientX, e.clientY)
+  if (!u) {
+    // Aviso solo si había una forma NO editable justo debajo (no en el vacío).
+    nodosCapa.style.pointerEvents = 'none'
+    const b = document.elementFromPoint(e.clientX, e.clientY) as Element | null
+    nodosCapa.style.pointerEvents = ''
+    if (b && graficoSeleccionable(b)) estado.textContent = 'El puntero blanco edita trazos y polígonos; esta forma no.'
     return
   }
   quitarNodosCapa() // que la capa del editor de puntos tome el control
