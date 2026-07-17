@@ -2981,14 +2981,23 @@ function desactivarNodos(): void {
   if (editandoPuntos()) salirEditarPuntos()
 }
 
-// Trazo/polígono EDITABLE más cercano a un punto de pantalla, dentro de la
-// tolerancia (px). Mide la distancia REAL del toque a la geometría (muestreando la
-// curva y llevándola a pantalla con getScreenCTM), no el píxel exacto: un trazo con
-// fill:none y stroke fino era casi imposible de acertar con el dedo.
-function trazoMasCercano(clientX: number, clientY: number, tolPx = 24): SVGElement | null {
+// Forma más cercana a un punto de pantalla, dentro de la tolerancia (px). Mide la
+// distancia REAL del toque a la GEOMETRÍA (muestrea la curva con getPointAtLength y
+// la lleva a pantalla con getScreenCTM), no el píxel exacto: un trazo con fill:none y
+// stroke fino era casi imposible de acertar con el dedo. Opciones:
+//  - tags: qué formas considerar (default: las editables por nodos).
+//  - soloSinRelleno: solo contornos (fill:none) → para la selección normal, así no
+//    "roba" el marquee cuando tocás cerca de una forma RELLENA (esas ya son fáciles).
+function trazoMasCercano(clientX: number, clientY: number, opts: { tolPx?: number; tags?: string; soloSinRelleno?: boolean } = {}): SVGElement | null {
   if (!svgEl) return null
-  const cands = Array.from(svgEl.querySelectorAll<SVGGeometryElement>('path, polygon, polyline, line'))
-    .filter((el) => graficoSeleccionable(el) === el) // editable como sí mismo (no dentro de un grupo)
+  const tolPx = opts.tolPx ?? 24
+  const tags = opts.tags ?? 'path, polygon, polyline, line'
+  const sinRelleno = (el: Element): boolean => {
+    const f = getComputedStyle(el).fill
+    return !f || f === 'none' || f === 'rgba(0, 0, 0, 0)' || f === 'transparent'
+  }
+  const cands = Array.from(svgEl.querySelectorAll<SVGGeometryElement>(tags))
+    .filter((el) => graficoSeleccionable(el) === el && (!opts.soloSinRelleno || sinRelleno(el)))
   let best: SVGElement | null = null
   let bestD = tolPx
   for (const el of cands) {
@@ -3299,7 +3308,12 @@ function grafPointerDown(e: PointerEvent): void {
     } else iniciarPanFoto(e, fid)
     return
   }
-  const el = graficoSeleccionable(e.target as Element)
+  let el = graficoSeleccionable(e.target as Element)
+  // Fallback para TRAZOS FINOS: si el toque no cayó en ningún elemento pintado, buscar
+  // el contorno (fill:none) más cercano dentro de ~16px. Un dibujo de línea era casi
+  // imposible de seleccionar (había que clavar el stroke de ~1px). Solo contornos, así
+  // no roba el marquee al tocar cerca de una forma rellena (esas ya se agarran fácil).
+  if (!el) el = trazoMasCercano(e.clientX, e.clientY, { tolPx: 16, tags: 'path, polygon, polyline, line, rect, circle, ellipse', soloSinRelleno: true })
   if (!el) {
     // Clic en vacío: recuadro de selección (marquee). Sin Ctrl, limpia primero.
     e.preventDefault() // si no, arrastrar selecciona el TEXTO del SVG (resaltado azul)
