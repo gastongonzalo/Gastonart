@@ -316,7 +316,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 
 /* Popover de "Dibujar": chico, al lado del riel (no es un panel grande). */
 .menu-dibujar {
-  position: fixed; z-index: 61;
+  position: fixed; z-index: 70; /* por encima del riel (65) y los sheets (62) */
   display: flex; flex-direction: column; gap: 4px;
   padding: 6px; min-width: 170px;
   background: var(--panel); border: 1px solid var(--border-strong);

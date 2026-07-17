@@ -1371,11 +1371,22 @@ function cerrarMenuDibujar(): void {
 }
 function abrirMenuDibujar(item: HTMLElement): void {
   cerrarCategoria() // si había un panel abierto, se cierra
-  const r = item.getBoundingClientRect()
-  menuDibujar.style.top = Math.round(r.top) + 'px'
-  menuDibujar.style.left = Math.round(r.right + 6) + 'px'
-  menuDibujar.hidden = false
+  menuDibujar.hidden = false // mostrar antes de medir su ancho para centrarlo
   item.classList.add('activo')
+  const r = item.getBoundingClientRect()
+  if (esMovil()) {
+    // Riel ABAJO (horizontal): el popover va ARRIBA del ítem, centrado y sin salirse
+    // por los costados. Antes iba a la derecha (r.right) → fuera de pantalla.
+    const w = menuDibujar.offsetWidth || 180
+    const left = Math.max(8, Math.min(Math.round(r.left + r.width / 2 - w / 2), window.innerWidth - w - 8))
+    menuDibujar.style.left = left + 'px'
+    menuDibujar.style.top = 'auto'
+    menuDibujar.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px'
+  } else {
+    menuDibujar.style.top = Math.round(r.top) + 'px'
+    menuDibujar.style.left = Math.round(r.right + 6) + 'px'
+    menuDibujar.style.bottom = 'auto'
+  }
 }
 menuDibujar.addEventListener('click', () => cerrarMenuDibujar()) // al elegir Pluma/Nodos se cierra
 for (const b of Array.from(document.querySelectorAll<HTMLElement>('.rail-item'))) {
