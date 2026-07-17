@@ -752,11 +752,11 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   #panel-props .foto-tools .ft-cambiar, #panel-props .foto-tools .ft-fondo {
     width: auto; flex: 0 0 auto; min-height: 44px; white-space: nowrap; padding: 0 14px; margin: 0; font-size: 14px;
   }
-  #panel-props .foto-tools .ft-zoom, #panel-props .graf-opac { min-height: 44px; font-size: 14px; }
-  #panel-props .graf-color, #panel-props .graf-opac,
+  #panel-props .foto-tools .ft-zoom, #panel-props .graf-opac, #panel-props .graf-grosor { min-height: 44px; font-size: 14px; }
+  #panel-props .graf-color, #panel-props .graf-opac, #panel-props .graf-grosor,
   #panel-props .foto-tools .ft-zoom { flex: 0 0 auto; width: auto; }
-  #panel-props .graf-opac input[type='range'],
-  #panel-props .foto-tools .ft-zoom input[type='range'] { width: 96px; flex: 0 0 auto; }
+  #panel-props .graf-opac input[type='range'], #panel-props .graf-grosor input[type='range'],
+  #panel-props .foto-tools .ft-zoom input[type='range'] { width: 120px; flex: 0 0 auto; }
   #panel-props .graf-mascara { width: auto; flex: 0 0 auto; }
 }
 #lienzo {
@@ -1415,10 +1415,8 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 }
 .graf-opac input[type='range'] { width: 64px; cursor: pointer; }
 .graf-grosor { display: flex; align-items: center; gap: 4px; color: var(--text); font-size: 12px; }
-.graf-grosor input[type='number'] {
-  width: 46px; padding: 3px 4px; text-align: center;
-  background: var(--inset); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 12px;
-}
+.graf-grosor input[type='range'] { width: 64px; cursor: pointer; }
+.graf-val { min-width: 22px; text-align: center; font-size: 12px; color: var(--text); }
 
 /* Panel de degradado */
 .grad-panel {

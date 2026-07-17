@@ -4643,15 +4643,20 @@ function dibujarSelGraf(): void {
   // juntos como "Color"); en escritorio van en línea como siempre.
   tools.append(grupoCtx('color', 'Color', fill, stroke))
 
-  // Grosor del contorno/trazo (en unidades del lienzo).
+  // Grosor del contorno/trazo (en unidades del lienzo). SLIDER (como opacidad): el
+  // <input type=number> casi no tiene flechas en móvil y era imposible de cambiar.
+  // Max adaptable: 100 alcanza para casi todo con buena precisión, pero si el trazo
+  // ya es más grueso, se extiende para no cortarlo.
   const grosor = document.createElement('label'); grosor.className = 'graf-grosor'; grosor.title = 'Grosor del contorno/trazo'
-  const gwi = document.createElement('input'); gwi.type = 'number'; gwi.min = '0'; gwi.max = '400'; gwi.step = '1'
   const sw0 = parseFloat(getComputedStyle(grafSeleccion[0]).strokeWidth)
-  gwi.value = String(isNaN(sw0) ? 0 : Math.round(sw0))
-  gwi.addEventListener('input', () => { for (const el of grafSeleccion) el.style.strokeWidth = gwi.value })
+  const cur = isNaN(sw0) ? 0 : Math.round(sw0)
+  const gwi = document.createElement('input'); gwi.type = 'range'; gwi.min = '0'; gwi.max = String(Math.max(100, cur)); gwi.step = '1'
+  gwi.value = String(cur)
+  const gval = document.createElement('span'); gval.className = 'graf-val'; gval.textContent = String(cur)
+  gwi.addEventListener('input', () => { for (const el of grafSeleccion) el.style.strokeWidth = gwi.value; gval.textContent = gwi.value })
   gwi.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   gwi.addEventListener('pointerdown', (e) => e.stopPropagation())
-  grosor.append('〜', gwi)
+  grosor.append('〜', gwi, gval)
   tools.append(grupoCtx('trazo', 'Trazo', grosor))
 
   // Opacidad (0 = transparente, 1 = sólido). Aplica a toda la selección.
