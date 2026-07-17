@@ -1878,6 +1878,17 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 /* Card con su panel desplegado. */
 .ini-card[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--accent); transform: none; }
 .ini-panel[hidden], #ini-buscar-res[hidden], #ini-principal[hidden] { display: none; }
+/* Sub-páginas (Documento en blanco / Plantillas / Carrusel): página aparte con
+   cabecera "← Inicio", en vez del acordeón que se desplegaba debajo. */
+.ini-subpagina { padding-top: 2px; }
+.ini-sub-head { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; }
+.ini-sub-head strong { font-size: clamp(19px, 3.2vw, 24px); font-weight: 800; }
+.ini-inicio {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  padding: 9px 15px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--panel); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.ini-inicio:hover { border-color: var(--accent); color: var(--accent); }
 /* Personalizado inline, a la derecha de los formatos de impresión.
    Compacto: medidas arriba, unidades abajo, Crear al costado. */
 .ini-custom-inline {

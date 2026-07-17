@@ -9873,13 +9873,15 @@ function mostrarInicio(): void {
       <div id="ini-principal">
         <div class="ini-titulo"><h2>¿Cómo querés empezar?</h2></div>
         <div class="ini-cards ini-cards-v">${cardsHtml}</div>
+        ${recientesHtml}
+      </div>
 
-      <section class="ini-seccion ini-panel" id="ini-panel-blanco" hidden>
-        <h3>Documento en blanco</h3>
+      <section class="ini-subpagina ini-panel" id="ini-panel-blanco" hidden>
+        <header class="ini-sub-head"><button class="ini-inicio" data-inicio>← Inicio</button><strong>Documento en blanco</strong></header>
         <div class="ini-redes">${seccionesTamano}</div>
       </section>
-      <section class="ini-seccion ini-panel" id="ini-panel-plantillas" hidden>
-        <h3>Plantillas y guardados</h3>
+      <section class="ini-subpagina ini-panel" id="ini-panel-plantillas" hidden>
+        <header class="ini-sub-head"><button class="ini-inicio" data-inicio>← Inicio</button><strong>Plantillas</strong></header>
         ${opcionesPlantilla
           ? `<div class="ini-plantillas">${opcionesPlantilla}</div>`
           : `<p class="ini-nota" style="margin:0">Todavía no tenés plantillas. Subí un SVG o PDF (con el botón de abajo) o guardá un diseño con «Guardar como plantilla», y van a aparecer acá.</p>`}
@@ -9887,9 +9889,9 @@ function mostrarInicio(): void {
         <button id="ini-cargar-svg" class="ini-btn-acc">Subir imagen, SVG o PDF…</button>
         <p class="ini-nota">Cualquier imagen, SVG o PDF entra al editor. Después podés <strong>guardarlo como plantilla</strong> con el botón “Plantilla” de la barra superior.</p>
       </section>
-      <section class="ini-seccion ini-panel" id="ini-panel-carrusel" hidden>
-        <h3>Carrusel para redes</h3>
-        <p class="ini-nota" style="margin:0 0 8px">Una sola mesa ancha para diseñar el carrusel de corrido. Al exportar se corta en una imagen por slide.</p>
+      <section class="ini-subpagina ini-panel" id="ini-panel-carrusel" hidden>
+        <header class="ini-sub-head"><button class="ini-inicio" data-inicio>← Inicio</button><strong>Carrusel para redes</strong></header>
+        <p class="ini-nota" style="margin:0 0 12px">Una sola mesa ancha para diseñar el carrusel de corrido. Al exportar se corta en una imagen por slide.</p>
         <div class="carr-formatos">
           ${[['1080x1080', 'Cuadrado', 1080, 1080], ['1080x1350', 'Retrato', 1080, 1350], ['1080x1920', 'Story', 1080, 1920]]
             .map(([tam, nom, w, h], i) => `<button class="carr-fmt${i === 0 ? ' activo' : ''}" data-tam="${tam}">
@@ -9904,8 +9906,6 @@ function mostrarInicio(): void {
           <button id="ini-crear-carr" class="ini-btn-acc">Crear carrusel</button>
         </div>
       </section>
-      ${recientesHtml}
-      </div>
     </div>`
   document.body.appendChild(ov)
 
@@ -9925,21 +9925,26 @@ function mostrarInicio(): void {
     const n = Math.max(2, Math.min(20, Math.round(+ov.querySelector<HTMLInputElement>('#ini-carr-n')!.value || 3)))
     cerrarInicio(); crearCarrusel(sw, sh, n)
   })
-  // Cards del inicio: acción directa (Cargar/Collage/QR/Certificados) o desplegar
-  // su panel (Documento en blanco / Plantillas / Carrusel), tipo acordeón (uno a la vez).
+  // Cards del inicio: acción directa (Cargar/Collage/QR/Certificados) o navegar a la
+  // SUB-PÁGINA (Documento en blanco / Plantillas / Carrusel). Antes desplegaban un
+  // acordeón debajo; ahora son una página aparte con botón "← Inicio" (como el collage).
+  const buscarRes = ov.querySelector<HTMLElement>('#ini-buscar-res')!
+  const principal = ov.querySelector<HTMLElement>('#ini-principal')!
   const panelesInicio: Record<string, string> = { blanco: 'ini-panel-blanco', plantillas: 'ini-panel-plantillas', carrusel: 'ini-panel-carrusel' }
-  const togglePanelInicio = (key: string): void => {
-    const id = panelesInicio[key]; if (!id) return
-    const sec = ov.querySelector<HTMLElement>('#' + id)!
-    const abrir = sec.hidden
-    Object.values(panelesInicio).forEach((pid) => { const s = ov.querySelector<HTMLElement>('#' + pid); if (s) s.hidden = true })
-    ov.querySelectorAll('.ini-card[aria-expanded]').forEach((c) => c.setAttribute('aria-expanded', 'false'))
-    if (abrir) {
-      sec.hidden = false
-      ov.querySelector(`.ini-card[data-panel="${key}"]`)?.setAttribute('aria-expanded', 'true')
-      sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    }
+  const subIds = Object.values(panelesInicio)
+  const volverInicio = (): void => {
+    subIds.forEach((id) => { const s = ov.querySelector<HTMLElement>('#' + id); if (s) s.hidden = true })
+    buscarRes.hidden = true
+    principal.hidden = false
+    ov.scrollTop = 0
   }
+  const abrirSubpagina = (key: string): void => {
+    const id = panelesInicio[key]; if (!id) return
+    principal.hidden = true; buscarRes.hidden = true
+    subIds.forEach((x) => { const s = ov.querySelector<HTMLElement>('#' + x); if (s) s.hidden = x !== id })
+    ov.scrollTop = 0
+  }
+  ov.querySelectorAll<HTMLButtonElement>('.ini-inicio').forEach((b) => b.addEventListener('click', volverInicio))
   ov.querySelectorAll<HTMLButtonElement>('.ini-card').forEach((b) =>
     b.addEventListener('click', () => {
       switch (b.dataset.panel) {
@@ -9948,7 +9953,7 @@ function mostrarInicio(): void {
         case 'qr': abrirQR(); break
         // Certificados: directo a ELEGIR LA PLANTILLA (sin pasar por un lienzo en blanco).
         case 'cert': cerrarInicio(); abrirCertificados(); (document.querySelector('#cert-file-tpl') as HTMLInputElement | null)?.click(); break
-        default: togglePanelInicio(b.dataset.panel!)
+        default: abrirSubpagina(b.dataset.panel!)
       }
     }))
   // --- Recientes / borrador / plantillas por DELEGACIÓN en ov: así los mismos
@@ -9995,12 +10000,11 @@ function mostrarInicio(): void {
     if (pl) { cerrarInicio(); usarPlantilla(pl.dataset.ruta!); return }
   })
   // --- Buscador (arriba): filtra plantillas y recientes por nombre. ---
-  const buscarRes = ov.querySelector<HTMLElement>('#ini-buscar-res')!
-  const principal = ov.querySelector<HTMLElement>('#ini-principal')!
   const norm = (s: string): string => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
   const renderBusqueda = (q: string): void => {
     const query = norm(q.trim())
-    if (!query) { buscarRes.hidden = true; principal.hidden = false; buscarRes.innerHTML = ''; return }
+    if (!query) { volverInicio(); buscarRes.innerHTML = ''; return }
+    subIds.forEach((id) => { const s = ov.querySelector<HTMLElement>('#' + id); if (s) s.hidden = true }) // cerrar sub-páginas al buscar
     principal.hidden = true; buscarRes.hidden = false
     const tpls = rutasPlantilla.filter((r) => norm(nombreCorto(r)).includes(query))
     const recs = leerRecientes().filter((r) => norm(r.nombre || '').includes(query))
