@@ -1658,7 +1658,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   overflow-y: auto;
   background: var(--bg, #0b0e14);
 }
-.ini-wrap { max-width: 980px; margin: 0 auto; padding: 30px 24px 70px; }
+.ini-wrap { position: relative; max-width: 980px; margin: 0 auto; padding: 30px 24px 70px; }
 .ini-head { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
 .ini-head strong { font-size: 22px; }
 .ini-head span { flex: 1; color: var(--dim); font-size: 15px; }
@@ -1815,38 +1815,69 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 /* Cards del inicio: 5 grandes (Cargar, Documento en blanco, Plantillas, Carrusel,
    Collage) + 2 chicas (QR, Certificados). "Documento en blanco"/"Plantillas"/
    "Carrusel" despliegan su panel debajo, tipo acordeón. */
-.ini-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-  gap: 12px;
-  margin: 4px 0 12px;
+/* Buscador arriba de todo (estilo Adobe Express). */
+.ini-buscador {
+  display: flex; align-items: center; gap: 10px;
+  max-width: 640px; margin: 0 auto 26px;
+  padding: 0 18px; height: 52px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
 }
-.ini-cards-sec {
+.ini-buscador:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.ini-buscador .ui-ic { width: 22px; height: 22px; color: var(--dim); flex: 0 0 auto; }
+.ini-buscador input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--text); font-size: 16px; }
+.ini-buscador input::placeholder { color: var(--muted); }
+.ini-cerrar-x { position: absolute; top: 16px; right: 18px; }
+.ini-titulo { text-align: center; margin: 0 0 22px; }
+.ini-titulo h2 { margin: 0; font-size: clamp(24px, 4vw, 34px); font-weight: 800; letter-spacing: -0.01em; }
+
+/* Cards VERTICALES estilo Express: título arriba + ilustración (ícono grande sobre
+   pastel). Grilla que se acomoda; en móvil scroll horizontal (una fila corrible). */
+.ini-cards-v {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  margin: 0 0 22px;
+  gap: 14px;
+  margin: 0 0 30px;
 }
 .ini-card {
   display: flex;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.12s, transform 0.12s, box-shadow 0.12s;
+  transition: transform 0.12s, box-shadow 0.12s;
 }
-.ini-card:hover { border-color: var(--accent); transform: translateY(-1px); }
-.ini-card-lg { flex-direction: column; align-items: flex-start; gap: 4px; padding: 18px 16px 16px; }
-.ini-card-sm { flex-direction: row; align-items: center; gap: 10px; padding: 13px 15px; font-size: 14px; font-weight: 600; }
-.ini-card-ic { font-size: 26px; line-height: 1; }
-.ini-card-sm .ini-card-ic { font-size: 20px; }
-.ini-card-tit { font-size: 15px; font-weight: 700; }
-.ini-card-sub { font-size: 12px; color: var(--dim); }
+.ini-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.1); }
+.ini-card-v {
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 0;
+  aspect-ratio: 5 / 6;
+  overflow: hidden;
+  border: 0;
+}
+.ini-card-v .ini-card-tit { font-size: 15px; font-weight: 700; line-height: 1.2; }
+.ini-card-art {
+  flex: 1; align-self: stretch;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 12px 12px 0 0;
+  background: rgba(0, 0, 0, 0.04);
+}
+.ini-card-art .ui-ic { width: 52px; height: 52px; opacity: 0.9; }
+/* Paleta pastel por card (fondo + tinte del arte). */
+.ini-card.c-gris     { background: #eef1f5; } .ini-card.c-gris     .ini-card-art { background: #e2e7ee; color: #5b6472; }
+.ini-card.c-amarillo { background: #fdeecb; } .ini-card.c-amarillo .ini-card-art { background: #f8e0a3; color: #a9772a; }
+.ini-card.c-violeta  { background: #ece6fb; } .ini-card.c-violeta  .ini-card-art { background: #ddd2f7; color: #6a4bc0; }
+.ini-card.c-celeste  { background: #d9ecfb; } .ini-card.c-celeste  .ini-card-art { background: #bfe0f7; color: #2f76b0; }
+.ini-card.c-rosa     { background: #fbe1ea; } .ini-card.c-rosa     .ini-card-art { background: #f7cad9; color: #b84c73; }
+.ini-card.c-verde    { background: #dcf1e4; } .ini-card.c-verde    .ini-card-art { background: #bfe6cd; color: #34865a; }
+.ini-card.c-naranja  { background: #fbe0d6; } .ini-card.c-naranja  .ini-card-art { background: #f7c6b3; color: #b85c3a; }
+.ini-card .ini-card-tit { color: #2b2f38; }
 /* Card con su panel desplegado. */
-.ini-card[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); transform: none; }
-.ini-panel[hidden] { display: none; }
+.ini-card[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--accent); transform: none; }
+.ini-panel[hidden], #ini-buscar-res[hidden], #ini-principal[hidden] { display: none; }
 /* Personalizado inline, a la derecha de los formatos de impresión.
    Compacto: medidas arriba, unidades abajo, Crear al costado. */
 .ini-custom-inline {
@@ -2177,4 +2208,14 @@ button.mini {
   .ini-seccion { margin-bottom: 22px; }
   .ini-plantillas { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
   .ini-plantilla-thumb { aspect-ratio: 1 / 1; }
+  /* Cards en una FILA que se corre al costado (como Express en el celu). */
+  .ini-buscador { margin-bottom: 18px; height: 48px; }
+  .ini-titulo { margin-bottom: 16px; }
+  .ini-cerrar-x { display: none; } /* en móvil se empieza por una card, no hace falta */
+  .ini-cards-v {
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 42%;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity; margin: 0 -14px 26px; padding: 0 14px 4px;
+  }
+  .ini-cards-v .ini-card { scroll-snap-align: start; }
 }

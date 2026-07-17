@@ -88,6 +88,13 @@ const ICONOS_UI: Record<string, string> = {
   'cat-dibujar': '<path d="M4 20l1-4.5L15 5.5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z"/><path d="M13.5 7l3 3"/><path d="M5 15.5l3 3"/>',
   'cat-formulario': '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9z"/><path d="M8.5 11h7"/><path d="M8.5 15h4.5"/>',
   'cat-fuentes': '<path d="M3.5 18l4.5-11 4.5 11"/><path d="M5 14h6"/><path d="M20.5 12.2a2.5 2.5 0 1 0-.2 4.3"/><path d="M20.5 12v5"/>',
+  // — Cards de la pantalla de inicio —
+  'ini-cargar': '<path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/>',
+  'ini-nuevo': '<path d="M6.5 3h7l4.5 4.5V21H6.5z"/><path d="M13.5 3v5h4.5"/><path d="M12 11.5v6"/><path d="M9 14.5h6"/>',
+  'ini-carrusel': '<rect x="8.5" y="5" width="7" height="14" rx="1.5"/><path d="M5 8v8"/><path d="M19 8v8"/>',
+  'ini-collage': '<rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M12 3.5v17"/><path d="M3.5 12h17"/>',
+  'ini-qr': '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3"/><path d="M20 14v.01"/><path d="M20 17.5v2.5h-2.5"/><path d="M14 20v.01"/>',
+  'ini-cert': '<circle cx="12" cy="9" r="5.2"/><path d="M9.5 13.5 8 21l4-2.2L16 21l-1.5-7.5"/><path d="M9.8 9l1.6 1.6L14.4 7.6"/>',
 }
 function svgIcono(clave: string): string {
   const d = ICONOS_UI[clave]
@@ -9811,81 +9818,61 @@ function mostrarInicio(): void {
     </span>`
   }).join('')
 
-  // Borrador de recuperación: trabajo SIN NOMBRE que quedó sin guardar (p.ej. el
-  // navegador/SO cerró la pestaña). Se ofrece retomarlo o descartarlo.
-  const borr = leerBorrador()
-  const borradorHtml = borr ? `
-      <section class="ini-seccion" id="ini-sec-borrador">
-        <h3>Continuar donde dejaste</h3>
-        <div class="ini-plantillas">
-          <span class="ini-plantilla-wrap">
-            <button class="ini-borrador-open ini-reciente" title="Recuperar el trabajo sin guardar (${escAttr(hace(borr.fecha))})">
-              <span class="ini-plantilla-thumb">${borr.thumb ? `<img src="${escAttr(borr.thumb)}" alt="" loading="lazy">` : ''}</span>
-              <span class="ini-plantilla-nom">Borrador · ${escHtml(hace(borr.fecha))}</span>
-            </button>
-            <button class="ini-borrador-del ini-reciente-del" title="Descartar el borrador">✕</button>
-          </span>
-        </div>
-      </section>` : ''
+  // Tarjeta de "reciente" (reusada por recientes, borrador y resultados de búsqueda).
+  const cardReciente = (id: string, nombre: string, thumb: string, cls = '', delCls = 'ini-reciente-del'): string =>
+    `<span class="ini-plantilla-wrap">
+      <button class="ini-reciente ${cls}" data-id="${escAttr(id)}" title="Abrir «${escAttr(nombre)}»">
+        <span class="ini-plantilla-thumb">${thumb ? `<img src="${escAttr(thumb)}" alt="" loading="lazy">` : ''}</span>
+        <span class="ini-plantilla-nom">${escHtml(nombre)}</span>
+      </button>
+      <button class="${delCls}" data-id="${escAttr(id)}" title="Quitar">✕</button>
+    </span>`
 
-  // Proyectos recientes (guardados automáticamente).
+  // Proyectos recientes. El BORRADOR sin nombre (trabajo sin guardar) ya no es una
+  // sección aparte: entra como el PRIMER reciente (recuperar al clic, ✕ para descartar).
+  const borr = leerBorrador()
   const recientes = leerRecientes()
-  const recientesHtml = recientes.length ? `
-      <section class="ini-seccion">
+  const borradorItem = borr ? cardReciente(borr.id || 'borrador', `Borrador · ${hace(borr.fecha)}`, borr.thumb, 'ini-borrador-open', 'ini-borrador-del') : ''
+  const recientesHtml = (borr || recientes.length) ? `
+      <section class="ini-seccion" id="ini-sec-recientes">
         <h3>Proyectos recientes</h3>
         <div class="ini-plantillas">
-          ${recientes.map((r) => `<span class="ini-plantilla-wrap">
-            <button class="ini-reciente" data-id="${escAttr(r.id)}" title="Abrir «${escAttr(r.nombre || 'Sin nombre')}»">
-              <span class="ini-plantilla-thumb">${r.thumb ? `<img src="${escAttr(r.thumb)}" alt="" loading="lazy">` : ''}</span>
-              <span class="ini-plantilla-nom">${escHtml(r.nombre || 'Sin nombre')}</span>
-            </button>
-            <button class="ini-reciente-del" data-id="${escAttr(r.id)}" title="Quitar de recientes">✕</button>
-          </span>`).join('')}
+          ${borradorItem}
+          ${recientes.map((r) => cardReciente(r.id, r.nombre || 'Sin nombre', r.thumb)).join('')}
         </div>
       </section>` : ''
 
   const ov = document.createElement('div')
   ov.id = 'pantalla-inicio'
+  // Cards verticales (estilo Adobe Express): título arriba + ilustración (ícono
+  // grande sobre color pastel). Acción directa o desplegar panel (data-panel).
+  const CARDS = [
+    { key: 'cargar', tit: 'Cargar', ic: 'ini-cargar', c: 'gris' },
+    { key: 'blanco', tit: 'Empezar nuevo diseño', ic: 'ini-nuevo', c: 'amarillo' },
+    { key: 'plantillas', tit: 'Plantillas', ic: 'cat-plantillas', c: 'violeta' },
+    { key: 'carrusel', tit: 'Carrusel para redes', ic: 'ini-carrusel', c: 'celeste' },
+    { key: 'collage', tit: 'Collage', ic: 'ini-collage', c: 'rosa' },
+    { key: 'qr', tit: 'Código QR', ic: 'ini-qr', c: 'verde' },
+    { key: 'cert', tit: 'Certificados', ic: 'ini-cert', c: 'naranja' },
+  ]
+  const desplegable = new Set(['blanco', 'plantillas', 'carrusel'])
+  const cardsHtml = CARDS.map((cd) =>
+    `<button class="ini-card ini-card-v c-${cd.c}" data-panel="${cd.key}"${desplegable.has(cd.key) ? ' aria-expanded="false"' : ''}>
+       <span class="ini-card-tit">${escHtml(cd.tit)}</span>
+       <span class="ini-card-art">${svgIcono(cd.ic)}</span>
+     </button>`).join('')
+
   ov.innerHTML = `
     <div class="ini-wrap">
-      <div class="ini-head">
-        <strong>GastonART</strong>
-        <span>¿Cómo querés empezar?</span>
-        <button id="ini-cerrar" class="mini" title="Cerrar">✕</button>
+      <button id="ini-cerrar" class="ini-cerrar-x mini" title="Cerrar">✕</button>
+      <div class="ini-buscador">
+        ${svgIcono('zoom')}
+        <input id="ini-buscar" type="text" placeholder="Buscar en plantillas o recientes" autocomplete="off" aria-label="Buscar">
       </div>
-      ${borradorHtml}
-      ${recientesHtml}
-      <div class="ini-cards">
-        <button class="ini-card ini-card-lg" data-panel="cargar">
-          <span class="ini-card-ic">📤</span>
-          <span class="ini-card-tit">Cargar</span>
-          <span class="ini-card-sub">PDF, AI, SVG o imágenes</span>
-        </button>
-        <button class="ini-card ini-card-lg" data-panel="blanco" aria-expanded="false">
-          <span class="ini-card-ic">📄</span>
-          <span class="ini-card-tit">Documento en blanco</span>
-          <span class="ini-card-sub">Elegí un formato o medida</span>
-        </button>
-        <button class="ini-card ini-card-lg" data-panel="plantillas" aria-expanded="false">
-          <span class="ini-card-ic">🗂</span>
-          <span class="ini-card-tit">Plantillas</span>
-          <span class="ini-card-sub">Guardadas o subí una</span>
-        </button>
-        <button class="ini-card ini-card-lg" data-panel="carrusel" aria-expanded="false">
-          <span class="ini-card-ic">🎠</span>
-          <span class="ini-card-tit">Carrusel para redes</span>
-          <span class="ini-card-sub">Varias slides de corrido</span>
-        </button>
-        <button class="ini-card ini-card-lg" data-panel="collage">
-          <span class="ini-card-ic">🖼</span>
-          <span class="ini-card-tit">Collage</span>
-          <span class="ini-card-sub">Varias fotos en una</span>
-        </button>
-      </div>
-      <div class="ini-cards-sec">
-        <button class="ini-card ini-card-sm" data-panel="qr"><span class="ini-card-ic">▦</span><span>Código QR</span></button>
-        <button class="ini-card ini-card-sm" data-panel="cert"><span class="ini-card-ic">🎓</span><span>Certificados</span></button>
-      </div>
+      <div id="ini-buscar-res" hidden></div>
+      <div id="ini-principal">
+        <div class="ini-titulo"><h2>¿Cómo querés empezar?</h2></div>
+        <div class="ini-cards ini-cards-v">${cardsHtml}</div>
 
       <section class="ini-seccion ini-panel" id="ini-panel-blanco" hidden>
         <h3>Documento en blanco</h3>
@@ -9917,6 +9904,8 @@ function mostrarInicio(): void {
           <button id="ini-crear-carr" class="ini-btn-acc">Crear carrusel</button>
         </div>
       </section>
+      ${recientesHtml}
+      </div>
     </div>`
   document.body.appendChild(ov)
 
@@ -9962,56 +9951,65 @@ function mostrarInicio(): void {
         default: togglePanelInicio(b.dataset.panel!)
       }
     }))
-  // Recuperar el borrador sin nombre.
-  ov.querySelector<HTMLButtonElement>('.ini-borrador-open')?.addEventListener('click', async () => {
+  // --- Recientes / borrador / plantillas por DELEGACIÓN en ov: así los mismos
+  //     handlers valen para las listas fijas Y para los resultados de búsqueda
+  //     (que se generan después de este render). ---
+  const abrirReciente = async (id: string): Promise<void> => {
+    let raw: string | null = null
+    try { raw = await idbGet('gastonart-proy-' + id) } catch { /* sin IDB */ }
+    if (!raw) { try { raw = localStorage.getItem('gastonart-proy-' + id) } catch { raw = null } }
+    if (!raw) { alert('No se encontró ese proyecto (puede haberse borrado por espacio).'); return }
+    cerrarInicio(); clearTimeout(tGuardar)
+    const r = leerRecientes().find((x) => x.id === id)
+    try { await restaurarGuardado(JSON.parse(raw)) } catch { estado.textContent = '❌ No se pudo abrir el proyecto'; return }
+    proyectoActualId = id
+    inNombre.value = r?.nombre || ''
+    try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* ignorar */ }
+    estado.textContent = 'Proyecto abierto.'
+  }
+  const recuperarBorrador = async (): Promise<void> => {
     let raw: string | null = null
     try { raw = await idbGet(IDB_BORRADOR) } catch { /* sin IDB */ }
     if (!raw) { alert('No se encontró el borrador (puede haberse borrado por espacio).'); void limpiarBorrador(); mostrarInicio(); return }
-    cerrarInicio()
-    clearTimeout(tGuardar) // que un autosave pendiente no cruce proyectos
+    cerrarInicio(); clearTimeout(tGuardar)
     try { await restaurarGuardado(JSON.parse(raw)) } catch { estado.textContent = '❌ No se pudo abrir el borrador'; return }
-    // Sigue SIN nombre: el id se mantiene para que, al nombrarlo, se limpie el
-    // borrador correcto (ver ejecutarAutoguardado). El borrador queda en pie hasta
-    // que el diseño reciba nombre; los cambios siguientes lo van refrescando.
     proyectoActualId = borr?.id || genIdProyecto()
     inNombre.value = ''
     try { localStorage.setItem('gastonart-nombre', '') } catch { /* ignorar */ }
     estado.textContent = 'Borrador recuperado. Poné un nombre para guardarlo en Recientes.'
+  }
+  ov.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement
+    // ✕ (borrar) ANTES que las tarjetas: el borrador reusa la clase .ini-reciente.
+    const bd = t.closest<HTMLElement>('.ini-borrador-del')
+    if (bd) { e.stopPropagation(); if (confirm('¿Descartar el borrador sin guardar? No se puede deshacer.')) { void limpiarBorrador(); mostrarInicio() } return }
+    const rd = t.closest<HTMLElement>('.ini-reciente-del')
+    if (rd) { e.stopPropagation(); const id = rd.dataset.id!; void idbDel('gastonart-proy-' + id); try { localStorage.removeItem('gastonart-proy-' + id) } catch { /* ignorar */ } try { localStorage.setItem(LS_RECIENTES, JSON.stringify(leerRecientes().filter((x) => x.id !== id))) } catch { /* ignorar */ } mostrarInicio(); return }
+    const pd = t.closest<HTMLElement>('.ini-plantilla-del')
+    if (pd) { e.stopPropagation(); if (confirm(`¿Borrar la plantilla «${nombreCorto(pd.dataset.ruta!)}»?`)) { borrarPlantilla(pd.dataset.ruta!); mostrarInicio() } return }
+    // Abrir (borrador antes que reciente por la clase compartida).
+    if (t.closest('.ini-borrador-open')) { void recuperarBorrador(); return }
+    const rec = t.closest<HTMLElement>('.ini-reciente')
+    if (rec) { void abrirReciente(rec.dataset.id!); return }
+    const pl = t.closest<HTMLElement>('.ini-plantilla')
+    if (pl) { cerrarInicio(); usarPlantilla(pl.dataset.ruta!); return }
   })
-  ov.querySelector<HTMLButtonElement>('.ini-borrador-del')?.addEventListener('click', (e) => {
-    e.stopPropagation()
-    if (!confirm('¿Descartar el borrador sin guardar? No se puede deshacer.')) return
-    void limpiarBorrador(); mostrarInicio()
-  })
-  // Abrir un proyecto reciente. (Excluir el botón del borrador, que reusa la clase.)
-  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente:not(.ini-borrador-open)').forEach((b) =>
-    b.addEventListener('click', async () => {
-      const id = b.dataset.id!
-      // Datos en IndexedDB; los guardados de la era localStorage quedan como fallback.
-      let raw: string | null = null
-      try { raw = await idbGet('gastonart-proy-' + id) } catch { /* sin IDB */ }
-      if (!raw) { try { raw = localStorage.getItem('gastonart-proy-' + id) } catch { raw = null } }
-      if (!raw) { alert('No se encontró ese proyecto (puede haberse borrado por espacio).'); return }
-      cerrarInicio()
-      clearTimeout(tGuardar) // no dejar que un autosave pendiente cruce proyectos
-      const r = leerRecientes().find((x) => x.id === id)
-      try { await restaurarGuardado(JSON.parse(raw)) } catch { estado.textContent = '❌ No se pudo abrir el proyecto'; return }
-      // El id se asume recién con el restore OK (si falla, un autosave posterior
-      // del proyecto que quedó en pantalla pisaría al reciente).
-      proyectoActualId = id
-      inNombre.value = r?.nombre || ''
-      try { localStorage.setItem('gastonart-nombre', inNombre.value) } catch { /* ignorar */ }
-      estado.textContent = 'Proyecto abierto.'
-    }))
-  ov.querySelectorAll<HTMLButtonElement>('.ini-reciente-del:not(.ini-borrador-del)').forEach((b) =>
-    b.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const id = b.dataset.id!
-      void idbDel('gastonart-proy-' + id)
-      try { localStorage.removeItem('gastonart-proy-' + id) } catch { /* ignorar */ }
-      try { localStorage.setItem(LS_RECIENTES, JSON.stringify(leerRecientes().filter((x) => x.id !== id))) } catch { /* ignorar */ }
-      mostrarInicio()
-    }))
+  // --- Buscador (arriba): filtra plantillas y recientes por nombre. ---
+  const buscarRes = ov.querySelector<HTMLElement>('#ini-buscar-res')!
+  const principal = ov.querySelector<HTMLElement>('#ini-principal')!
+  const norm = (s: string): string => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  const renderBusqueda = (q: string): void => {
+    const query = norm(q.trim())
+    if (!query) { buscarRes.hidden = true; principal.hidden = false; buscarRes.innerHTML = ''; return }
+    principal.hidden = true; buscarRes.hidden = false
+    const tpls = rutasPlantilla.filter((r) => norm(nombreCorto(r)).includes(query))
+    const recs = leerRecientes().filter((r) => norm(r.nombre || '').includes(query))
+    const bloques: string[] = []
+    if (tpls.length) bloques.push(`<section class="ini-seccion"><h3>Plantillas</h3><div class="ini-plantillas">${tpls.map((r) => { const svg = plantillas[r] || ''; const thumb = svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(miniaturaSvg(svg))}` : ''; return `<span class="ini-plantilla-wrap"><button class="ini-plantilla" data-ruta="${escAttr(r)}"><span class="ini-plantilla-thumb">${thumb ? `<img src="${thumb}" alt="" loading="lazy">` : ''}</span><span class="ini-plantilla-nom">${escAttr(nombreCorto(r))}</span></button></span>` }).join('')}</div></section>`)
+    if (recs.length) bloques.push(`<section class="ini-seccion"><h3>Recientes</h3><div class="ini-plantillas">${recs.map((r) => cardReciente(r.id, r.nombre || 'Sin nombre', r.thumb)).join('')}</div></section>`)
+    buscarRes.innerHTML = bloques.length ? bloques.join('') : `<p class="ini-nota" style="text-align:center;padding:28px 12px">Nada coincide con «${escHtml(q.trim())}».</p>`
+  }
+  ov.querySelector<HTMLInputElement>('#ini-buscar')!.addEventListener('input', (e) => renderBusqueda((e.target as HTMLInputElement).value))
   // Unidades: px directo; mm/cm a 300 DPI (impresión). 1 in = 25.4 mm = 300 px.
   // pxPorUnidad = cuántos px vale 1 de la unidad.
   const pxPorUnidad = (u: string) => u === 'mm' ? 300 / 25.4 : u === 'cm' ? 3000 / 25.4 : 1
@@ -10032,13 +10030,8 @@ function mostrarInicio(): void {
     const h = aPx(+inpH.value || 1080)
     cerrarInicio(); nuevaPlacaEnBlanco(w, h)
   })
-  ov.querySelectorAll<HTMLButtonElement>('.ini-plantilla').forEach((b) =>
-    b.addEventListener('click', () => { cerrarInicio(); usarPlantilla(b.dataset.ruta!) }))
-  ov.querySelectorAll<HTMLButtonElement>('.ini-plantilla-del').forEach((b) =>
-    b.addEventListener('click', (e) => {
-      e.stopPropagation()
-      if (confirm(`¿Borrar la plantilla «${nombreCorto(b.dataset.ruta!)}»?`)) { borrarPlantilla(b.dataset.ruta!); mostrarInicio() }
-    }))
+  // (Abrir/borrar plantillas y recientes → delegación de arriba, así los resultados
+  //  de búsqueda también responden.)
   ov.querySelector('#ini-cargar-svg')!.addEventListener('click', () => inSvgPlantilla.click())
 }
 
