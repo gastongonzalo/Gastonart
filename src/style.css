@@ -224,6 +224,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
    dimensiona aparte (.ctx-ic svg). */
 #barra-texto .ctx-grupo button { display: inline-flex; align-items: center; justify-content: center; }
 #barra-texto .ctx-grupo button .ui-ic { width: 18px; height: 18px; }
+/* Botones de acción de graf-tools con ícono (eliminar, etc.). */
+.graf-btn .ui-ic, .graf-del .ui-ic { width: 18px; height: 18px; }
+.graf-del { display: inline-flex; align-items: center; justify-content: center; }
 /* "Modo de trabajo" + switch */
 .modo-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .modo-tit { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }

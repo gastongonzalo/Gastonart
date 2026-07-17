@@ -60,6 +60,9 @@ const ICONOS_UI: Record<string, string> = {
   interlineado: '<path d="M9.5 5.5H20"/><path d="M9.5 12H20"/><path d="M9.5 18.5H20"/><path d="M4.5 5.5v13"/><path d="M2.8 7.2 4.5 5.5l1.7 1.7"/><path d="M2.8 16.8 4.5 18.5l1.7-1.7"/>',
   zoom: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l4.5 4.5"/>',
   opacidad: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/>',
+  // Trazo/contorno: tres líneas de grosor creciente.
+  trazo: '<path d="M4 6.5h16"/><path d="M4 12h16" stroke-width="2.4"/><path d="M4 18h16" stroke-width="3.4"/>',
+  basura: '<path d="M5 7h14"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M6.5 7l1 12.5A1.5 1.5 0 0 0 9 21h6a1.5 1.5 0 0 0 1.5-1.5L17.5 7"/><path d="M10 11v6"/><path d="M14 11v6"/>',
   negrita: '<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/>',
   cursiva: '<path d="M10 5h7"/><path d="M7 19h7"/><path d="M14 5l-4 14"/>',
   color: '<path d="M12 3.5c0 0-5.5 6.2-5.5 10a5.5 5.5 0 0 0 11 0c0-3.8-5.5-10-5.5-10Z"/>',
@@ -4503,6 +4506,15 @@ function cerrarSubhojas(): void {
   document.querySelectorAll('.ctx-grupo.abierto').forEach((n) => n.classList.remove('abierto'))
   document.querySelectorAll('.ctx-chip.activo').forEach((n) => n.classList.remove('activo'))
 }
+// Envuelve controles construidos a mano en un .ctx-grupo (para las barras que se
+// arman por JS, como graf-tools). armarChips lo colapsa en un chip con sub-hoja en
+// móvil; en escritorio va en línea (display:contents).
+function grupoCtx(ic: string, lb: string, ...els: HTMLElement[]): HTMLDivElement {
+  const g = document.createElement('div'); g.className = 'ctx-grupo'
+  g.dataset.ic = ic; g.dataset.lb = lb
+  g.append(...els)
+  return g
+}
 
 function dibujarSelGraf(): void {
   limpiarGraf()
@@ -4570,7 +4582,9 @@ function dibujarSelGraf(): void {
   }
   const fill = swatch('Relleno', false, cs.fill, '#ffffff', (v) => { for (const el of grafSeleccion) el.style.fill = v })
   const stroke = swatch('Contorno', true, cs.stroke, '#000000', (v) => { for (const el of grafSeleccion) el.style.stroke = v })
-  tools.append(fill, stroke)
+  // Controles de VALOR agrupados → en móvil son chips con sub-hoja (Relleno+Contorno
+  // juntos como "Color"); en escritorio van en línea como siempre.
+  tools.append(grupoCtx('color', 'Color', fill, stroke))
 
   // Grosor del contorno/trazo (en unidades del lienzo).
   const grosor = document.createElement('label'); grosor.className = 'graf-grosor'; grosor.title = 'Grosor del contorno/trazo'
@@ -4581,7 +4595,7 @@ function dibujarSelGraf(): void {
   gwi.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   gwi.addEventListener('pointerdown', (e) => e.stopPropagation())
   grosor.append('〜', gwi)
-  tools.append(grosor)
+  tools.append(grupoCtx('trazo', 'Trazo', grosor))
 
   // Opacidad (0 = transparente, 1 = sólido). Aplica a toda la selección.
   const opac = document.createElement('label'); opac.className = 'graf-opac'; opac.title = 'Opacidad'
@@ -4592,7 +4606,7 @@ function dibujarSelGraf(): void {
   oi.addEventListener('change', () => { registrarHistorial(); autoguardar() })
   oi.addEventListener('pointerdown', (e) => e.stopPropagation())
   opac.append('◑', oi)
-  tools.append(opac)
+  tools.append(grupoCtx('opacidad', 'Opacidad', opac))
 
   // Degradado de relleno
   const grad = document.createElement('button'); grad.className = 'graf-btn'; grad.textContent = 'Degradado'; grad.title = 'Degradado de relleno'
@@ -4690,9 +4704,10 @@ function dibujarSelGraf(): void {
   mas.addEventListener('click', (e) => { e.stopPropagation(); masCont.hidden = !masCont.hidden })
   tools.appendChild(mas); tools.appendChild(masCont)
 
-  const del = document.createElement('button'); del.className = 'graf-del'; del.textContent = '🗑'; del.title = 'Eliminar'
+  const del = document.createElement('button'); del.className = 'graf-del'; del.innerHTML = svgIcono('basura'); del.title = 'Eliminar'
   del.addEventListener('click', (e) => { e.stopPropagation(); borrarGraf() })
   tools.appendChild(del)
+  armarChips(tools) // móvil: Color/Trazo/Opacidad como chips con sub-hoja
   // Los controles van a la sidebar flotante de la derecha (#panel-props).
   alojarEnPanel(tools)
 
