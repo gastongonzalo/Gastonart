@@ -490,31 +490,31 @@ app.innerHTML = `
        usan delegación (closest('[data-bt]')) y querySelectorAll (recursivo). -->
   <div id="barra-texto" class="barra-formato" hidden>
     <span class="bt-label">Texto</span>
-    <div class="ctx-grupo" data-ic="Aa" data-lb="Fuente">
+    <div class="ctx-grupo" data-ic="fuente" data-lb="Fuente">
       <select id="bt-family" title="Tipografía"></select>
       <select id="bt-weight" title="Variante / peso"></select>
       <button id="bt-gfonts" class="mini" title="Buscar y agregar una fuente de Google Fonts">🔤 Google</button>
     </div>
     <span class="bt-sep"></span>
-    <div class="ctx-grupo" data-ic="⇕" data-lb="Tamaño">
+    <div class="ctx-grupo" data-ic="tamano" data-lb="Tamaño">
       <button data-bt="size-" title="Achicar">A−</button>
       <span id="bt-size" class="bt-val">–</span>
       <button data-bt="size+" title="Agrandar">A+</button>
     </div>
     <span class="bt-sep"></span>
-    <div class="ctx-grupo" data-ic="N" data-lb="Estilo">
+    <div class="ctx-grupo" data-ic="estilo" data-lb="Estilo">
       <button data-bt="bold" id="bt-bold" title="Negrita"><b>N</b></button>
       <button data-bt="italic" id="bt-italic" title="Cursiva"><i>C</i></button>
       <label class="bt-color" title="Color"><input type="color" id="bt-color"></label>
     </div>
     <span class="bt-sep"></span>
-    <div class="ctx-grupo" data-ic="≡" data-lb="Alinear">
+    <div class="ctx-grupo" data-ic="alinear" data-lb="Alinear">
       <button data-bt="al:start" title="Alinear a la izquierda">⯇</button>
       <button data-bt="al:middle" title="Centrar">≡</button>
       <button data-bt="al:end" title="Alinear a la derecha">⯈</button>
     </div>
     <span class="bt-sep"></span>
-    <div class="ctx-grupo" data-ic="↕" data-lb="Interlineado">
+    <div class="ctx-grupo" data-ic="interlineado" data-lb="Interlineado">
       <button data-bt="lh-" title="Menos interlineado">↕−</button>
       <span id="bt-lh" class="bt-val" title="Interlineado">–</span>
       <button data-bt="lh+" title="Más interlineado">↕+</button>
@@ -4422,6 +4422,31 @@ function deseleccionarTodo(): void {
   limpiarGraf()
 }
 
+// Íconos de UI de los chips: line-art propio (trazo parejo, puntas redondeadas,
+// monocromo vía currentColor). Los sets de íconos de negocios no traen "Fuente" /
+// "Alinear" / "Interlineado", así que van dibujados acá. Lienzo 24×24.
+const ICONOS_UI: Record<string, string> = {
+  // "A" con travesaño = tipografía.
+  fuente: '<path d="M4.5 19 12 5l7.5 14"/><path d="M8 14.5h8"/>',
+  // Flecha vertical de dos puntas = tamaño.
+  tamano: '<path d="M12 4.5v15"/><path d="M8 8.5 12 4.5l4 4"/><path d="M8 15.5 12 19.5l4-4"/>',
+  // Gota = color / estilo.
+  estilo: '<path d="M12 3.5c0 0-5.5 6.2-5.5 10a5.5 5.5 0 0 0 11 0c0-3.8-5.5-10-5.5-10Z"/>',
+  // Renglones desparejos = alineación.
+  alinear: '<path d="M4 6.5h16"/><path d="M4 11h9"/><path d="M4 15.5h16"/><path d="M4 20h9"/>',
+  // Renglones + flecha vertical = interlineado.
+  interlineado: '<path d="M9.5 5.5H20"/><path d="M9.5 12H20"/><path d="M9.5 18.5H20"/><path d="M4.5 5.5v13"/><path d="M2.8 7.2 4.5 5.5l1.7 1.7"/><path d="M2.8 16.8 4.5 18.5l1.7-1.7"/>',
+  // Lupa = zoom.
+  zoom: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l4.5 4.5"/>',
+  // Círculo con media mitad llena = opacidad.
+  opacidad: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none"/>',
+}
+function svgIcono(clave: string): string {
+  const d = ICONOS_UI[clave]
+  if (!d) return `<span class="ctx-ic-txt">${escHtml(clave)}</span>` // fallback: texto
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`
+}
+
 // Móvil (Express): cada .ctx-grupo de una barra contextual se colapsa en un CHIP
 // ícono+etiqueta; tocarlo abre una SUB-HOJA con sus controles, de a una. En
 // escritorio los grupos van en línea y el CSS oculta los chips.
@@ -4429,10 +4454,14 @@ function deseleccionarTodo(): void {
 function armarChips(cont: HTMLElement): void {
   if (cont.dataset.chips === '1') return
   cont.dataset.chips = '1'
+  let i = 0
   for (const g of Array.from(cont.querySelectorAll<HTMLElement>('.ctx-grupo'))) {
     const chip = document.createElement('button')
-    chip.className = 'ctx-chip'
-    chip.innerHTML = `<span class="ctx-ic">${escHtml(g.dataset.ic || '•')}</span><span class="ctx-lb">${escHtml(g.dataset.lb || '')}</span>`
+    // Baldosas ALTERNADAS (gris con ícono blanco / blanco con ícono gris). Se marca
+    // por índice y no con :nth-child porque en la fila se intercalan los grupos y
+    // otros botones de acción (Cambiar foto, Editar…), que romperían el conteo.
+    chip.className = 'ctx-chip ' + (i++ % 2 === 0 ? 'chip-gris' : 'chip-blanco')
+    chip.innerHTML = `<span class="ctx-ic">${svgIcono(g.dataset.ic || '')}</span><span class="ctx-lb">${escHtml(g.dataset.lb || '')}</span>`
     chip.addEventListener('click', (e) => {
       e.stopPropagation()
       const abrir = !g.classList.contains('abierto')
@@ -5614,8 +5643,8 @@ function construirFotoTools(id: string): void {
   // sub-hoja (Express); en escritorio se muestran en línea como siempre.
   tools.innerHTML =
     `<button class="ft-cambiar mini">Cambiar foto</button>` +
-    (conZoom ? `<div class="ctx-grupo" data-ic="🔍" data-lb="Zoom"><label class="ft-zoom">Zoom <input class="ft-in-zoom" type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label></div>` : '') +
-    `<div class="ctx-grupo" data-ic="◑" data-lb="Opacidad"><label class="ft-zoom" title="Opacidad">Opac. <input class="ft-in-opac" type="range" min="0" max="1" step="0.01" value="${op0}"></label></div>`
+    (conZoom ? `<div class="ctx-grupo" data-ic="zoom" data-lb="Zoom"><label class="ft-zoom">Zoom <input class="ft-in-zoom" type="range" min="1" max="5" step="0.01" value="${enc.zoom}"></label></div>` : '') +
+    `<div class="ctx-grupo" data-ic="opacidad" data-lb="Opacidad"><label class="ft-zoom" title="Opacidad">Opac. <input class="ft-in-opac" type="range" min="0" max="1" step="0.01" value="${op0}"></label></div>`
   tools.querySelector('.ft-cambiar')!.addEventListener('click', () => { fotoActiva = id; inFoto.click() })
   const slider = tools.querySelector<HTMLInputElement>('.ft-in-zoom')
   slider?.addEventListener('input', () => {

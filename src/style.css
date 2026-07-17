@@ -383,7 +383,9 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   flex: none;
 }
 #barra-texto .bt-label { color: var(--dim); font-size: 12px; margin-right: 4px; }
-#barra-texto button {
+/* :not(.ctx-chip): los chips móviles son <button> dentro de #barra-texto pero tienen
+   su propio estilo (baldosa gris/blanca); esta regla genérica los pisaba. */
+#barra-texto button:not(.ctx-chip) {
   min-width: 30px;
   height: 28px;
   padding: 0 8px;
@@ -674,7 +676,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
 #panel-props #barra-texto .bt-sep { flex: 1 1 100%; width: auto; height: 1px; margin: 5px 0; background: var(--border); }
 #panel-props #barra-texto select { flex: 1 1 100%; height: 38px; }
 #panel-props #barra-texto #bt-gfonts { flex: 1 1 100%; min-height: 38px; }
-#panel-props #barra-texto button { height: 36px; min-width: 36px; }
+#panel-props #barra-texto button:not(.ctx-chip) { height: 36px; min-width: 36px; }
 #panel-props #barra-texto .bt-color input[type='color'] { width: 40px; height: 36px; }
 
 /* MÓVIL: dentro de la toolbar horizontal de #panel-props, las barras (texto,
@@ -690,15 +692,21 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   #panel-props #barra-texto .bt-sep { display: none; }
 
   /* === Express: CHIPS ícono+etiqueta; cada uno abre su SUB-HOJA === */
+  /* Baldosas GRANDES que ALTERNAN gris/blanco (chip-gris / chip-blanco los asigna
+     armarChips por índice). Ícono grande arriba + etiqueta abajo. */
   .ctx-chip {
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-    flex: 0 0 auto; min-width: 62px; height: 48px; padding: 4px 8px;
-    background: transparent; border: 0; border-radius: 9px;
-    color: var(--text); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    flex: 0 0 auto; min-width: 74px; height: 64px; padding: 6px 8px;
+    border: 1px solid transparent; border-radius: 12px;
+    cursor: pointer;
   }
-  .ctx-chip.activo { background: var(--bg-accent, #e0f2fe); color: var(--accent); }
-  .ctx-ic { font-size: 17px; line-height: 1; font-weight: 700; }
-  .ctx-lb { font-size: 10px; line-height: 1; white-space: nowrap; }
+  .ctx-chip.chip-gris { background: #6b7280; color: #fff; }            /* ícono blanco sobre gris */
+  .ctx-chip.chip-blanco { background: #fff; color: #6b7280; border-color: var(--border); } /* gris sobre blanco */
+  .ctx-chip.activo { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .ctx-ic { display: flex; line-height: 0; }
+  .ctx-ic svg { width: 26px; height: 26px; display: block; }
+  .ctx-ic-txt { font-size: 20px; font-weight: 700; line-height: 26px; }
+  .ctx-lb { font-size: 10px; line-height: 1; white-space: nowrap; font-weight: 600; }
   /* El grupo SALE del flujo (no ocupa la fila) y se muestra como sub-hoja al abrirlo.
      Va FIXED porque la barra tiene overflow-x y lo recortaría; el `bottom` lo fija el
      JS con el alto real de la barra. */
@@ -716,7 +724,7 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
      cómodo con el dedo: son la herramienta principal en el celu. */
   #panel-props #barra-texto select { flex: 0 0 auto; width: auto; min-width: 112px; height: 44px; font-size: 14px; }
   #panel-props #barra-texto #bt-gfonts { flex: 0 0 auto; min-height: 44px; white-space: nowrap; font-size: 14px; }
-  #panel-props #barra-texto button { flex: 0 0 auto; height: 44px; min-width: 44px; font-size: 15px; }
+  #panel-props #barra-texto button:not(.ctx-chip) { flex: 0 0 auto; height: 44px; min-width: 44px; font-size: 15px; }
   #panel-props #barra-texto .bt-val { font-size: 14px; min-width: 30px; }
   #panel-props #barra-texto .bt-color input[type='color'] { width: 46px; height: 40px; }
   /* Forma/vector y foto: botones en fila; sliders con ancho fijo. */
