@@ -7192,6 +7192,55 @@ function elementosFondoASangre(): SVGElement[] {
   return out
 }
 
+// --- Normalización del SVG para EXPORTAR (PNG/PDF/SVG consistentes) ---
+// Propiedades de PINTURA que resvg y svg2pdf resuelven distinto según estén en el
+// atributo o en el `style` inline (p.ej. resvg NO resuelve fill:url("#id") desde el
+// style, y un fill="none" en el atributo lo confunde → salía negro). Se pasan a
+// ATRIBUTOS limpios (forma que todos entienden), quitando las comillas del url().
+const PROPS_PINTURA = ['fill', 'stroke', 'stroke-width', 'fill-opacity', 'stroke-opacity', 'opacity', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'stroke-miterlimit'] as const
+const limpiarUrlAttr = (v: string): string => v.replace(/url\(\s*["']?\s*(#[^"')\s]+)\s*["']?\s*\)/g, 'url($1)')
+function normalizarNodoExport(el: Element): void {
+  const style = (el as SVGElement).style
+  if (style && style.length) {
+    for (const p of PROPS_PINTURA) {
+      const v = style.getPropertyValue(p)
+      if (v) { el.setAttribute(p, limpiarUrlAttr(v)); style.removeProperty(p) }
+    }
+    if (!style.length) el.removeAttribute('style')
+  }
+  for (const a of ['fill', 'stroke'] as const) { const v = el.getAttribute(a); if (v && v.includes('url(')) el.setAttribute(a, limpiarUrlAttr(v)) }
+}
+// Clona el SVG vivo y lo deja LISTO para exportar: quita el fondo a sangre (si
+// transparente) y las guías de campos, ELIMINA lo oculto (display:none/visibility —
+// svg2pdf los ignoraba y pintaba el fondo blanco) y normaliza los estilos de pintura
+// a atributos. El clon se mide contra el DOM vivo (getComputedStyle) por posición.
+function clonExport(transp: boolean): SVGSVGElement | null {
+  if (!svgEl) return null
+  const clon = svgEl.cloneNode(true) as SVGSVGElement
+  const vivos = [svgEl as Element, ...Array.from(svgEl.querySelectorAll('*'))]
+  const clones = [clon as Element, ...Array.from(clon.querySelectorAll('*'))]
+  const fondo = transp ? new Set<SVGElement>(elementosFondoASangre()) : new Set<SVGElement>()
+  const quitar: Element[] = []
+  vivos.forEach((v, i) => {
+    const c = clones[i]; if (!c) return
+    if (fondo.has(v as SVGElement) || v.getAttribute('data-agregado') === 'ffield') { quitar.push(c); return }
+    if (v.closest('defs')) return // gradientes/clipPaths: no se rinden solos, no tocar
+    const cs = getComputedStyle(v)
+    if (cs.display === 'none' || cs.visibility === 'hidden') quitar.push(c)
+  })
+  quitar.forEach((c) => c.remove())
+  normalizarNodoExport(clon)
+  clon.querySelectorAll('*').forEach(normalizarNodoExport)
+  return clon
+}
+function svgExportStr(transp: boolean): string {
+  const clon = clonExport(transp)
+  if (!clon) return ''
+  let s = new XMLSerializer().serializeToString(clon)
+  if (!/\sxmlns=/.test(s)) s = s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
+  return s
+}
+
 async function exportarPNG(): Promise<void> {
   try {
     cerrarEditor()
@@ -7201,15 +7250,9 @@ async function exportarPNG(): Promise<void> {
     if (vistaCarrusel) toggleCarrusel()
     const transp = peTransparente.checked
     estado.textContent = 'Exportando…'
-    // Fondo transparente: ocultar el fondo a sangre mientras serializamos.
-    const ocultados: SVGElement[] = []
-    if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
-    // Los recuadros de campos de formulario son guías del editor: nunca se imprimen.
-    for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="ffield"]'))) { el.style.display = 'none'; ocultados.push(el) }
-    // Exportamos EXACTAMENTE el SVG vivo (ya tiene wrap + shrink + foto aplicados),
-    // así el PNG es idéntico a lo que se ve en el editor.
-    const svg = new XMLSerializer().serializeToString(svgEl)
-    for (const el of ocultados) el.style.display = '' // restaurar el editor
+    // SVG normalizado (clon): fondo a sangre / guías fuera, estilos de pintura como
+    // atributos → resvg rinde igual que el editor (antes perdía el degradé del style).
+    const svg = svgExportStr(transp)
     // Ancho de export = ancho del lienzo (viewBox), acotado para no exagerar.
     const vbW = svgEl.viewBox.baseVal.width || 1080
     const anchoExport = Math.round(Math.min(2480, Math.max(1080, vbW)))
@@ -7244,17 +7287,9 @@ async function exportarPNG(): Promise<void> {
 }
 btnExport.addEventListener('click', () => void exportarPNG())
 
-// Serializa el SVG vivo (opcionalmente sin el fondo a sangre) para exportar.
+// Serializa el SVG para exportar (SVG descargable), normalizado como PNG/PDF.
 function svgParaExportar(transp: boolean): string {
-  if (!svgEl) return ''
-  const ocultados: SVGElement[] = []
-  if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
-  // Los recuadros de campos de formulario son guías del editor: nunca se imprimen.
-  for (const el of Array.from(svgEl.querySelectorAll<SVGElement>('[data-agregado="ffield"]'))) { el.style.display = 'none'; ocultados.push(el) }
-  let s = new XMLSerializer().serializeToString(svgEl)
-  for (const el of ocultados) el.style.display = ''
-  if (!/\sxmlns=/.test(s)) s = s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"')
-  return s
+  return svgExportStr(transp)
 }
 // Pregunta el nombre del archivo ANTES de descargar (la extensión queda fija).
 // Devuelve null si el usuario cancela.
@@ -7334,10 +7369,13 @@ async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
   if (btn) { btn.disabled = true; btn.textContent = '…' }
   estado.textContent = 'Generando PDF…'
   const transp = peTransparente.checked
-  const ocultados: SVGElement[] = []
-  if (transp) for (const el of elementosFondoASangre()) { el.style.display = 'none'; ocultados.push(el) }
   const vb = svgEl.viewBox.baseVal
   const w = vb.width || 1080, h = vb.height || 1350
+  // Clon NORMALIZADO (estilos de pintura → atributos, sin display:none): svg2pdf
+  // ignoraba display:none (pintaba el fondo blanco) y difería del PNG. Va offscreen
+  // en el DOM porque svg2pdf lee getComputedStyle/getBBox.
+  const clon = clonExport(transp)
+  if (clon) { clon.setAttribute('width', String(w)); clon.setAttribute('height', String(h)); clon.style.cssText = 'position:fixed;left:-99999px;top:0'; document.body.appendChild(clon) }
   try {
     const { jsPDF } = await import('jspdf')
     const nuevoPdf = () => new jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'pt', format: [w, h] })
@@ -7345,12 +7383,12 @@ async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
       const { svg2pdf } = await import('svg2pdf.js')
       const pdf = nuevoPdf()
       registrarFuentesPdf(pdf) // fuentes reales (Poppins, etc.) antes de vectorizar
-      await svg2pdf(svgEl, pdf, { x: 0, y: 0, width: w, height: h })
+      await svg2pdf(clon ?? svgEl, pdf, { x: 0, y: 0, width: w, height: h })
       pdf.save(nombre)
       estado.textContent = 'PDF exportado (vectorial).'
     } catch (eVec) {
       console.warn('PDF vectorial falló (probable foto embebida); uso PDF imagen:', eVec)
-      const s = new XMLSerializer().serializeToString(svgEl)
+      const s = svgExportStr(transp)
       const ancho = Math.round(Math.min(2480, Math.max(1080, w)))
       const png = await renderResvg(s, facesPack.map((f) => f.bytes), ancho)
       const dataUrl = await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.onerror = rej; fr.readAsDataURL(png) })
@@ -7363,7 +7401,7 @@ async function exportarPDF(btn?: HTMLButtonElement): Promise<void> {
     estado.textContent = '❌ No se pudo generar el PDF'
     console.error('exportar PDF:', err)
   } finally {
-    for (const el of ocultados) el.style.display = ''
+    clon?.remove()
     if (btn) { btn.disabled = false; btn.textContent = txt ?? '⬇ PDF' }
   }
 }
