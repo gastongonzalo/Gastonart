@@ -1346,6 +1346,7 @@ const TITULOS_CAT: Record<string, string> = {
 }
 let categoriaActiva: string | null = null
 function abrirCategoria(cat: string): void {
+  desactivarNodos() // elegir otra categoría/herramienta sale del modo "Editar nodos"
   categoriaActiva = cat
   panelLateral.hidden = false
   const tit = document.querySelector('#pl-titulo'); if (tit) tit.textContent = TITULOS_CAT[cat] ?? cat
@@ -2940,10 +2941,13 @@ function salirEditarPuntos(): void {
   if (!editPath) return
   editPath.setAttribute('d', dPluma(editAnclas, editCerrado))
   const path = editPath
-  cerrarEditorPuntos()
+  cerrarEditorPuntos() // pone editPath = null → no hay recursión con desactivarNodos
   registrarHistorial(); autoguardar()
-  if (modoNodos) { grafSeleccion = []; limpiarGraf(); ponerNodosCapa() } // seguir eligiendo nodos
-  else if (modoGrafico) { grafSeleccion = [path]; dibujarSelGraf() }
+  // "Listo" / Enter / Esc: salir POR COMPLETO del modo nodos (antes re-armaba la capa
+  // de selección → el botón quedaba activo y había que apagarlo a mano). Deja el
+  // trazo editado seleccionado.
+  if (modoNodos) desactivarNodos()
+  if (modoGrafico) { grafSeleccion = [path]; dibujarSelGraf() }
   else construirOverlays()
 }
 
@@ -3023,11 +3027,13 @@ function nodosPointerDown(e: PointerEvent): void {
   e.preventDefault()
   const u = trazoMasCercano(e.clientX, e.clientY)
   if (!u) {
-    // Aviso solo si había una forma NO editable justo debajo (no en el vacío).
     nodosCapa.style.pointerEvents = 'none'
     const b = document.elementFromPoint(e.clientX, e.clientY) as Element | null
     nodosCapa.style.pointerEvents = ''
-    if (b && graficoSeleccionable(b)) estado.textContent = 'El puntero blanco edita trazos y polígonos; esta forma no.'
+    // Tocó una forma NO editable → aviso, seguir en el modo (quizás erró el trazo).
+    if (b && graficoSeleccionable(b)) { estado.textContent = 'El puntero blanco edita trazos y polígonos; esta forma no.'; return }
+    // Tocó el VACÍO (fuera de cualquier dibujo) → salir del modo automáticamente.
+    desactivarNodos()
     return
   }
   quitarNodosCapa() // que la capa del editor de puntos tome el control
