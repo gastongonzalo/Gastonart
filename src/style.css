@@ -2226,10 +2226,14 @@ button.mini {
   .ini-buscador { margin-bottom: 18px; height: 48px; }
   .ini-titulo { margin-bottom: 16px; }
   .ini-cerrar-x { display: none; } /* en móvil se empieza por una card, no hace falta */
+  /* Grilla de 2 columnas que ENVUELVE en varias filas (antes era una sola fila
+     horizontal con scroll: había que desplazarse mucho de lado). Cards más bajas
+     (aspecto ancho) para que las 7 entren cómodas con poco scroll vertical. */
   .ini-cards-v {
-    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 42%;
-    overflow-x: auto; -webkit-overflow-scrolling: touch;
-    scroll-snap-type: x proximity; margin: 0 -14px 26px; padding: 0 14px 4px;
+    grid-template-columns: repeat(2, 1fr); grid-auto-flow: row;
+    gap: 10px; margin: 0 0 22px; padding: 0;
   }
-  .ini-cards-v .ini-card { scroll-snap-align: start; }
+  .ini-cards-v .ini-card-v { aspect-ratio: 4 / 3; padding: 12px 12px 0; }
+  .ini-cards-v .ini-card-v .ini-card-tit { font-size: 14px; }
+  .ini-cards-v .ini-card-art .ui-ic { width: 40px; height: 40px; }
 }
