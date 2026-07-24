@@ -448,7 +448,10 @@ body.modo-plantilla .rail, body.modo-plantilla #panel-lateral { display: none; }
   flex: 1;
   overflow: auto;
   display: flex;
-  justify-content: center;
+  /* `safe`: centra cuando el lienzo entra, pero al desbordar (zoom alto) cae a
+     flex-start para que la parte que sobresale por la izquierda sea scrolleable
+     (sin `safe`, el centrado flex la recorta y el zoom-hacia-cursor deriva). */
+  justify-content: safe center;
   align-items: flex-start;
   padding: 28px 16px 60px;
   background: var(--workspace); /* mesa de trabajo gris (no negro) */

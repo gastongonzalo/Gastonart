@@ -10454,10 +10454,37 @@ function setZoom(z: number): void {
   zoomLienzo = Math.max(0.25, Math.min(4, Math.round(z * 100) / 100))
   aplicarZoom()
 }
+// Ajustar TODA la placa a la vista (alto incluido), no solo el ancho: para una
+// placa vertical (1080×1350) el 100% calza el ancho pero corta el alto; esto
+// achica hasta que entra completa, y la centra.
+function ajustarAVista(): void {
+  if (!svgEl) { setZoom(1); return }
+  const vb = svgEl.viewBox.baseVal
+  const ar = vb.width && vb.height ? vb.width / vb.height : 1
+  const base = anchoBaseLienzo()
+  const availW = Math.max(80, escenario.clientWidth - 36)
+  const availH = Math.max(80, escenario.clientHeight - 36)
+  const anchoQueEntra = Math.min(availW, availH * ar)
+  setZoom(anchoQueEntra / base)
+  escenario.scrollLeft = Math.max(0, (lienzo.offsetWidth - escenario.clientWidth) / 2)
+  escenario.scrollTop = Math.max(0, (lienzo.offsetHeight - escenario.clientHeight) / 2)
+}
+// Zoom manteniendo fijo el punto bajo el cursor (como Figma/Illustrator): se
+// mide la fracción del lienzo bajo el mouse, se re-zoomea y se corrige el scroll
+// para que ese mismo punto vuelva a quedar debajo del cursor.
+function zoomHaciaPunto(clientX: number, clientY: number, z: number): void {
+  const r = lienzo.getBoundingClientRect()
+  const fx = r.width ? (clientX - r.left) / r.width : 0.5
+  const fy = r.height ? (clientY - r.top) / r.height : 0.5
+  setZoom(z)
+  const nr = lienzo.getBoundingClientRect()
+  escenario.scrollLeft += (nr.left + fx * nr.width) - clientX
+  escenario.scrollTop += (nr.top + fy * nr.height) - clientY
+}
 document.querySelector('#zoom-menos')!.addEventListener('click', () => setZoom(zoomLienzo - 0.1))
 document.querySelector('#zoom-mas')!.addEventListener('click', () => setZoom(zoomLienzo + 0.1))
 document.querySelector('#zoom-val')!.addEventListener('click', () => setZoom(1))
-document.querySelector('#zoom-fit')!.addEventListener('click', () => setZoom(1))
+document.querySelector('#zoom-fit')!.addEventListener('click', ajustarAVista)
 document.querySelector('#btn-reglas')!.addEventListener('click', toggleReglas)
 // Recortar a la mesa: el svg pasa a overflow:hidden → lo que sobresale no se ve.
 document.querySelector('#btn-recorte')!.addEventListener('click', (e) => {
@@ -10467,7 +10494,7 @@ document.querySelector('#btn-recorte')!.addEventListener('click', (e) => {
 escenario.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return // Ctrl + rueda = zoom
   e.preventDefault()
-  setZoom(zoomLienzo + (e.deltaY < 0 ? 0.1 : -0.1))
+  zoomHaciaPunto(e.clientX, e.clientY, zoomLienzo + (e.deltaY < 0 ? 0.1 : -0.1))
 }, { passive: false })
 
 // --- Pinch-zoom (+ desplazamiento) con dos dedos en móvil ---
